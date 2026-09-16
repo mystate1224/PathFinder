@@ -57,12 +57,12 @@ sweep() {
 echo
 echo "== 教师端 =="
 login_as teacher
-sweep "/teacher /teach /tutor /resources /grade /match /library /homework"
+sweep "/teacher /teach /tutor /resources /grade /match /library /homework /profile"
 
 echo
 echo "== 学生端 =="
 login_as stu01
-sweep "/student /ask /hub /homework /match /library"
+sweep "/student /ask /hub /homework /match /library /profile"
 
 agent-browser close --all >/dev/null 2>&1
 echo

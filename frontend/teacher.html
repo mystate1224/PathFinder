@@ -24,6 +24,48 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   const me = await PF.requireAuth("teacher");
   if (!me) return;
 
+  /* ------------------------------------------------- 任教班级（右上角切换器） */
+  const LS_CLASS = "pf.teacher.class";
+  const clsRes = await PF.try(() => PF.get("/api/teacher/classes"), { classes: [], current: "" });
+  const CLASSES = PF.arr(clsRes.classes);
+  let CLASS_ID = "";
+  try { CLASS_ID = localStorage.getItem(LS_CLASS) || ""; } catch (e) { CLASS_ID = ""; }
+  // 只有在任教列表里的班号才作数（换账号、配置变动时自动回到主班）
+  if (CLASS_ID !== "all" && !CLASSES.some((c) => c.id === CLASS_ID)) CLASS_ID = "";
+
+  function curClass() {
+    if (CLASS_ID === "all") return { id: "all", label: "全部任教班级", students: 0 };
+    if (CLASS_ID) {
+      return CLASSES.find((c) => c.id === CLASS_ID) || { id: CLASS_ID, label: CLASS_ID, students: 0 };
+    }
+    return CLASSES.find((c) => c.id === (clsRes.current || "")) ||
+           CLASSES[0] || { id: "", label: "我的班级", students: 0 };
+  }
+
+  function classMenuHtml() {
+    const cur = curClass();
+    const item = (id, title, sub, extra, on) =>
+      '<button type="button" class="cls-menu__item' + (on ? " is-active" : "") + '" data-cls="' +
+        PF.esc(id) + '">' +
+        '<span class="cls-menu__title">' + PF.esc(title) + "</span>" +
+        '<span class="cls-menu__sub">' + PF.esc(sub) + "</span>" +
+        '<span class="badge' + (on ? " badge--brand" : "") + '">' + PF.esc(extra) + "</span>" +
+      "</button>";
+    const rows = CLASSES.map((c) =>
+      item(c.id, c.id, c.label || c.id, (c.students || 0) + " 人", c.id === cur.id));
+    if (CLASSES.length > 1) {
+      const sum = CLASSES.reduce((a, c) => a + (c.students || 0), 0);
+      rows.push(item("all", "全部任教班级", "跨班汇总看整体", sum + " 人", cur.id === "all"));
+    }
+    return rows.join("");
+  }
+
+  function classBtnText() {
+    const c = curClass();
+    if (c.id === "all") return "全部任教班级";
+    return c.id + (c.students ? " · " + c.students + " 人" : "");
+  }
+
   const view = PF.shell({
     active: "teacher",
     me: me,
@@ -31,6 +73,15 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     desc: "班级学情总览、学生画像库与常设课题组。所有分层结果只用于决定推荐内容的深度与任务难度。",
     wide: true,
     actions:
+      (CLASSES.length > 1
+        ? '<div class="cls-switch" id="cls-switch">' +
+            '<button class="btn" type="button" id="cls-btn" aria-haspopup="true" aria-expanded="false">' +
+              PF.icon("grid", 15) + '<span id="cls-cur">' + PF.esc(classBtnText()) + "</span>" +
+              PF.icon("chevronDown", 13) +
+            "</button>" +
+            '<div class="cls-menu" id="cls-menu" hidden>' + classMenuHtml() + "</div>" +
+          "</div>"
+        : "") +
       '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新数据</button>" +
       '<button class="btn" id="btn-selfcheck">' + PF.icon("shield", 15) + "自检</button>",
   });
@@ -46,6 +97,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     if (FILTER.level) qs.set("level", FILTER.level);
     if (FILTER.track) qs.set("track", FILTER.track);
     if (FILTER.keyword) qs.set("keyword", FILTER.keyword);
+    if (CLASS_ID) qs.set("class_id", CLASS_ID);
     const suffix = qs.toString() ? "?" + qs.toString() : "";
     DATA = await PF.get("/api/teacher/overview" + suffix);
     return DATA;
@@ -56,8 +108,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     const s = d.stats || {};
     const td = s.track_dist || {}, ld = s.level_dist || {};
     const total = s.students || 0;
+    const cur = curClass();
     return '<div class="grid grid-4">' +
-      statCard("users", "本班学生", total + ' <span class="t-sm">人</span>', "账号归属班级：" + PF.esc(d.class_id || "—"), "") +
+      statCard("users", cur.id === "all" ? "学生总数" : "本班学生",
+               total + ' <span class="t-sm">人</span>',
+               "当前查看：" + PF.esc(cur.id === "all" ? "全部任教班级" : (cur.label || cur.id || "—")), "") +
       statCard("chart", "平均绩点", PF.num(s.avg_gpa, 2), "按 student_profiles.gpa 汇总", "info") +
       statCard("briefcase", "待审资源申请", (s.pending_applications || 0) + ' <span class="t-sm">条</span>',
                "学生已提交、等待你处理", (s.pending_applications || 0) > 0 ? "warn" : "") +
@@ -75,26 +130,67 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div></div>";
   }
 
-  function distPanel(title, dist, colorMap, totalHint) {
-    const total = Object.values(dist).reduce((a, b) => a + (b || 0), 0) || 1;
-    const segs = Object.keys(dist).map((k) =>
-      '<span style="width:' + PF.pct(dist[k], total) + "%;background:" + (colorMap[k] || "var(--ink-300)") +
-      '" title="' + PF.esc(k + " " + dist[k] + " 人") + '"></span>'
-    ).join("");
-    const legend = Object.keys(dist).map((k) =>
-      '<div class="row" style="gap:6px"><span class="dot" style="background:' + (colorMap[k] || "var(--ink-300)") + '"></span>' +
-      '<span class="t-sm">' + PF.esc(k) + "</span>" +
-      '<span class="t-strong">' + dist[k] + "</span>" +
-      '<span class="t-xs">' + PF.pct(dist[k], total) + "%</span></div>"
-    ).join("");
+  /* 方框分布：哪一类人多，哪一格就占两列（视觉上更大），
+     下面再用一句话把「其中 A 级 x 人、事业型 y 人」说清楚。
+     @param opt.cross    交叉分布 { 类别: { 子类: 人数 } }，可为空
+     @param opt.subUnit  子类名的后缀，例如 " 级"
+     @param opt.leadUnit 主角自己的后缀，例如等级分布里要显示 "A 级" */
+  function distTiles(title, dist, colorMap, opt) {
+    const o = opt || {};
+    const cross = o.cross || null;
+    const subUnit = o.subUnit || "";
+    const leadUnit = o.leadUnit || "";
+    const keys = Object.keys(dist).filter((k) => k);
+    const total = keys.reduce((a, k) => a + (dist[k] || 0), 0);
+    const sorted = keys.slice().sort((a, b) => (dist[b] || 0) - (dist[a] || 0));
+    const lead = sorted[0] || "";
+    // 并列第一时不放大任何一方，改用「势均力敌」的文案
+    const tie = sorted.length > 1 &&
+                (dist[sorted[0]] || 0) === (dist[sorted[1]] || 0) &&
+                (dist[sorted[0]] || 0) > 0;
+
+    const sub = (k) => {
+      const c = (cross || {})[k] || {};
+      return Object.keys(c)
+        .filter((name) => c[name])
+        .map((name) => name + subUnit + " " + c[name] + " 人")
+        .join("、");
+    };
+
+    let note;
+    if (!total) {
+      note = "本班还没有学生画像数据。";
+    } else if (tie) {
+      note = sorted.slice(0, 2)
+        .map((k) => PF.esc(k + leadUnit) + " " + dist[k] + " 人").join(" 与 ") +
+        "，两类人数相同，本班取向势均力敌。";
+    } else {
+      const inside = sub(lead);
+      note = "班级学生以 <strong>" + PF.esc(lead + leadUnit) + "</strong> 为主：" +
+             dist[lead] + " 人（" + PF.pct(dist[lead], total) + "%）" +
+             (inside ? "，其中 " + inside : "") + "。";
+    }
+
+    const cols = tie || !total ? Math.max(sorted.length, 1) : sorted.length + 1;
+    const tiles = sorted.map((key) => {
+      // 先拼好 class 字符串再进模板：check_frontend 会扫 class="..." 里的碎片
+      const tileCls = "tile" + (!tie && key === lead ? " tile--lead" : "");
+      return '<div class="' + tileCls + '" style="--tile-color:' +
+        (colorMap[key] || "var(--ink-300)") + '">' +
+        '<div class="tile__name">' + PF.esc(key) + "</div>" +
+        '<div class="tile__num">' + (dist[key] || 0) + "</div>" +
+        '<div class="tile__pct">' + PF.pct(dist[key], total || 1) + "% · " +
+          (cross && cross[key] ? sub(key).replace(/ 人/g, "") : (dist[key] || 0) + " 人") + "</div>" +
+      "</div>";
+    }).join("");
+
     return '<div class="card"><div class="card__head"><h3>' + PF.esc(title) + "</h3>" +
-      '<div class="card__head-actions"><span class="t-xs">' + PF.esc(totalHint || "") + "</span></div></div>" +
+      '<div class="card__head-actions"><span class="t-xs">' + PF.esc(o.footHint || "") + "</span></div></div>" +
       '<div class="card__body stack-sm">' +
-        '<div class="dist-bar">' + segs + "</div>" +
-        '<div class="grid grid-3 mt-3" style="gap:10px">' + legend + "</div>" +
+        '<div class="tiles" style="grid-template-columns:repeat(' + cols + ',minmax(0,1fr))">' + tiles + "</div>" +
+        '<p class="tile-note">' + note + "</p>" +
       "</div></div>";
   }
-
   /* ============================================================ 标签一：班级学情 */
   function renderClass(box) {
     box.innerHTML = PF.loading("正在汇总班级学情");
@@ -103,6 +199,16 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       const ld = s.level_dist || {};
       const trackColors = { "学业型": "var(--track-academic-500)", "事业型": "var(--track-career-500)" };
       const levelColors = { A: "var(--level-a-500)", B: "var(--level-b-500)", C: "var(--level-c-500)" };
+
+      // 交叉分布：stats.track_level 是「主标签 → 等级」，这里再转一份「等级 → 主标签」
+      const tl = s.track_level || {};
+      const levelTrack = {};
+      ["A", "B", "C"].forEach((lv) => {
+        levelTrack[lv] = {};
+        ["学业型", "事业型"].forEach((t) => {
+          levelTrack[lv][t] = ((tl[t] || {})[lv]) || 0;
+        });
+      });
 
       const advice = PF.arr(d.advice);
       const adviceHtml = advice.length
@@ -118,8 +224,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       box.innerHTML =
         statsRow(d) +
         '<div class="grid grid-2 mt-5" style="gap:16px">' +
-          distPanel("主标签分布", s.track_dist || {}, trackColors, "学业型 / 事业型") +
-          distPanel("学业等级分布", ld, levelColors, "A / B / C 仅表示推荐内容深度") +
+          distTiles("主标签分布", s.track_dist || {}, trackColors,
+                    { cross: tl, subUnit: " 级", footHint: "学业型 / 事业型" }) +
+          distTiles("学业等级分布", ld, levelColors,
+                    { cross: levelTrack, leadUnit: " 级", footHint: "A / B / C 仅表示推荐内容深度" }) +
         "</div>" +
 
         '<div class="grid grid-3-2 mt-5" style="gap:16px">' +
@@ -508,6 +616,52 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     { key: "groups", label: "课题组", icon: "briefcase", render: renderGroups },
   ], { base: "#", onChange: () => window.scrollTo({ top: 0, behavior: "smooth" }) });
   PF.state.tabs = tabs;
+
+  /* ------------------------------------------------- 班级切换器交互 */
+  const clsSwitch = PF.$("#cls-switch");
+  if (clsSwitch) {
+    const clsBtn = PF.$("#cls-btn", clsSwitch);
+    const clsMenu = PF.$("#cls-menu", clsSwitch);
+
+    function closeMenu() {
+      clsMenu.hidden = true;
+      clsBtn.setAttribute("aria-expanded", "false");
+    }
+    function syncClassUI() {
+      const cur = PF.$("#cls-cur", clsSwitch);
+      if (cur) cur.textContent = classBtnText();
+      const active = curClass().id;
+      PF.$$("[data-cls]", clsMenu).forEach((it) => {
+        const on = it.dataset.cls === active;
+        it.classList.toggle("is-active", on);
+        const badge = PF.$(".badge", it);
+        if (badge) badge.classList.toggle("badge--brand", on);
+      });
+    }
+
+    clsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const willOpen = clsMenu.hidden;
+      clsMenu.hidden = !willOpen;
+      clsBtn.setAttribute("aria-expanded", String(willOpen));
+    });
+    clsMenu.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-cls]");
+      if (!item) return;
+      CLASS_ID = item.dataset.cls;
+      try { localStorage.setItem(LS_CLASS, CLASS_ID); } catch (err) { /* 隐私模式忽略 */ }
+      closeMenu();
+      syncClassUI();
+      PF.toast("已切换到 " + (CLASS_ID === "all" ? "全部任教班级" : CLASS_ID), "ok");
+      tabs.reload();
+    });
+    document.addEventListener("click", (e) => {
+      if (!clsSwitch.contains(e.target)) closeMenu();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeMenu();
+    });
+  }
 
   PF.$("#btn-refresh").addEventListener("click", async (e) => {
     const b = e.currentTarget;

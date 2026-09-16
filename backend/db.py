@@ -137,6 +137,14 @@ CREATE TABLE IF NOT EXISTS teacher_profiles (
     summary    TEXT NOT NULL DEFAULT ''
 );
 
+-- 任教班级：一位教师可以带多个行政班（驾驶舱据此切换）。
+-- users.class_id 仍是「主班」，这里只是可查看范围。
+CREATE TABLE IF NOT EXISTS teacher_classes (
+    teacher_id INTEGER NOT NULL,
+    class_id   TEXT NOT NULL,
+    PRIMARY KEY (teacher_id, class_id)
+);
+
 CREATE TABLE IF NOT EXISTS materials (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id  INTEGER NOT NULL,
@@ -576,7 +584,8 @@ def recent_chat(user_id: int, scene: str = "tutor", turns: int = 4) -> list[dict
 
 def health_snapshot() -> dict:
     tables = [
-        "users", "sessions", "student_profiles", "teacher_profiles", "materials",
+        "users", "sessions", "student_profiles", "teacher_profiles", "teacher_classes",
+        "materials",
         "knowledge_points", "kb_vec", "research_groups", "match_records", "tasks",
         "chat_messages", "teacher_resources", "resource_applications", "homework",
         "homework_submissions", "artifacts", "kp_mastery",

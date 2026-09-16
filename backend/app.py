@@ -204,6 +204,7 @@ PAGES: list[tuple[str, str, str]] = [
     ("/tutor", "tutor.html", "teacher"),
     ("/resources", "resources.html", "teacher"),
     ("/grade", "grade.html", "teacher"),
+    ("/profile", "profile.html", ""),
 ]
 
 
@@ -276,6 +277,12 @@ def api_login(payload: dict = Body(default={})):
         max_age=config.SESSION_DAYS * 24 * 3600,
     )
     return response
+
+
+@app.get(f"{API}/account/profile")
+def api_account_profile(user: dict = Depends(current_user)):
+    """个人中心：账号信息 + 画像 + 统计（教师/学生两套字段）。"""
+    return ok(dashboard.account_profile(user))
 
 
 @app.post(f"{API}/auth/logout")
@@ -808,10 +815,18 @@ def api_homework_file(submission_id: int, index: int, user: dict = Depends(curre
 
 
 # ================================================================ 教师驾驶舱
+@app.get(f"{API}/teacher/classes")
+def api_teacher_classes(user: dict = Depends(require_teacher)):
+    """该教师可查看的行政班列表（驾驶舱右上角切换班级用）。"""
+    return ok({"classes": dashboard.classes_of(user),
+               "current": dashboard.class_of(user)})
+
+
 @app.get(f"{API}/teacher/overview")
 def api_teacher_overview(level: str = "", track: str = "", keyword: str = "",
-                        user: dict = Depends(require_teacher)):
-    return ok(dashboard.overview(user, level, track, keyword))
+                         class_id: str = "", user: dict = Depends(require_teacher)):
+    """班级学情总览。``class_id`` 传任教班级之一，或传 ``all`` 表示跨班汇总。"""
+    return ok(dashboard.overview(user, level, track, keyword, class_id=class_id))
 
 
 @app.get(f"{API}/teacher/students/{{student_id}}")

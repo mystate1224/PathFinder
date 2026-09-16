@@ -41,6 +41,7 @@
     chevronDown: '<path d="M6 9l6 6 6-6"/>',
     chevronLeft: '<path d="M15 5l-7 7 7 7"/>',
     logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4"/><path d="M6 12h11"/>',
+    user: '<path d="M20 21v-1.5a4.5 4.5 0 0 0-4.5-4.5h-7A4.5 4.5 0 0 0 4 19.5V21"/><circle cx="12" cy="7.5" r="3.8"/>',
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     refresh: '<path d="M20 11a8 8 0 0 0-13.7-5.2L4 8"/><path d="M4 5v3.5h3.5"/><path d="M4 13a8 8 0 0 0 13.7 5.2L20 16"/><path d="M20 19v-3.5h-3.5"/>',
     send: '<path d="M4 12l16-8-6 16-2.5-6.5z"/>',
@@ -837,6 +838,9 @@
         { key: "match", href: "/match", label: "师生匹配", icon: "users" },
         { key: "library", href: "/library", label: "资料与知识库", icon: "layers" },
       ]},
+      { group: "账号", items: [
+        { key: "profile", href: "/profile", label: "个人中心", icon: "user" },
+      ]},
     ],
     student: [
       { group: "我的成长", items: [
@@ -848,6 +852,9 @@
         { key: "homework", href: "/homework", label: "我的作业", icon: "file" },
         { key: "hub", href: "/hub", label: "资源广场", icon: "briefcase" },
         { key: "library", href: "/library", label: "我的资料库", icon: "layers" },
+      ]},
+      { group: "账号", items: [
+        { key: "profile", href: "/profile", label: "个人中心", icon: "user" },
       ]},
     ],
   };
@@ -891,11 +898,13 @@
           "</div>" +
           '<nav class="sidebar__scroll" aria-label="主导航">' + navHtml(role, c.active) + "</nav>" +
           '<div class="sidebar__foot">' +
-            '<div class="sidebar__user">' +
+          '<div class="sidebar__user">' +
+            '<a class="sidebar__user-main" href="/profile" title="个人中心">' +
               '<div class="sidebar__avatar" aria-hidden="true">' + PF.esc(PF.initial(me.name)) + "</div>" +
               '<div class="flex-1"><div class="sidebar__uname">' + PF.esc(me.name || me.username || "未登录") + "</div>" +
               '<div class="sidebar__urole">' + roleName + " · " + PF.esc(me.username || "") + "</div></div>" +
-              '<button class="btn--ghost" type="button" id="pf-logout" title="退出登录" aria-label="退出登录" ' +
+            "</a>" +
+            '<button class="btn--ghost" type="button" id="pf-logout" title="退出登录" aria-label="退出登录" ' +
                 'style="color:var(--ink-400);padding:6px;border-radius:6px">' + PF.icon("logout", 15) + "</button>" +
             "</div>" +
           "</div>" +
@@ -910,6 +919,8 @@
             "</div>" +
             '<div class="topbar__spacer"></div>' +
             '<button class="theme-toggle" type="button" id="pf-theme"></button>' +
+            '<button class="topbar__user" type="button" id="pf-user" title="个人中心" aria-label="个人中心">' +
+              PF.icon("user", 17) + "</button>" +
             '<span class="badge badge--brand">' + PF.icon(role === "teacher" ? "book" : "compass", 11) + roleName + "端</span>" +
             '<span id="pf-engine"></span>' +
           "</header>" +
@@ -987,6 +998,10 @@
     PF.theme.sync();
     const themeBtn = PF.$("#pf-theme");
     if (themeBtn) themeBtn.addEventListener("click", PF.theme.toggle);
+
+    // 顶栏头像 → 个人中心（侧栏底部用户块也是同一个入口）
+    const userBtn = PF.$("#pf-user", root);
+    if (userBtn) userBtn.addEventListener("click", () => { window.location.href = "/profile"; });
 
     /* 移动端贴底操作条（拇指可达性）
        只有显式声明 dock:true 的页面才把页头主操作搬到屏幕底部。

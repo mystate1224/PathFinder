@@ -85,17 +85,30 @@ LLM_MODEL=gpt-4o-mini
 
 | 用户名 | 姓名 | 角色 | 行政班 | 说明 |
 |---|---|---|---|---|
-| `teacher` | 张明远 | 教师 | CS2301 | 主演示账号，课题组与资源最全 |
-| `teacher2` | 李文静 | 教师 | CS2302 | |
-| `teacher3` | 王海涛 | 教师 | AI2301 | |
+| `teacher` | 张明远 | 教师 | CS2301 | 主演示账号；任教 CS2301 / CS2302 / CS2303 / SE2301 |
+| `teacher2` | 李文静 | 教师 | CS2302 | 任教 AI2301 / AI2302（+ 主班 CS2302） |
+| `teacher3` | 王海涛 | 教师 | AI2301 | 任教 SE2301 / AI2302（+ 主班 AI2301） |
 | `stu01` | 陈嘉禾 | 学生 | CS2301 | 学业型 · A 级，推荐链路主演示 |
 | `stu02` | 林思远 | 学生 | CS2301 | 学业型 · A 级 |
 | `stu04` | 周雨桐 | 学生 | CS2301 | 事业型 · B 级，对比用 |
-| `stu09` ~ `stu15` | — | 学生 | CS2302 / AI2301 | 跨班对照 |
+| `stu01` ~ `stu72` | — | 学生 | 6 个班 | 每班 12 人，共 72 人 |
+
+**6 个行政班**（每班 12 人，主标签与等级分布刻意做出差异，方便切换对比）：
+
+| 班级 | 中文名 | 学业型 / 事业型 | A / B / C |
+|---|---|---|---|
+| CS2301 | 计算机科学与技术 2301 | 7 / 5 | 6 / 5 / 1 |
+| CS2302 | 计算机科学与技术 2302 | 6 / 6（势均力敌） | 3 / 7 / 2 |
+| CS2303 | 计算机科学与技术 2303 | 8 / 4 | 4 / 6 / 2 |
+| AI2301 | 人工智能 2301 | 8 / 4 | 4 / 6 / 2 |
+| AI2302 | 人工智能 2302 | 5 / 7 | 2 / 7 / 3 |
+| SE2301 | 软件工程 2301 | 5 / 7 | 3 / 7 / 2 |
 
 > 两个班级口径不要混淆：
 > `users.class_id` 是**行政班**（班级总览、匹配打分范围用它）；
 > `users.class_name` 是**教学班**（作业分发用它）。
+> 教师能看哪些班由 `teacher_classes` 表决定（驾驶舱右上角切换器的来源），
+> `users.class_id` 只是默认落点。
 
 ---
 
@@ -159,6 +172,17 @@ query ──────────┤                                         
 | **C · 答疑** | 按画像分层回答，带引用来源 | `/ask`、`/tutor` | `/api/tutor/ask`、`/api/teacher/copilot/ask` |
 | **D · 资源** | 素材解析入库 + 企业资源广场与申请 | `/library`、`/resources`、`/hub` | `/api/materials/*`、`/api/resources/*` |
 | **E · 作业** | 发布 → 提交 → AI 建议分 → 教师定分 → 导出 | `/homework`、`/grade` | `/api/teacher/homework/*`、`/api/homework/*` |
+| **F · 账号** | 个人信息、任教班级、偏好与退出登录 | `/profile` | `/api/account/profile`、`/api/teacher/classes` |
+
+### 驾驶舱的班级切换与分布方框
+
+* **右上角「班级」按钮**列出该教师的任教班级（来自 `teacher_classes`），外加「全部任教班级」；
+  选择写入 `localStorage`，下次进驾驶舱还是这个班。越权的班号会自动退回主班。
+* **分布用方框呈现**：主标签分布、学业等级分布各一排方框，**人多的那一类占两列**（`.tile--lead`，
+  字号更大、描边取该类别的主题色），下面一句话说明构成，例如
+  「班级学生以 学业型 为主：7 人（58%），其中 A 级 6 人、B 级 1 人。」
+* 两类人数相同时不放大任何一方，改用「势均力敌」的文案（CS2302 就是这种情形）。
+* 交叉数据来自 `stats.track_level`（主标签 → 等级），前端再转置一份等级 → 主标签。
 
 ### 六大能力落地位置
 
@@ -211,10 +235,10 @@ D:/edu
 │       ├── taxonomy.py     方向/课程/资源类型字典
 │       └── tasks.py        成长任务
 ├── frontend/
-│   ├── css/style.css     单一设计系统（288 个 class，无框架）
+│   ├── css/style.css     单一设计系统（406 个 class，无框架）
 │   ├── js/common.js      唯一全局 window.PF（45 个成员 / 45 个图标）
 │   ├── js/tabs.js        页签容器
-│   └── *.html            12 个页面（登录 + 11 个业务页）
+│   └── *.html            13 个页面（登录 + 12 个业务页，含个人中心 /profile）
 ├── samples/              演示素材 + 说明（手工演示上传解析用）
 ├── tools/check_frontend.py  前端静态体检（见下节）
 ├── tools/browser_sweep.sh   浏览器级巡检（见下节）
@@ -266,10 +290,10 @@ curl -s -b cookies.txt -X POST http://127.0.0.1:8000/api/selfcheck
 python tools/check_frontend.py
 ```
 
-对 12 个页面做三件事：
+对 13 个页面做三件事：
 - 抽出每个内联 `<script>` 用 `node --check` 校验语法
 - 扫描 `PF.xxx` 调用，比对 `common.js` / `tabs.js` 真实导出的成员（45 个）
-- 扫描 `class="..."`，比对 `style.css`（288 个）+ 页面自带 `<style>` 的定义
+- 扫描 `class="..."`，比对 `style.css`（406 个）+ 页面自带 `<style>` 的定义
 
 当前结果：**全部通过**。
 
@@ -366,7 +390,7 @@ bash tools/browser_sweep.sh 8123
 | 间距 | `--s-1:4 → --s-9:56`，8px 基准栅格 |
 | 动效 | `--dur-1:120 / --dur-2:180 / --dur-3:240 / --dur-4:380`（ms）+ `--ease-out / --ease-in-out / --ease-soft` |
 
-**关键约定**：所有变量名与 class 名**保持向后兼容**，12 个页面零改动即可受益。历史上 `match / resources / hub / homework` 各写一套的卡片（`.mk-card / .res-card / .hub-card / .hw-card`）已合并进全局样式表，类名一个没删。
+**关键约定**：所有变量名与 class 名**保持向后兼容**，13 个页面零改动即可受益。历史上 `match / resources / hub / homework` 各写一套的卡片（`.mk-card / .res-card / .hub-card / .hw-card`）已合并进全局样式表，类名一个没删。
 
 ### 动效层（`frontend/js/common.js`）
 

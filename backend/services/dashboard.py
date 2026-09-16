@@ -11,33 +11,119 @@ from typing import Sequence
 import db
 from services import planner, resources, tutor
 
+# 行政班的中文全名（班级切换器与驾驶舱标题用；不在表里也能正常显示班号）
+CLASS_LABELS: dict[str, str] = {
+    "CS2301": "计算机科学与技术 2301",
+    "CS2302": "计算机科学与技术 2302",
+    "CS2303": "计算机科学与技术 2303",
+    "AI2301": "人工智能 2301",
+    "AI2302": "人工智能 2302",
+    "SE2301": "软件工程 2301",
+}
+
+
+def class_label(class_id: str) -> str:
+    cid = str(class_id or "").strip()
+    return CLASS_LABELS.get(cid, cid)
+
 
 def class_of(teacher: dict) -> str:
-    """教师对应的行政班号（一个老师带一个班）。"""
+    """教师对应的行政班号（主班，一个老师默认带一个班）。"""
     return str(teacher.get("class_id") or "").strip()
 
 
-def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "") -> dict:
-    teacher_id = int(teacher.get("id") or 0)
-    class_id = class_of(teacher)
+def classes_of(teacher: dict) -> list[dict]:
+    """该教师**可查看**的行政班列表（含人数）。
 
+    来源 ``teacher_classes``；没有配置时退回主班。驾驶舱右上角的
+    班级切换器直接吃这个列表。
+    """
+    teacher_id = int(teacher.get("id") or 0)
     rows = db.query(
-        "SELECT u.id, u.username, u.name, u.class_id, u.class_name, "
-        "p.track, p.grade_level, p.gpa, p.interests, p.ability, p.reason, p.engine "
-        "FROM users u LEFT JOIN student_profiles p ON p.user_id = u.id "
-        "WHERE u.role = 'student' AND (? = '' OR u.class_id = ?) "
-        "ORDER BY p.gpa DESC, u.username",
-        (class_id, class_id),
-    ) if class_id else db.query(
-        "SELECT u.id, u.username, u.name, u.class_id, u.class_name, "
-        "p.track, p.grade_level, p.gpa, p.interests, p.ability, p.reason, p.engine "
-        "FROM users u LEFT JOIN student_profiles p ON p.user_id = u.id "
-        "WHERE u.role = 'student' ORDER BY p.gpa DESC, u.username"
+        "SELECT class_id FROM teacher_classes WHERE teacher_id = ? ORDER BY class_id",
+        (teacher_id,),
     )
+    ids = [str(r.get("class_id") or "").strip() for r in rows]
+    ids = [c for c in ids if c]
+    if not ids:
+        own = class_of(teacher)
+        ids = [own] if own else []
+
+    out: list[dict] = []
+    for cid in ids:
+        count = db.scalar(
+            "SELECT COUNT(*) FROM users WHERE role = 'student' AND class_id = ?",
+            (cid,), 0,
+        )
+        out.append({
+            "id": cid,
+            "label": class_label(cid),
+            "students": int(count or 0),
+        })
+    return out
+
+
+def _student_rows(class_id: str) -> list[dict]:
+    sql = (
+        "SELECT u.id, u.username, u.name, u.class_id, u.class_name, "
+        "p.track, p.grade_level, p.gpa, p.interests, p.ability, p.reason, p.engine "
+        "FROM users u LEFT JOIN student_profiles p ON p.user_id = u.id "
+        "WHERE u.role = 'student' "
+    )
+    args: tuple = ()
+    if class_id:
+        sql += "AND u.class_id = ? "
+        args = (class_id,)
+    sql += "ORDER BY p.gpa DESC, u.username"
+    return db.query(sql, args)
+
+
+def resolve_class(teacher: dict, wanted: str = "") -> tuple[str, bool]:
+    """决定这次要看哪个班。
+
+    @return ``(class_id, is_all)``：``is_all`` 为真表示跨全部任教班级汇总；
+    ``class_id`` 为空串也表示「不限班级」。越权的班号一律退回主班。
+    """
+    allowed = {c["id"] for c in classes_of(teacher)}
+    wanted = str(wanted or "").strip()
+    if wanted and wanted.lower() == "all":
+        return "", True
+    if wanted and wanted in allowed:
+        return wanted, False
+    return class_of(teacher), False
+
+
+def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "",
+             class_id: str = "", include_all: bool = False) -> dict:
+    teacher_id = int(teacher.get("id") or 0)
+    classes = classes_of(teacher)
+    target, is_all = resolve_class(teacher, class_id)
+    if include_all and not target:
+        is_all = True
+
+    # 「跨班汇总」= 任教班级全部学生；单班 = 该班
+    if is_all and classes:
+        ids = [c["id"] for c in classes]
+        ph = ",".join("?" * len(ids))
+        rows = db.query(
+            "SELECT u.id, u.username, u.name, u.class_id, u.class_name, "
+            "p.track, p.grade_level, p.gpa, p.interests, p.ability, p.reason, p.engine "
+            "FROM users u LEFT JOIN student_profiles p ON p.user_id = u.id "
+            f"WHERE u.role = 'student' AND u.class_id IN ({ph}) "
+            "ORDER BY p.gpa DESC, u.username",
+            tuple(ids),
+        )
+    else:
+        rows = _student_rows(target)
 
     students: list[dict] = []
     track_dist = {"学业型": 0, "事业型": 0}
     level_dist = {"A": 0, "B": 0, "C": 0}
+    # 交叉分布：给驾驶舱的「方框」提供「其中 A 级 x 人、事业型 y 人」这类说明
+    track_level = {
+        "学业型": {"A": 0, "B": 0, "C": 0},
+        "事业型": {"A": 0, "B": 0, "C": 0},
+    }
     interest_counter: dict[str, int] = {}
 
     for row in rows:
@@ -67,6 +153,8 @@ def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "")
 
         if row["track"] in track_dist:
             track_dist[row["track"]] += 1
+            if row["grade_level"] in track_level[row["track"]]:
+                track_level[row["track"]][row["grade_level"]] += 1
         if row["grade_level"] in level_dist:
             level_dist[row["grade_level"]] += 1
         for direction in row["interests"]:
@@ -106,7 +194,10 @@ def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "")
     )
 
     return {
-        "class_id": class_id or "全部班级",
+        "class_id": target or ("全部任教班级" if is_all else "全部班级"),
+        "class_label": class_label(target) if target else ("全部任教班级" if is_all else "全部班级"),
+        "classes": classes,
+        "is_all": is_all,
         "stats": {
             "students": len(students),
             "avg_gpa": round(
@@ -114,6 +205,7 @@ def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "")
             ) if students else 0,
             "track_dist": track_dist,
             "level_dist": level_dist,
+            "track_level": track_level,
             "pending_applications": int(pending or 0),
             "ungraded_submissions": int(ungraded or 0),
         },
@@ -219,6 +311,72 @@ def student_self(student_id: int) -> dict:
             "applications": len(resources.student_applications(student_id)),
         },
     }
+
+
+def account_profile(user: dict) -> dict:
+    """个人中心：账号 + 画像 + 统计，一份直接可渲染的结构。"""
+    uid = int(user.get("id") or 0)
+    role = str(user.get("role") or "")
+    is_teacher = role == "teacher"
+    cid = str(user.get("class_id") or "")
+    data: dict = {
+        "id": uid,
+        "username": user.get("username") or "",
+        "name": user.get("name") or "",
+        "role": role,
+        "role_text": "教师" if is_teacher else "学生",
+        "class_id": cid,
+        "class_name": str(user.get("class_name") or ""),
+        "class_label": class_label(cid) if cid else "",
+    }
+
+    if is_teacher:
+        prof = db.teacher_profile(uid) or {}
+        data.update({
+            "directions": db.jload(prof.get("directions"), []),
+            "expertise": db.jload(prof.get("expertise"), []),
+            "summary": str(prof.get("summary") or ""),
+            "classes": classes_of(user),
+            "stats": [
+                {"label": "主班学生", "value": db.scalar(
+                    "SELECT COUNT(*) FROM users WHERE role='student' AND class_id=?", (cid,), 0)},
+                {"label": "常设课题组", "value": db.scalar(
+                    "SELECT COUNT(*) FROM research_groups WHERE teacher_id=?", (uid,), 0)},
+                {"label": "发布资源", "value": db.scalar(
+                    "SELECT COUNT(*) FROM teacher_resources WHERE teacher_id=?", (uid,), 0)},
+                {"label": "布置作业", "value": db.scalar(
+                    "SELECT COUNT(*) FROM homework WHERE teacher_id=?", (uid,), 0)},
+            ],
+        })
+        return data
+
+    prof = db.student_profile(uid) or {}
+    track = str(prof.get("track") or "学业型")
+    level = str(prof.get("grade_level") or "B")
+    ability = db.jload(prof.get("ability"), {})
+    data.update({
+        "track": track,
+        "grade_level": level,
+        "layer": tutor.layer_label(track, level),
+        "style": tutor.cell_of(track, level)["style"],
+        "gpa": float(prof.get("gpa") or 0),
+        "interests": db.jload(prof.get("interests"), []),
+        "ability_pairs": [
+            {"name": name, "value": float(ability.get(key, 0) or 0)}
+            for key, name in (("foundation", "专业基础"), ("practice", "实践能力"),
+                              ("research", "科研素养"), ("communication", "沟通协作"),
+                              ("driveself", "自驱力"))
+        ],
+        "stats": [
+            {"label": "在办任务", "value": db.scalar(
+                "SELECT COUNT(*) FROM tasks WHERE student_id=? AND status<>'done'", (uid,), 0)},
+            {"label": "已上传材料", "value": db.scalar(
+                "SELECT COUNT(*) FROM materials WHERE owner_id=?", (uid,), 0)},
+            {"label": "课题组申请", "value": db.scalar(
+                "SELECT COUNT(*) FROM resource_applications WHERE student_id=?", (uid,), 0)},
+        ],
+    })
+    return data
 
 
 def recompute_mastery(student_id: int, course: str = "") -> int:

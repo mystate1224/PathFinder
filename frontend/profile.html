@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>个人中心 · 寻径教育 PathFinder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css">
+<script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
+   刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
+   没选过就跟随系统 prefers-color-scheme。 */
+(function(){var t=null;try{t=localStorage.getItem("pf_theme")}catch(e){}
+if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
+document.documentElement.setAttribute("data-theme",t)})();</script>
+</head>
+<body>
+<div id="app"></div>
+<script src="/static/js/common.js"></script>
+<script src="/static/js/tabs.js"></script>
+<script>
+(async function () {
+  const PF = window.PF;
+
+  const me = await PF.requireAuth();
+  if (!me) return;
+
+  const view = PF.shell({
+    active: "profile",
+    me: me,
+    title: "个人中心",
+    desc: "账号信息、教学/学习画像与偏好设置。分层结果只用于决定推荐内容的深度与任务难度。",
+    actions:
+      '<button class="btn" id="btn-logout-top">' + PF.icon("logout", 15) + "退出登录</button>",
+  });
+
+  view.innerHTML = '<div id="pf-body">' + PF.loading("正在读取账号信息") + "</div>";
+  const box = PF.$("#pf-body", view);
+
+  /* ---------------------------------------------------------------- 退出登录 */
+  async function doLogout() {
+    const yes = await PF.confirm({
+      title: "退出登录",
+      text: "退出后需要重新输入账号密码。确定继续吗？",
+      okText: "退出登录",
+    });
+    if (!yes) return;
+    await PF.try(() => PF.post("/api/auth/logout"));
+    localStorage.removeItem("pf_token");
+    window.location.href = "/login";
+  }
+
+  /* ---------------------------------------------------------------- 小块 */
+  function statCard(icon, label, num, hint, tone) {
+    return '<div class="stat">' +
+      '<div class="stat__ico' + (tone ? " stat__ico--" + tone : "") + '">' + PF.icon(icon, 18) + "</div>" +
+      '<div class="flex-1"><div class="stat__num">' + num + "</div>" +
+      '<div class="stat__label">' + PF.esc(label) + "</div>" +
+      (hint ? '<div class="t-xs">' + PF.esc(hint) + "</div>" : "") +
+      "</div></div>";
+  }
+
+  function chips(list, tone) {
+    const items = PF.arr(list);
+    const chipCls = "chip" + (tone ? " chip--" + tone : "");
+    return items.length
+      ? '<div class="row" style="gap:6px">' + items.map((x) =>
+          '<span class="' + chipCls + '">' + PF.esc(x) + "</span>").join("") + "</div>"
+      : '<span class="t-sm t-dim">未填写</span>';
+  }
+
+  function field(label, value) {
+    return '<div><div class="t-xs t-dim">' + PF.esc(label) + "</div>" +
+      '<div class="t-body">' + value + "</div></div>";
+  }
+
+  /* ---------------------------------------------------------------- 渲染 */
+  let data;
+  try {
+    data = await PF.get("/api/account/profile");
+  } catch (e) {
+    box.innerHTML = PF.empty({ icon: "alert", title: "账号信息读取失败", desc: e.message });
+    return;
+  }
+
+  const isTeacher = data.role === "teacher";
+  const stats = PF.arr(data.stats);
+
+  box.innerHTML =
+    /* ---- 名片 ---- */
+    '<div class="card mb-5"><div class="card__body">' +
+      '<div class="row" style="gap:16px;flex-wrap:nowrap;align-items:center">' +
+        '<div class="sidebar__avatar" style="width:64px;height:64px;flex-basis:64px;font-size:24px;' +
+          'background:linear-gradient(135deg,var(--brand-400),var(--brand-600))">' +
+          PF.esc(PF.initial(data.name)) + "</div>" +
+        '<div class="flex-1">' +
+          '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+            '<span class="t-h1">' + PF.esc(data.name || data.username) + "</span>" +
+            '<span class="badge badge--brand">' + PF.icon(isTeacher ? "book" : "compass", 11) +
+              PF.esc(data.role_text) + "端</span>" +
+            (isTeacher ? "" : PF.trackBadge(data.track) + " " + PF.levelTag(data.grade_level)) +
+          "</div>" +
+          '<div class="t-sm mt-2">账号 <span class="t-mono">' + PF.esc(data.username) + "</span>" +
+            (data.class_id ? " · " + (isTeacher ? "主班 " : "行政班 ") +
+              '<span class="t-mono">' + PF.esc(data.class_id) + "</span>" +
+              (data.class_label ? "（" + PF.esc(data.class_label) + "）" : "") : "") +
+          "</div>" +
+        "</div>" +
+        '<button class="btn btn--primary" id="btn-logout-card">' + PF.icon("logout", 15) + "退出登录</button>" +
+      "</div>" +
+    "</div></div>" +
+
+    /* ---- 统计 ---- */
+    (stats.length
+      ? '<div class="grid grid-' + (stats.length >= 4 ? "4" : String(stats.length)) + ' mb-5">' +
+          stats.map((s) => statCard(
+            isTeacher ? "users" : "clipboard",
+            s.label, String(s.value),
+            isTeacher ? "" : "",
+            ""
+          )).join("") + "</div>"
+      : "") +
+
+    '<div class="grid grid-2" style="gap:16px">' +
+      /* ---- 画像 ---- */
+      '<div class="card"><div class="card__head"><h3>' +
+        PF.icon(isTeacher ? "briefcase" : "compass", 15) +
+        (isTeacher ? "教学画像" : "我的画像") + "</h3></div>" +
+        '<div class="card__body stack">' +
+          (isTeacher
+            ? field("研究方向", chips(data.directions, "brand")) +
+              field("指导专长", chips(data.expertise)) +
+              field("个人简介", '<span class="t-body">' +
+                PF.esc(data.summary || "还没有填写简介。") + "</span>")
+            : '<div class="grid grid-2" style="gap:12px">' +
+                field("主标签", PF.trackBadge(data.track)) +
+                field("学业等级", PF.levelTag(data.grade_level)) +
+                field("平均绩点", '<span class="t-strong">' + PF.num(data.gpa, 1) + "</span>") +
+                field("推荐内容深度", '<span class="t-strong">' + PF.esc(data.layer || "—") + "</span>") +
+              "</div>" +
+              field("答疑风格", '<span class="t-body">' + PF.esc(data.style || "—") + "</span>") +
+              field("兴趣方向", chips(data.interests, "brand")) +
+              '<div><div class="t-xs t-dim mb-2">五维能力</div>' +
+                (PF.arr(data.ability_pairs).length
+                  ? '<div class="stack-sm">' + PF.arr(data.ability_pairs).map((a) =>
+                      '<div class="ability-row"><span class="t-sm">' + PF.esc(a.name) + "</span>" +
+                      PF.progress(Math.min(100, (Number(a.value) || 0) * 20)) +
+                      '<span class="num">' + PF.num(a.value, 1) + "</span></div>").join("") + "</div>"
+                  : '<span class="t-sm t-dim">暂无数据</span>') +
+              "</div>") +
+        "</div></div>" +
+
+      /* ---- 班级 / 偏好 ---- */
+      '<div class="stack">' +
+        (isTeacher && PF.arr(data.classes).length
+          ? '<div class="card"><div class="card__head"><h3>' + PF.icon("grid", 15) + " 我的任教班级</h3>" +
+              '<div class="card__head-actions"><a class="btn btn--sm" href="/teacher">去驾驶舱' +
+              PF.icon("chevronRight", 13) + "</a></div></div>" +
+            '<div class="card__body card__body--flush"><div class="list">' +
+              PF.arr(data.classes).map((c) =>
+                '<div class="list__item"><div class="list__main">' +
+                  '<div class="list__title"><span class="t-mono">' + PF.esc(c.id) + "</span>" +
+                    (c.label && c.label !== c.id ? ' · ' + PF.esc(c.label) : "") + "</div>" +
+                "</div><div class=\"list__side\">" +
+                  '<span class="badge badge--brand">' + (c.students || 0) + " 人</span>" +
+                "</div></div>").join("") +
+            "</div></div></div>"
+          : "") +
+
+        '<div class="card"><div class="card__head"><h3>' + PF.icon("shield", 15) + " 偏好与安全</h3></div>" +
+          '<div class="card__body stack">' +
+            '<div><div class="t-xs t-dim mb-2">外观主题</div>' +
+              '<div class="row" style="gap:8px">' +
+                '<button class="btn btn--sm" data-theme-set="light">浅色</button>' +
+                '<button class="btn btn--sm" data-theme-set="dark">深色</button>' +
+                '<button class="btn btn--sm" data-theme-set="system">跟随系统</button>' +
+              "</div>" +
+              '<div class="t-xs mt-2">当前：<strong id="pf-theme-now">' +
+                PF.esc(PF.theme.current() === "dark" ? "深色" : "浅色") + "</strong></div>" +
+            "</div>" +
+            '<div class="note">' + PF.icon("info", 15) +
+              "<div>演示环境所有账号密码统一为 <span class=\"t-mono\">123456</span>。" +
+              "退出登录后可以用任意种子账号重新进入。</div></div>" +
+            '<div class="row" style="gap:8px">' +
+              '<button class="btn btn--primary" id="btn-logout-foot">' +
+                PF.icon("logout", 15) + "退出登录</button>" +
+            "</div>" +
+          "</div></div>" +
+      "</div>" +
+    "</div>";
+
+  /* ---------------------------------------------------------------- 事件 */
+  PF.$("#btn-logout-top").addEventListener("click", doLogout);
+  const b1 = PF.$("#btn-logout-card", box), b2 = PF.$("#btn-logout-foot", box);
+  if (b1) b1.addEventListener("click", doLogout);
+  if (b2) b2.addEventListener("click", doLogout);
+
+  PF.$$("[data-theme-set]", box).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.themeSet;
+      if (mode === "system") PF.theme.reset();
+      else PF.theme.set(mode);
+      const now = PF.$("#pf-theme-now", box);
+      if (now) now.textContent = PF.theme.current() === "dark" ? "深色" : "浅色";
+      PF.toast(mode === "system" ? "已改为跟随系统" : "已切换到" + (mode === "dark" ? "深色" : "浅色"), "ok");
+    });
+  });
+})();
+</script>
+</body>
+</html>
