@@ -163,6 +163,11 @@ def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "",
         students.append(row)
 
     top_interests = [k for k, _ in sorted(interest_counter.items(), key=lambda kv: -kv[1])][:6]
+    # 兴趣方向带人数：给驾驶舱方框的「本班同学对 X 兴趣较浓」句子用
+    interest_dist = [
+        {"name": k, "count": v}
+        for k, v in sorted(interest_counter.items(), key=lambda kv: -kv[1])[:6]
+    ]
 
     # 侧栏筛选（前端本地过滤的数据量很小，但服务端也支持，便于导出/分页扩展）
     filtered = students
@@ -210,6 +215,7 @@ def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "",
             "ungraded_submissions": int(ungraded or 0),
         },
         "top_interests": top_interests,
+        "interest_dist": interest_dist,
         "advice": advice,
         "advice_engine": advice_engine,
         "students": filtered,

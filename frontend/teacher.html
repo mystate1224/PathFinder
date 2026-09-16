@@ -130,11 +130,14 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div></div>";
   }
 
-  /* 方框分布：哪一类人多，哪一格就占两列（视觉上更大），
-     下面再用一句话把「其中 A 级 x 人、事业型 y 人」说清楚。
+  /* 方框分布：哪一类人多，哪一格就占两列（视觉上更大）；方格里直接印上
+     交叉构成（如「A 级 6 · B 级 1」），下面一句话说清构成 + 给教学建议。
      @param opt.cross    交叉分布 { 类别: { 子类: 人数 } }，可为空
      @param opt.subUnit  子类名的后缀，例如 " 级"
-     @param opt.leadUnit 主角自己的后缀，例如等级分布里要显示 "A 级" */
+     @param opt.leadUnit 主角自己的后缀，例如等级分布里要显示 "A 级"
+     @param opt.tips     { 类别: 建议句子 }，说明文字会追加主导类别的建议
+     @param opt.tieTip   并列第一时的建议句子
+     @param opt.interests [{name, count}]，班级兴趣方向（带人数），追加兴趣分析句 */
   function distTiles(title, dist, colorMap, opt) {
     const o = opt || {};
     const cross = o.cross || null;
@@ -156,6 +159,26 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         .map((name) => name + subUnit + " " + c[name] + " 人")
         .join("、");
     };
+    // 方格里的紧凑构成（不带「人」）：A 级 6 · B 级 1
+    const miniOf = (k) => {
+      const c = (cross || {})[k] || {};
+      return Object.keys(c)
+        .filter((name) => c[name])
+        .map((name) => name + subUnit + " " + c[name])
+        .join(" · ");
+    };
+
+    // 兴趣分析句：只给主标签分布用（opt.interests 有值才拼）
+    const interestLine = (() => {
+      const its = PF.arr(o.interests).filter((x) => x && x.name);
+      if (!its.length) return "";
+      const top = its.slice(0, 3)
+        .map((x) => "「" + PF.esc(x.name) + "」" + (x.count ? " " + x.count + " 人" : ""))
+        .join("、");
+      const ratio = total ? (its[0].count || 0) / total : 0;
+      const word = ratio >= 0.35 ? "兴趣明显集中在" : "兴趣相对集中在";
+      return "本班同学" + word + " " + top + "，建议围绕这些方向组织课题组、布置拓展任务。";
+    })();
 
     let note;
     if (!total) {
@@ -163,24 +186,28 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     } else if (tie) {
       note = sorted.slice(0, 2)
         .map((k) => PF.esc(k + leadUnit) + " " + dist[k] + " 人").join(" 与 ") +
-        "，两类人数相同，本班取向势均力敌。";
+        "，两类人数相同，本班取向势均力敌。" + PF.esc(o.tieTip || "");
     } else {
       const inside = sub(lead);
+      const tip = PF.esc((o.tips || {})[lead] || "");
       note = "班级学生以 <strong>" + PF.esc(lead + leadUnit) + "</strong> 为主：" +
              dist[lead] + " 人（" + PF.pct(dist[lead], total) + "%）" +
-             (inside ? "，其中 " + inside : "") + "。";
+             (inside ? "，其中 " + inside : "") + "。" +
+             (tip ? "<strong>建议</strong>：" + tip : "") +
+             interestLine;
     }
 
     const cols = tie || !total ? Math.max(sorted.length, 1) : sorted.length + 1;
     const tiles = sorted.map((key) => {
       // 先拼好 class 字符串再进模板：check_frontend 会扫 class="..." 里的碎片
       const tileCls = "tile" + (!tie && key === lead ? " tile--lead" : "");
+      const mini = miniOf(key);
       return '<div class="' + tileCls + '" style="--tile-color:' +
         (colorMap[key] || "var(--ink-300)") + '">' +
         '<div class="tile__name">' + PF.esc(key) + "</div>" +
         '<div class="tile__num">' + (dist[key] || 0) + "</div>" +
-        '<div class="tile__pct">' + PF.pct(dist[key], total || 1) + "% · " +
-          (cross && cross[key] ? sub(key).replace(/ 人/g, "") : (dist[key] || 0) + " 人") + "</div>" +
+        '<div class="tile__pct">' + PF.pct(dist[key], total || 1) + "% · " + (dist[key] || 0) + " 人</div>" +
+        (mini ? '<div class="tile__mini">' + PF.esc(mini) + "</div>" : "") +
       "</div>";
     }).join("");
 
@@ -220,14 +247,27 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         : PF.empty({ icon: "info", title: "暂无法生成建议", desc: "需要至少一名学生的画像数据。" });
 
       const interests = PF.arr(d.top_interests);
+      const interestDist = PF.arr(d.interest_dist);
 
       box.innerHTML =
         statsRow(d) +
         '<div class="grid grid-2 mt-5" style="gap:16px">' +
           distTiles("主标签分布", s.track_dist || {}, trackColors,
-                    { cross: tl, subUnit: " 级", footHint: "学业型 / 事业型" }) +
+                    { cross: tl, subUnit: " 级", footHint: "学业型 / 事业型",
+                      interests: interestDist,
+                      tips: {
+                        "学业型": "本班以学业型为主，建议多给科研方面的帮助——文献精读、小实验复现、学术汇报，并尽早对接常设课题组。",
+                        "事业型": "本班以事业型为主，建议多给工程实践方面的帮助——真实场景项目、可交付小作品、简历与面试辅导。"
+                      },
+                      tieTip: "建议科研与就业两类资源并重，两条路线的任务都备一份。" }) +
           distTiles("学业等级分布", ld, levelColors,
-                    { cross: levelTrack, leadUnit: " 级", footHint: "A / B / C 仅表示推荐内容深度" }) +
+                    { cross: levelTrack, leadUnit: " 级", footHint: "A / B / C 仅表示推荐内容深度",
+                      tips: {
+                        A: "A 级同学消化得快，推荐内容与任务难度可以放得更深，多做拔高拓展。",
+                        B: "B 级同学是中坚力量，保持标准深度稳步推进，任务难度小步上调。",
+                        C: "C 级同学先补齐基础，推荐起步更友好的铺垫材料，任务难度从低起步。"
+                      },
+                      tieTip: "各等级人数持平，深浅两档材料并重准备，答疑时按等级分流。" }) +
         "</div>" +
 
         '<div class="grid grid-3-2 mt-5" style="gap:16px">' +

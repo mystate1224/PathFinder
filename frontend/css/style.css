@@ -594,12 +594,12 @@ body::after {
 .bar-row { display: grid; grid-template-columns: 62px minmax(0, 1fr) 74px; gap: 9px; align-items: center; font-size: var(--fs-xs); }
 .bar-row .t-dim { text-align: right; font-family: var(--font-mono); }
 
-/* 方框分布：人多的那一类占两列（.tile--lead），下面一句话说明构成。
+/* 方框分布：人多的那一类占两列（.tile--lead），方格里印交叉构成，下面一句话说明 + 建议。
    颜色由内联的 --tile-color 注入，深浅两套主题都靠它取色。 */
-.tiles { display: grid; gap: 10px; }
+.tiles { display: grid; gap: 8px; }
 .tile {
   position: relative; overflow: hidden;
-  padding: 14px 12px 12px;
+  padding: 10px 10px 9px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--surface-2);
@@ -618,17 +618,23 @@ body::after {
   box-shadow: var(--sh-1);
 }
 .tile--lead::before { height: 4px; }
-.tile__name { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-700); }
+.tile__name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-700); }
 .tile__num {
-  margin-top: 6px;
-  font-size: 24px; font-weight: 700; line-height: 1.1;
+  margin-top: 3px;
+  font-size: 22px; font-weight: 700; line-height: 1.1;
   color: var(--tile-color, var(--ink-900));
   font-variant-numeric: tabular-nums;
 }
-.tile--lead .tile__num { font-size: 34px; }
-.tile__pct { margin-top: 2px; font-size: 11px; color: var(--ink-500); line-height: 1.5; }
+.tile--lead .tile__num { font-size: 28px; }
+.tile__pct { margin-top: 2px; font-size: 11px; color: var(--ink-500); line-height: 1.45; }
+.tile__mini {
+  margin-top: 5px; padding-top: 4px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px; color: var(--ink-500); line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
 .tile-note {
-  margin: 0; padding: 10px 12px;
+  margin: 0; padding: 8px 10px;
   border-radius: var(--r-sm);
   background: var(--surface-2);
   border: 1px dashed var(--border);
