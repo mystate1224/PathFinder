@@ -27,7 +27,9 @@ for _p in (str(_ROOT), str(_ROOT / "backend")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# 只读文件系统兜底：可写目录优先用 /tmp（本地 import 时退回项目 data/）
-os.environ.setdefault("DATA_DIR", "/tmp/pf-data")
+# 只读文件系统兜底：Vercel Serverless 部署目录是只读文件系统，
+# SQLite / 上传文件必须落到可写层 /tmp。用强制赋值而非 setdefault，
+# 避免平台已存在空值/默认值导致兜底失效。
+os.environ["DATA_DIR"] = "/tmp/pf-data"
 
 from app import app  # noqa: E402,F401  backend/app.py 的 FastAPI 实例
