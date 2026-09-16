@@ -87,6 +87,12 @@ MAX_UPLOAD_MB = _i("MAX_UPLOAD_MB", 8)
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 SESSION_DAYS = _i("SESSION_DAYS", 7)
 
+# 会话签名密钥 —— 无服务器平台（Vercel）上函数实例之间不共享 /tmp，
+# 存在 SQLite 里的会话会「换一个实例就掉线」。因此会话 token 改成
+# 自包含签名串（见 db.make_session_token），靠这个密钥跨实例保持一致。
+# 正式部署时建议在平台环境变量里换一个自己的随机串。
+SECRET_KEY = _s("SECRET_KEY", "pathfinder-demo-secret-key")
+
 # 检索相关（调参集中在此，便于统一口径）
 CHUNK_SIZE = _i("CHUNK_SIZE", 400)
 CHUNK_OVERLAP = _i("CHUNK_OVERLAP", 80)

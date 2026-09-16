@@ -8,7 +8,9 @@
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
 import secrets
 import sqlite3
@@ -398,24 +400,88 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 # ================================================================ 会话
+# 两种 token 并存：
+# * ``v2.<uid>.<过期时间戳>.<HMAC 签名>`` —— 自包含，服务端不存也能验，
+#   专为无服务器平台（Vercel）设计：实例之间不共享 /tmp，存在库里的会话
+#   会「换一个实例就掉线」。签名用的是 config.SECRET_KEY，所有实例共享。
+# * 旧的纯随机 token —— 仅为了兼容本地已有的会话记录，仍走查库。
+def _b64e(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _b64d(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def _sign(payload: str) -> str:
+    return hmac.new(
+        config.SECRET_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+    ).hexdigest()[:32]
+
+
+def make_session_token(user_id: int, days: int) -> str:
+    """生成自包含签名 token（不依赖数据库即可校验）。"""
+    exp_ts = int(time.time()) + max(int(days), 1) * 24 * 3600
+    payload = f"{int(user_id)}.{exp_ts}"
+    return f"v2.{payload}.{_sign(payload)}"
+
+
+def parse_session_token(token: str) -> tuple[int, int] | None:
+    """校验签名并返回 ``(user_id, 过期时间戳)``；格式/签名不对返回 None。"""
+    parts = (token or "").split(".")
+    if len(parts) != 4 or parts[0] != "v2":
+        return None
+    payload = f"{parts[1]}.{parts[2]}"
+    if not secrets.compare_digest(parts[3], _sign(payload)):
+        return None
+    try:
+        return int(parts[1]), int(parts[2])
+    except (TypeError, ValueError):
+        return None
+
+
 def create_session(user_id: int, days: int | None = None) -> str:
-    token = secrets.token_urlsafe(32)
     days = config.SESSION_DAYS if days is None else days
+    token = make_session_token(user_id, days)
     expires = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-    with connect() as conn:
-        # 顺手清理过期会话，避免表无限膨胀
-        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now(),))
-        conn.execute(
-            "INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)",
-            (token, user_id, expires),
-        )
+    try:
+        with connect() as conn:
+            # 顺手清理过期会话，避免表无限膨胀
+            conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now(),))
+            conn.execute(
+                "INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)",
+                (token, user_id, expires),
+            )
+    except sqlite3.Error:
+        # 库不可写时不影响登录：签名 token 本身已经自足
+        pass
     return token
 
 
 def session_user(token: str | None) -> dict | None:
-    """用 token 换用户；过期即删并返回 None。"""
+    """用 token 换用户；过期即返回 None。
+
+    先按签名自校验（跨实例、冷启动都稳），失败再回退查库（兼容旧 token）。
+    """
     if not token:
         return None
+
+    parsed = parse_session_token(token)
+    if parsed is not None:
+        user_id, exp_ts = parsed
+        if exp_ts < int(time.time()):
+            return None
+        try:
+            row = query_one("SELECT * FROM users WHERE id = ?", (user_id,))
+        except sqlite3.Error:
+            return None
+        if not row:
+            return None
+        row.pop("pwd_hash", None)
+        row["token"] = token
+        row["expires_at"] = datetime.fromtimestamp(exp_ts).strftime("%Y-%m-%d %H:%M:%S")
+        return row
+
     row = query_one(
         "SELECT s.token, s.expires_at, u.* FROM sessions s "
         "JOIN users u ON u.id = s.user_id WHERE s.token = ?",
@@ -433,8 +499,11 @@ def session_user(token: str | None) -> dict | None:
 def delete_session(token: str | None) -> None:
     if not token:
         return
-    with connect() as conn:
-        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    try:
+        with connect() as conn:
+            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    except sqlite3.Error:
+        pass
 
 
 # ================================================================ 便捷读取
