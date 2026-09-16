@@ -229,7 +229,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               return '<span class="t-strong">' + PF.num(r.score, 1) + "</span>" +
                 '<span class="t-xs t-dim"> / ' + PF.num(full, 0) + "</span>";
             } },
-          { key: "level", label: "等级", render: function (r) {
+          { key: "level", label: "层次", render: function (r) {
               return r.graded ? PF.levelTag(r.level, true) : '<span class="t-dim t-sm">—</span>';
             } },
           { key: "ops", label: "操作", cls: "nowrap", render: function (r) {
@@ -264,7 +264,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       if (!s.missing) { PF.toast("没有未提交的学生", "warn"); return; }
       const yes = await PF.confirm({
         title: "未交记 0 分",
-        text: "会给 " + s.missing + " 名未提交学生各插入一条 0 分记录（等级 C，评语「未提交，按 0 分记录」）。",
+        text: "会给 " + s.missing + " 名未提交学生各插入一条 0 分记录（层次 C，评语「未提交，按 0 分记录」）。",
         detail: "记零后这些学生会被视为「已批改」。如果之后补交，重新提交会清空分数，需要你再批一次。",
         okText: "确认记 0 分", danger: true,
       });
@@ -325,7 +325,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           "<div><label class=\"t-sm t-strong\">分数</label>" +
             '<input class="input" type="number" id="g-score" min="0" max="' + full + '" step="0.5" value="' +
             (stu.graded ? PF.num(stu.score, 1) : "") + '"></div>' +
-          "<div><label class=\"t-sm t-strong\">等级</label>" +
+          "<div><label class=\"t-sm t-strong\">层次</label>" +
             '<select class="select" id="g-level">' +
               '<option value="">自动（按分数换算）</option>' +
               '<option value="A"' + (stu.level === "A" ? " selected" : "") + ">A 优秀</option>" +
@@ -335,7 +335,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           "<div><label class=\"t-sm t-strong\">评语</label>" +
             '<textarea class="input" id="g-comment" rows="2">' + PF.esc(stu.comment || "") + "</textarea></div>" +
         "</div>" +
-        '<div class="t-xs t-dim">等级换算口径：A ≥ 85%、B ≥ 70%、其余 C。</div>' +
+        '<div class="t-xs t-dim">层次换算口径：A ≥ 85%、B ≥ 70%、其余 C。</div>' +
       "</div>";
 
     PF.modal({
@@ -452,7 +452,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           PF.empty({
             icon: "clipboard",
             title: "等待批改",
-            desc: "左侧填入作答后点「生成建议分」。结果会给出分数、等级、亮点、待补充与评语，并标注是模型生成还是规则兜底。",
+            desc: "左侧填入作答后点「生成建议分」。结果会给出分数、层次、亮点、待补充与评语，并标注是模型生成还是规则兜底。",
           }) +
         "</div>" +
       "</div>";
@@ -605,7 +605,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                   '<span class="t-xs t-dim"> / ' + PF.num(full, 0) + "</span>"
                 : '<span class="badge badge--warn">需人工</span>';
             } },
-          { key: "level", label: "等级", render: function (r) {
+          { key: "level", label: "层次", render: function (r) {
               return r.level ? PF.levelTag(r.level, true) : '<span class="t-dim t-sm">—</span>';
             } },
           { key: "highlights", label: "亮点", render: function (r) {

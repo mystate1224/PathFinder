@@ -613,6 +613,7 @@ body::after {
 }
 .tile:hover { transform: translateY(-1px); box-shadow: var(--sh-1); }
 .tile--lead {
+  grid-column: span 2; /* 网格是 n+1 列，主导方格占两列，剩余类别各占一列，正好铺满不留空 */
   border-color: var(--tile-color, var(--brand-500));
   background: var(--surface);
   box-shadow: var(--sh-1);

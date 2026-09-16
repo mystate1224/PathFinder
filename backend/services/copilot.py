@@ -93,7 +93,7 @@ def _render_student_card(teacher: dict, student: dict) -> str:
     lines = [
         f"{student.get('name')}（{student.get('username')}）",
         f"分层：{profile.get('layer')}",
-        f"成绩：{profile.get('gpa')} 分 · 等级 {profile.get('grade_level')}",
+        f"成绩：{profile.get('gpa')} 分 · 层次 {profile.get('grade_level')}",
         f"兴趣方向：{'、'.join(profile.get('interests') or []) or '待识别'}",
         f"能力短板：{_weakest(profile.get('ability_pairs'))}",
         f"待办任务：{sum(1 for t in detail['tasks'] if t.get('status') != 'done')} 项",

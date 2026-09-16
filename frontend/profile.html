@@ -133,7 +133,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                 PF.esc(data.summary || "还没有填写简介。") + "</span>")
             : '<div class="grid grid-2" style="gap:12px">' +
                 field("主标签", PF.trackBadge(data.track)) +
-                field("学业等级", PF.levelTag(data.grade_level)) +
+                field("学业层次", PF.levelTag(data.grade_level)) +
                 field("平均绩点", '<span class="t-strong">' + PF.num(data.gpa, 1) + "</span>") +
                 field("推荐内容深度", '<span class="t-strong">' + PF.esc(data.layer || "—") + "</span>") +
               "</div>" +

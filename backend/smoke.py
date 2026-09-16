@@ -193,9 +193,9 @@ def test_teacher(c: Client) -> None:
 
     def overview_filter():
         d = c.api("GET", "/api/teacher/overview?level=A")
-        need(all(s["grade_level"] == "A" for s in d["students"]), "按等级筛选未生效")
-        return f"A 级 {len(d['students'])} 人"
-    c.check("驾驶舱筛选（等级）", overview_filter)
+        need(all(s["grade_level"] == "A" for s in d["students"]), "按层次筛选未生效")
+        return f"A 层 {len(d['students'])} 人"
+    c.check("驾驶舱筛选（层次）", overview_filter)
 
     # --- 学生详情与掌握度 ---
     def student_detail():
@@ -297,7 +297,7 @@ def test_teacher(c: Client) -> None:
         zeroed = c.api("POST", f"/api/teacher/homework/{hid}/grade-missing", {})
         stats = c.api("GET", f"/api/teacher/homework/{hid}/stats")
         need(stats["graded"] > 0, "统计里已批改数为 0")
-        need(stats["dist"]["A"] >= 1, "等级分布未统计到刚才打的 A")
+        need(stats["dist"]["A"] >= 1, "层次分布未统计到刚才打的 A")
         csv = c.raw("GET", f"/api/teacher/homework/{hid}/export", expect=200)[1]
         need(b"\xe5\xad\xa6" in csv or len(csv) > 50, "导出 CSV 内容异常")
         # 清理
@@ -403,7 +403,7 @@ def test_student(c: Client) -> None:
     c.check("登录（学生）", lambda: c.login("stu02").get("name"))
 
     c.check("我的画像", lambda: (
-        lambda d: f"{d['user']['name']}｜{d['profile']['track']} · {d['profile']['grade_level']} 级 · "
+        lambda d: f"{d['user']['name']}｜{d['profile']['track']} · {d['profile']['grade_level']} 层 · "
                   f"{d['profile']['layer']}｜任务 {len(d['tasks'])} 条｜材料 {len(d['materials'])} 份"
     )(c.api("GET", "/api/student/profile")))
 

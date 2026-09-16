@@ -119,7 +119,7 @@ def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "",
     students: list[dict] = []
     track_dist = {"学业型": 0, "事业型": 0}
     level_dist = {"A": 0, "B": 0, "C": 0}
-    # 交叉分布：给驾驶舱的「方框」提供「其中 A 级 x 人、事业型 y 人」这类说明
+    # 交叉分布：给驾驶舱的「方框」提供「其中 A 层 x 人、事业型 y 人」这类说明
     track_level = {
         "学业型": {"A": 0, "B": 0, "C": 0},
         "事业型": {"A": 0, "B": 0, "C": 0},

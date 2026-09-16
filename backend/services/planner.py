@@ -62,12 +62,12 @@ def rule_class_advice(
     level_c = int(level_dist.get("C", 0))
     if level_a > 0:
         advice.append(
-            f"{level_a} 名学生处于 A 级（学有余力，{_pct(level_a, total)}），"
+            f"{level_a} 名学生处于 A 层（学有余力，{_pct(level_a, total)}），"
             "可提供拓展型作业（选做探究题）满足其挑战需求，同时避免全班统一加量。"
         )
     if level_c > 0:
         advice.append(
-            f"{level_c} 名学生处于 C 级（{_pct(level_c, total)}），"
+            f"{level_c} 名学生处于 C 层（{_pct(level_c, total)}），"
             "建议为其准备前置知识清单与例题精讲，先保障关键步骤能复现，再谈综合应用。"
         )
 
@@ -103,7 +103,7 @@ def class_advice(
         f"课程：{course or '未指定'}\n"
         f"学生总数：{total}\n"
         f"主标签分布：{track_dist}\n"
-        f"学业等级分布：{level_dist}\n"
+        f"学业层次分布：{level_dist}\n"
         f"兴趣方向 Top：{'、'.join(list(top_interests)[:5]) or '无'}\n\n"
         "要求：每条建议必须「先说数据依据、再说具体教学动作」，可直接执行；"
         "绝对不能出现分班、贴标签式表述（如拔尖班/普通班/基础班）；"
@@ -175,7 +175,7 @@ _STAGE_TEMPLATES = {
 
 
 def rule_roadmap(profile: dict, kp_mastery: Iterable[dict] | None = None) -> dict:
-    """规则版成长路线：按主标签 × 等级取三阶段模板，再按知识掌握度做局部替换。"""
+    """规则版成长路线：按主标签 × 层次取三阶段模板，再按知识掌握度做局部替换。"""
     track = str(profile.get("track") or "学业型")
     level = str(profile.get("grade_level") or "B")
     interests = [str(i) for i in (profile.get("interests") or [])]
@@ -202,7 +202,7 @@ def rule_roadmap(profile: dict, kp_mastery: Iterable[dict] | None = None) -> dic
 
     direction = interests[0] if interests else "本专业核心方向"
     return {
-        "title": f"{track} · {level} 级 · 个人成长路线",
+        "title": f"{track} · {level} 层 · 个人成长路线",
         "direction": direction,
         "summary": (
             f"基于当前画像（{stratify.layer_badge(track, level)}，兴趣方向 "
@@ -223,7 +223,7 @@ def roadmap(profile: dict, kp_mastery: Iterable[dict] | None = None) -> tuple[di
 
     prompt = (
         "你是高校学业导师。请为下面这名学生生成一份三阶段成长路线。\n"
-        f"画像：主标签 {profile.get('track')}，学业等级 {profile.get('grade_level')}，"
+        f"画像：主标签 {profile.get('track')}，学业层次 {profile.get('grade_level')}，"
         f"兴趣方向 {'、'.join(profile.get('interests') or []) or '待识别'}，"
         f"成绩 {profile.get('gpa')}\n"
         f"掌握度偏弱的知识点：{'、'.join(x['kp_name'] for x in (kp_mastery or [])[:4]) or '暂无数据'}\n\n"

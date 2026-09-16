@@ -6,11 +6,11 @@
 对「学生 × 课题组」逐对打分：
 
 ```
-score = 方向契合(0~60) + 等级适配(0~20) + 兴趣新鲜度(0~10) + 名额余量(0~10)
+score = 方向契合(0~60) + 层次适配(0~20) + 兴趣新鲜度(0~10) + 名额余量(0~10)
 ```
 
 * **方向契合**：学生兴趣方向 ∩ 课题组方向，按交集占比给分（权重最高）；
-* **等级适配**：A 级可进要求「有科研基础」的组；C 级优先给「入门友好」的组；
+* **层次适配**：A 层可进要求「有科研基础」的组；C 层优先给「入门友好」的组；
 * **兴趣新鲜度**：学生尚未实践过的方向加分，鼓励探索；
 * **名额余量**：已满的组直接降到 0，避免推一个进不去的组。
 
@@ -80,9 +80,9 @@ def score_pair(student: dict, profile: dict, group: dict) -> tuple[float, str]:
     wants_experience = any(w in requirement for w in RESEARCH_KEYWORDS)
     entry_friendly = any(w in requirement for w in ENTRY_KEYWORDS)
     if wants_experience and level == "C":
-        level_score = max(0.0, level_score - 8.0)   # 组要求科研基础，C 级学生硬进会挫败
+        level_score = max(0.0, level_score - 8.0)   # 组要求科研基础，C 层学生硬进会挫败
     if entry_friendly and level == "C":
-        level_score = min(20.0, level_score + 6.0)  # 入门友好组对 C 级学生更合适
+        level_score = min(20.0, level_score + 6.0)  # 入门友好组对 C 层学生更合适
 
     # 兴趣新鲜度：组方向里有学生尚未涉猎的研究类方向
     fresh = [d for d in group_dirs if d not in interests and tax.is_research(d)]
@@ -100,7 +100,7 @@ def score_pair(student: dict, profile: dict, group: dict) -> tuple[float, str]:
         bits.append(f"兴趣方向与课题组方向重合 {'、'.join(hit)}")
     elif group_dirs:
         bits.append(f"课题组方向为 {'、'.join(group_dirs)}，与学生当前兴趣暂无交集（可作为拓展方向）")
-    bits.append(f"学业等级 {level} 级{'，与该组要求匹配' if not (wants_experience and level == 'C') else '，该组偏重科研基础，建议先补基础再申请'}")
+    bits.append(f"学业层次 {level} 层{'，与该组要求匹配' if not (wants_experience and level == 'C') else '，该组偏重科研基础，建议先补基础再申请'}")
     if fresh:
         bits.append(f"可探索的新方向：{'、'.join(fresh[:2])}")
     bits.append(f"剩余名额 {seats if seats < 99 else '不限'}")

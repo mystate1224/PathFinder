@@ -8,7 +8,7 @@
 
 ## 六格矩阵（分层亮点）
 
-主标签 × 等级 → 答疑风格 + 下一步建议。
+主标签 × 层次 → 答疑风格 + 下一步建议。
 
 |      | A | B | C |
 |------|---|---|---|
@@ -71,10 +71,10 @@ def cell_of(track: str, level: str) -> dict:
 
 
 def layer_label(track: str, level: str) -> str:
-    """形如 ``学业型 · A 级 · 科研拔高``。"""
+    """形如 ``学业型 · A 层 · 科研拔高``。"""
     track = track if track in ("学业型", "事业型") else "学业型"
     level = level if level in ("A", "B", "C") else "B"
-    return f"{track} · {level} 级 · {cell_of(track, level)['style']}"
+    return f"{track} · {level} 层 · {cell_of(track, level)['style']}"
 
 
 # ================================================================ prompt 组装
@@ -84,7 +84,7 @@ def system_prompt(track: str, level: str, interests: Sequence[str], context: str
     interests_text = "、".join(list(interests)[:4]) or "暂未识别"
     return (
         "你是一名高校课程的 AI 助教，正在为一名具体的学生答疑。\n\n"
-        f"【学生画像】主标签：{track}；学业等级：{level} 级；兴趣方向：{interests_text}\n"
+        f"【学生画像】主标签：{track}；学业层次：{level} 层；兴趣方向：{interests_text}\n"
         f"【本次答疑风格】{cell['style']}：{cell['strategy']}\n\n"
         "【硬性约束】\n"
         "1. 只回答与问题和所给资料相关的内容，资料中没有的不要编造；\n"

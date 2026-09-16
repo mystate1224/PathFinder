@@ -34,8 +34,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     me: me,
     title: isTeacher ? "师生匹配" : "课题组匹配",
     desc: isTeacher
-      ? "匹配分 = 方向契合 60 分 + 等级适配 20 分 + 兴趣新鲜度 10 分 + 名额余量 10 分。规则固定、理由可复核；双方都确认才算匹配成功，并自动生成一条跟进任务。"
-      : "系统按方向契合度、等级适配、兴趣新鲜度与名额余量给你排了序。你表态后老师那边也会给出意向，双方都确认才算匹配成功。",
+      ? "匹配分 = 方向契合 60 分 + 层次适配 20 分 + 兴趣新鲜度 10 分 + 名额余量 10 分。规则固定、理由可复核；双方都确认才算匹配成功，并自动生成一条跟进任务。"
+      : "系统按方向契合度、层次适配、兴趣新鲜度与名额余量给你排了序。你表态后老师那边也会给出意向，双方都确认才算匹配成功。",
     wide: true,
     actions: '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>" +
       (isTeacher
@@ -105,8 +105,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   }
 
   const SCORE_CAVEAT =
-    "匹配分只由四项相加得出：方向契合 60 分、等级适配 20 分、兴趣新鲜度 10 分、名额余量 10 分。" +
-    "等级只用来判断「这个组的难度合不合适」，不是能力评定，也不用于分班、不构成准入门槛。";
+    "匹配分只由四项相加得出：方向契合 60 分、层次适配 20 分、兴趣新鲜度 10 分、名额余量 10 分。" +
+    "层次只用来判断「这个组的难度合不合适」，不是能力评定，也不用于分班、不构成准入门槛。";
 
   /* ============================================================ 教师侧 */
   let TD = null;
@@ -525,7 +525,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               '<div class="t-xs t-dim mt-3">兴趣方向</div>' +
               '<div class="mk-chips mt-2">' + dirChips(interests, "还没填兴趣方向") + "</div>" +
               '<div class="mt-3">' + PF.caveat(
-                "推荐用的是你画像里的兴趣方向与等级。等级只决定「推给你多深的内容、多难的任务」，不是能力评定，也不用于分班。") + "</div>" +
+                "推荐用的是你画像里的兴趣方向与层次。层次只决定「推给你多深的内容、多难的任务」，不是能力评定，也不用于分班。") + "</div>" +
               '<a class="btn btn--sm mt-3" href="/student">' + PF.icon("edit", 12) + "去调整画像</a>" +
             "</div></div>" +
 
@@ -533,7 +533,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             '<div class="card__body">' +
               '<ol class="obj-list">' +
                 "<li>方向契合 60 分：你的兴趣方向与课题组方向的交集占比。</li>" +
-                "<li>等级适配 20 分：组里要求「有科研基础」而你等级偏下时会扣分，入门友好的组会加分。</li>" +
+                "<li>层次适配 20 分：组里要求「有科研基础」而你层次偏下时会扣分，入门友好的组会加分。</li>" +
                 "<li>兴趣新鲜度 10 分：你没涉猎过的研究类方向会适当加分，鼓励探索。</li>" +
                 "<li>名额余量 10 分：已满的组会被压到很低，避免推一个进不去的组。</li>" +
               "</ol>" +
@@ -674,7 +674,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           }) +
         "</div></div>" +
       '<div class="mt-4">' + PF.caveat(
-        "匹配分只是排序依据，不等于录取结果；最终以双方的确认意向为准。等级不参与门槛判定，也不用于分班。") + "</div>";
+        "匹配分只是排序依据，不等于录取结果；最终以双方的确认意向为准。层次不参与门槛判定，也不用于分班。") + "</div>";
 
     const b = PF.$("#btn-go-rec", box);
     if (b) b.addEventListener("click", function () { tabs.go("rec"); });

@@ -8,12 +8,12 @@
 2. 决定**教师给这个学生什么建议**。
 
 **不用于分班、不给学生贴固定标签。** 所有对外文案必须体现动态与建议性
-（如"学业 A 级 · 学有余力"、"拓展型 · 增加探究内容"），
+（如"学业 A 层 · 学有余力"、"拓展型 · 增加探究内容"），
 严禁出现「拔尖班 / 普通班 / 基础班」等表述。
 
 ## 输出结构
 
-主标签（学业型 / 事业型） × 学业等级（A / B / C） × 兴趣方向 + 五维能力 + 可复核理由。
+主标签（学业型 / 事业型） × 学业层次（A / B / C） × 兴趣方向 + 五维能力 + 可复核理由。
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def _clamp(value: float, low: float = 1.0, high: float = 5.0) -> float:
 
 # ================================================================ 基础判定
 def grade_level_of(gpa: float) -> str:
-    """学业等级：规则明确、可解释，便于老师复核。
+    """学业层次：规则明确、可解释，便于老师复核。
 
     ``gpa >= 85 -> A``（学有余力） / ``>= 70 -> B`` / 否则 C。
     """
@@ -162,7 +162,7 @@ def rule_stratify(
     else:
         level_hint = "，建议先补前置概念"
     reason = (
-        f"学业成绩 {float(gpa or 0):.1f} 分，评为 {level} 级（{grade_level_text(level)}{level_hint}）；"
+        f"学业成绩 {float(gpa or 0):.1f} 分，评为 {level} 层（{grade_level_text(level)}{level_hint}）；"
         f"科研倾向 {float(research_intent or 0):.1f} / 就业倾向 {float(job_intent or 0):.1f}，"
         f"兴趣方向为 {interests_text}（{flavour}），综合判定为{track}。"
         "本结论用于推荐内容深度与任务难度，不用于分班，且会随成绩与兴趣动态更新。"
@@ -205,7 +205,7 @@ def stratify(
         "理由要引用具体数字；不得出现分班、贴标签式表述。"
     )
     result, engine = llm.chat_json([{"role": "user", "content": prompt}], SCHEMA, mock=rule)
-    # 学业等级与 GPA 以规则为准，杜绝模型改口径
+    # 学业层次与 GPA 以规则为准，杜绝模型改口径
     result["grade_level"] = rule["grade_level"]
     result["gpa"] = rule["gpa"]
     # 自评倾向是**输入事实**，模型只允许解读，不允许改写
@@ -250,7 +250,7 @@ def save_profile(user_id: int, profile: dict, engine: str = "rule") -> None:
 
 
 def layer_badge(track: str, level: str) -> str:
-    return f"{track or '未定'} · {level or 'B'} 级"
+    return f"{track or '未定'} · {level or 'B'} 层"
 
 
 def update_intent(

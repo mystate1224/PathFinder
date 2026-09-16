@@ -303,12 +303,12 @@ def _score_buckets(scores: Sequence[float], full: float) -> list[dict]:
 
 
 def export_csv(teacher_id: int, homework_id: int, only_missing: bool = False) -> tuple[str, str]:
-    """导出成绩 CSV（学号、姓名、分数、等级、评语、提交时间）。返回 ``(文件名, 文本)``。"""
+    """导出成绩 CSV（学号、姓名、分数、层次、评语、提交时间）。返回 ``(文件名, 文本)``。"""
     homework = _owned_homework(teacher_id, homework_id)
     data = roster(teacher_id, homework_id)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["学号", "姓名", "分数", "等级", "评语", "提交时间", "逾期", "提交次数", "状态"])
+    writer.writerow(["学号", "姓名", "分数", "层次", "评语", "提交时间", "逾期", "提交次数", "状态"])
     for stu in data["students"]:
         submitted = bool(stu["submitted"])
         if only_missing and submitted:
@@ -509,7 +509,7 @@ def submission_file(user: dict, submission_id: int, index: int) -> tuple[str, st
 # ================================================================ 批改
 def grade(teacher_id: int, homework_id: int, student_id: int, score: float,
           comment: str = "", level: str = "") -> dict:
-    """打分写评语。分数按满分封顶，等级 A ≥ 85% / B ≥ 70% / C 自动换算。"""
+    """打分写评语。分数按满分封顶，层次 A ≥ 85% / B ≥ 70% / C 自动换算。"""
     homework = _owned_homework(teacher_id, homework_id)
     full = float(homework.get("full_score") or 100)
 
@@ -646,7 +646,7 @@ def suggest_image(file_info: dict, mime: str, homework: dict, full: float,
     prompt = (
         f"这是一份手写作业的照片。作业题目：{homework.get('course')} {homework.get('title')}。"
         f"满分 {full} 分。参考要点：{'、'.join(list(terms)[:6]) or '无'}。"
-        "请根据可见的作答内容给出分数、等级与评语。"
+        "请根据可见的作答内容给出分数、层次与评语。"
     )
     mock = {
         "score": -1, "level": "", "highlights": [], "missing": [],

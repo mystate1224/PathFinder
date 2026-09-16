@@ -433,7 +433,7 @@
       (career ? "事业型" : "学业型") + "</span>";
   };
 
-  /** 等级标签（A/B/C，只表示推荐内容深度） */
+  /** 层次标签（A/B/C，只表示推荐内容深度） */
   PF.levelTag = function (level, large) {
     const lv = String(level || "B").toUpperCase().slice(0, 1);
     const safe = ["A", "B", "C"].indexOf(lv) >= 0 ? lv : "B";

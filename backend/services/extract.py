@@ -409,7 +409,7 @@ def _prompt_for(kind: str, filename: str, text: str) -> str:
         f"{'、'.join(tax.ALL_DIRECTIONS)}；\n"
         "3. 若为课件，knowledge_points 抽 4~8 条，difficulty 按内容深度给 A/B/C"
         "（A=需要推导/证明/前沿，C=基础概念入门，其余 B），"
-        "difficulty 只表示内容深度，不代表学生等级；\n"
+        "difficulty 只表示内容深度，不代表学生层次；\n"
         "4. summary 用中文，不超过 120 字。\n\n"
         f"材料正文：\n{text[:4000]}"
     )
@@ -576,7 +576,7 @@ def apply_parse_result(
             )
             touched["directions"] = directions[:8]
 
-    # ---- 学生材料：合并兴趣、重算 GPA 与等级（索引与知识点已在上方统一处理）
+    # ---- 学生材料：合并兴趣、重算 GPA 与层次（索引与知识点已在上方统一处理）
     else:
         profile = db.student_profile(user_id) or {}
         interests = list(profile.get("interests") or [])
