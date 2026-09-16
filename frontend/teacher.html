@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>教师驾驶舱 · 寻径教育 PathFinder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css">
+<script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
+   刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
+   没选过就跟随系统 prefers-color-scheme。 */
+(function(){var t=null;try{t=localStorage.getItem("pf_theme")}catch(e){}
+if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
+document.documentElement.setAttribute("data-theme",t)})();</script>
+</head>
+<body>
+<div id="app"></div>
+<script src="/static/js/common.js"></script>
+<script src="/static/js/tabs.js"></script>
+<script>
+(async function () {
+  const PF = window.PF;
+
+  const me = await PF.requireAuth("teacher");
+  if (!me) return;
+
+  const view = PF.shell({
+    active: "teacher",
+    me: me,
+    title: "教师驾驶舱",
+    desc: "班级学情总览、学生画像库与常设课题组。所有分层结果只用于决定推荐内容的深度与任务难度。",
+    wide: true,
+    actions:
+      '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新数据</button>" +
+      '<button class="btn" id="btn-selfcheck">' + PF.icon("shield", 15) + "自检</button>",
+  });
+
+  view.innerHTML = '<div id="tabs-host"></div>';
+  const host = PF.$("#tabs-host", view);
+
+  let DATA = null;   // 缓存一次 overview，两个标签共用，避免重复请求
+  let FILTER = { level: "", track: "", keyword: "" };
+
+  async function loadOverview() {
+    const qs = new URLSearchParams();
+    if (FILTER.level) qs.set("level", FILTER.level);
+    if (FILTER.track) qs.set("track", FILTER.track);
+    if (FILTER.keyword) qs.set("keyword", FILTER.keyword);
+    const suffix = qs.toString() ? "?" + qs.toString() : "";
+    DATA = await PF.get("/api/teacher/overview" + suffix);
+    return DATA;
+  }
+
+  /* ---------------------------------------------------------- 通用：学情块 */
+  function statsRow(d) {
+    const s = d.stats || {};
+    const td = s.track_dist || {}, ld = s.level_dist || {};
+    const total = s.students || 0;
+    return '<div class="grid grid-4">' +
+      statCard("users", "本班学生", total + ' <span class="t-sm">人</span>', "账号归属班级：" + PF.esc(d.class_id || "—"), "") +
+      statCard("chart", "平均绩点", PF.num(s.avg_gpa, 2), "按 student_profiles.gpa 汇总", "info") +
+      statCard("briefcase", "待审资源申请", (s.pending_applications || 0) + ' <span class="t-sm">条</span>',
+               "学生已提交、等待你处理", (s.pending_applications || 0) > 0 ? "warn" : "") +
+      statCard("clipboard", "待批改作业", (s.ungraded_submissions || 0) + ' <span class="t-sm">份</span>',
+               "已提交但未打分", (s.ungraded_submissions || 0) > 0 ? "warn" : "") +
+      "</div>";
+  }
+
+  function statCard(icon, label, num, hint, tone) {
+    return '<div class="stat">' +
+      '<div class="stat__ico' + (tone ? " stat__ico--" + tone : "") + '">' + PF.icon(icon, 18) + "</div>" +
+      '<div class="flex-1"><div class="stat__num">' + num + "</div>" +
+      '<div class="stat__label">' + PF.esc(label) + "</div>" +
+      (hint ? '<div class="t-xs">' + PF.esc(hint) + "</div>" : "") +
+      "</div></div>";
+  }
+
+  function distPanel(title, dist, colorMap, totalHint) {
+    const total = Object.values(dist).reduce((a, b) => a + (b || 0), 0) || 1;
+    const segs = Object.keys(dist).map((k) =>
+      '<span style="width:' + PF.pct(dist[k], total) + "%;background:" + (colorMap[k] || "var(--ink-300)") +
+      '" title="' + PF.esc(k + " " + dist[k] + " 人") + '"></span>'
+    ).join("");
+    const legend = Object.keys(dist).map((k) =>
+      '<div class="row" style="gap:6px"><span class="dot" style="background:' + (colorMap[k] || "var(--ink-300)") + '"></span>' +
+      '<span class="t-sm">' + PF.esc(k) + "</span>" +
+      '<span class="t-strong">' + dist[k] + "</span>" +
+      '<span class="t-xs">' + PF.pct(dist[k], total) + "%</span></div>"
+    ).join("");
+    return '<div class="card"><div class="card__head"><h3>' + PF.esc(title) + "</h3>" +
+      '<div class="card__head-actions"><span class="t-xs">' + PF.esc(totalHint || "") + "</span></div></div>" +
+      '<div class="card__body stack-sm">' +
+        '<div class="dist-bar">' + segs + "</div>" +
+        '<div class="grid grid-3 mt-3" style="gap:10px">' + legend + "</div>" +
+      "</div></div>";
+  }
+
+  /* ============================================================ 标签一：班级学情 */
+  function renderClass(box) {
+    box.innerHTML = PF.loading("正在汇总班级学情");
+    loadOverview().then((d) => {
+      const s = d.stats || {};
+      const ld = s.level_dist || {};
+      const trackColors = { "学业型": "var(--track-academic-500)", "事业型": "var(--track-career-500)" };
+      const levelColors = { A: "var(--level-a-500)", B: "var(--level-b-500)", C: "var(--level-c-500)" };
+
+      const advice = PF.arr(d.advice);
+      const adviceHtml = advice.length
+        ? '<ol class="stack-sm" style="counter-reset:a">' + advice.map((a, i) =>
+            '<li class="row" style="align-items:flex-start;gap:10px;flex-wrap:nowrap">' +
+              '<span class="badge badge--brand" style="margin-top:2px">' + (i + 1) + "</span>" +
+              '<span class="t-body" style="line-height:1.75">' + PF.esc(a) + "</span></li>"
+          ).join("") + "</ol>"
+        : PF.empty({ icon: "info", title: "暂无法生成建议", desc: "需要至少一名学生的画像数据。" });
+
+      const interests = PF.arr(d.top_interests);
+
+      box.innerHTML =
+        statsRow(d) +
+        '<div class="grid grid-2 mt-5" style="gap:16px">' +
+          distPanel("主标签分布", s.track_dist || {}, trackColors, "学业型 / 事业型") +
+          distPanel("学业等级分布", ld, levelColors, "A / B / C 仅表示推荐内容深度") +
+        "</div>" +
+
+        '<div class="grid grid-3-2 mt-5" style="gap:16px">' +
+          '<div class="card">' +
+            '<div class="card__head"><h3>' + PF.icon("sparkles", 15) + " 班级教学建议</h3>" +
+              '<div class="card__head-actions">' + PF.engineBadge(d.advice_engine) + "</div></div>" +
+            '<div class="card__body">' + adviceHtml + "</div>" +
+            '<div class="card__foot"><span class="t-xs">' +
+              PF.esc("建议由主标签分布、等级分布与兴趣 Top 推导；配置 API Key 后由模型生成，结构完全一致。") +
+            "</span></div>" +
+          "</div>" +
+
+          '<div class="stack">' +
+            '<div class="card"><div class="card__head"><h3>兴趣方向 Top</h3></div>' +
+              '<div class="card__body">' +
+                (interests.length
+                  ? '<div class="row" style="gap:6px">' + interests.map((x) =>
+                      '<span class="chip chip--brand">' + PF.esc(x) + "</span>").join("") + "</div>"
+                  : '<span class="t-sm t-dim">暂无</span>') +
+                '<p class="t-xs mt-4">取自学生画像的 interests 字段，用于匹配课题组与推荐资源。</p>' +
+              "</div></div>" +
+
+            '<div class="card"><div class="card__head"><h3>我的常设课题组</h3>' +
+              '<div class="card__head-actions"><a class="btn btn--sm" href="/match">' +
+                PF.icon("users", 13) + "去匹配</a></div></div>" +
+              '<div class="card__body card__body--flush">' +
+                (PF.arr(d.groups).length
+                  ? '<div class="list">' + d.groups.map((g) =>
+                      '<div class="list__item"><div class="list__main">' +
+                        '<div class="list__title">' + PF.esc(g.name || "未命名课题组") + "</div>" +
+                        '<div class="list__meta">' + PF.esc(PF.arr(g.directions).join("、") || "未设方向") +
+                        " · 容量 " + PF.esc(g.capacity || "不限") + " 人</div>" +
+                      "</div><div class=\"list__side\">" +
+                        '<span class="badge badge--ok">已确认 ' + (g.member_count || 0) + " 人</span>" +
+                      "</div></div>").join("") + "</div>"
+                  : PF.empty({ icon: "users", title: "还没有常设课题组",
+                      desc: "课题组是师生匹配的载体，创建后即可向学生推荐。",
+                      action: '<a class="btn btn--primary btn--sm" href="/match">去创建</a>' })) +
+              "</div></div>" +
+          "</div>" +
+        "</div>" +
+
+        '<div class="card mt-5"><div class="card__head"><h3>' + PF.icon("grid", 15) +
+          " 六格矩阵：主标签 × 等级 → 答疑风格与教学取向</h3></div>" +
+          '<div class="card__body">' + matrixHtml() +
+          '<div class="note note--brand mt-4">' + PF.icon("shield", 15) +
+            "<div><strong>口径说明：</strong>本矩阵只决定「同一个知识点讲多深、练什么难度的任务」，" +
+            "不改变课程大纲、课时与考核标准，也不产生任何班级划分。" +
+            "分层结果每月可复核调整。</div></div>" +
+        "</div></div>";
+    }).catch((e) => { box.innerHTML = PF.empty({ icon: "alert", title: "学情数据加载失败", desc: e.message }); });
+  }
+
+  function matrixHtml() {
+    const rows = [
+      ["学业型", {
+        A: ["科研拔高", "精读文献 + 复现实验，追问「为什么」"],
+        B: ["稳基拔高", "讲透推导 + 可自查练习，做到「讲得清」"],
+        C: ["夯实基础", "先补前置概念与数学工具，暂缓长推导"],
+      }],
+      ["事业型", {
+        A: ["工程纵深", "框架源码 + 性能调优，配可复现小项目"],
+        B: ["场景驱动", "业务场景切入，强调步骤与调试方法"],
+        C: ["先跑通再加厚", "最小可运行示例，先建立成就感"],
+      }],
+    ];
+    let html = '<div class="matrix"><div class="matrix__head"></div>' +
+      ["A 级", "B 级", "C 级"].map((h) => '<div class="matrix__head">' + h + "</div>").join("");
+    rows.forEach(([track, cells]) => {
+      html += '<div class="matrix__rowh">' + PF.trackBadge(track) + "</div>";
+      ["A", "B", "C"].forEach((lv) => {
+        const [name, desc] = cells[lv];
+        html += '<div class="matrix__cell"><b>' + PF.levelTag(lv) + " " + PF.esc(name) + "</b>" +
+          '<span class="t-xs">' + PF.esc(desc) + "</span></div>";
+      });
+    });
+    return html + "</div>";
+  }
+
+  /* ============================================================ 标签二：学生画像库 */
+  function renderRoster(box) {
+    box.innerHTML = PF.loading("正在加载学生画像");
+    loadOverview().then((d) => { paintRoster(box, d); })
+      .catch((e) => { box.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message }); });
+  }
+
+  function paintRoster(box, d) {
+    const students = PF.arr(d.students);
+    box.innerHTML =
+      '<div class="card mb-5"><div class="card__body card__body--tight">' +
+        '<div class="row">' +
+          '<div class="row" style="gap:8px">' + PF.icon("filter", 15) +
+            '<span class="t-sm t-strong">筛选</span></div>' +
+          '<select class="select select--sm" id="f-level" style="width:130px">' +
+            '<option value="">全部等级</option><option value="A">A 级</option>' +
+            '<option value="B">B 级</option><option value="C">C 级</option></select>' +
+          '<select class="select select--sm" id="f-track" style="width:140px">' +
+            '<option value="">全部主标签</option><option value="学业型">学业型</option>' +
+            '<option value="事业型">事业型</option></select>' +
+          '<input class="input input--sm" id="f-key" placeholder="搜索姓名或学号" style="width:200px">' +
+          '<button class="btn btn--sm" id="f-reset">重置</button>' +
+          '<div class="spacer"></div>' +
+          '<span class="t-xs">共 <strong id="cnt">' + students.length + "</strong> 人</span>" +
+          '<button class="btn btn--sm" id="btn-export-roster">' + PF.icon("download", 13) + "导出 CSV</button>" +
+        "</div>" +
+      "</div></div>" +
+      '<div id="roster-body"></div>';
+
+    PF.$("#f-level", box).value = FILTER.level;
+    PF.$("#f-track", box).value = FILTER.track;
+    PF.$("#f-key", box).value = FILTER.keyword;
+
+    function table(rows) {
+      return '<div class="card"><div class="card__body card__body--flush">' +
+        PF.table([
+          { label: "学生", cls: "w-lg", render: (r) =>
+            '<div class="row row--nowrap" style="gap:9px">' +
+              '<div class="sidebar__avatar" style="background:linear-gradient(135deg,var(--brand-400),var(--brand-600))">' +
+                PF.esc(PF.initial(r.name)) + "</div>" +
+              "<div><div class=\"t-strong\">" + PF.esc(r.name) + "</div>" +
+              '<div class="t-xs t-mono">' + PF.esc(r.username) + "</div></div></div>" },
+          { label: "班级", cls: "w-sm", render: (r) =>
+            PF.esc(r.class_id || "—") + (r.class_name && r.class_name !== r.class_id
+              ? '<div class="t-xs">' + PF.esc(r.class_name) + "</div>" : "") },
+          { label: "绩点", cls: "w-sm num", render: (r) => PF.num(r.gpa, 2) },
+          { label: "主标签", cls: "w-md", render: (r) => PF.trackBadge(r.track) },
+          { label: "等级", cls: "w-sm", render: (r) => PF.levelTag(r.grade_level) + ' <span class="t-xs">' + PF.esc(r.grade_level) + "</span>" },
+          { label: "推荐内容深度", cls: "w-md", render: (r) => '<span class="t-sm">' + PF.esc(r.layer || "—") + "</span>" },
+          { label: "兴趣方向", render: (r) => PF.arr(r.interests).length
+              ? PF.arr(r.interests).slice(0, 3).map((x) => '<span class="chip">' + PF.esc(x) + "</span>").join(" ")
+              : '<span class="t-xs t-dim">未识别</span>' },
+          { label: "在办任务", cls: "w-sm num", render: (r) => (r.task_count || 0) ? '<span class="badge badge--warn">' + r.task_count + "</span>" : '<span class="t-dim">0</span>' },
+          { label: "", cls: "w-md nowrap", render: (r) =>
+            '<button class="btn btn--sm" data-detail="' + r.id + '">画像</button> ' +
+            '<a class="btn btn--sm btn--ghost" href="/tutor?ask=' + encodeURIComponent("看看" + r.name + "的画像") + '">Copilot</a>' },
+        ], rows, { empty: { icon: "users", title: "没有匹配的学生", desc: "试试放宽筛选条件。" } }) +
+        "</div></div>";
+    }
+
+    function paintBody() {
+      const rows = students.filter((s) => {
+        if (FILTER.level && String(s.grade_level) !== FILTER.level) return false;
+        if (FILTER.track && String(s.track) !== FILTER.track) return false;
+        if (FILTER.keyword) {
+          const k = FILTER.keyword;
+          if (String(s.name || "").indexOf(k) < 0 && String(s.username || "").indexOf(k) < 0) return false;
+        }
+        return true;
+      });
+      PF.$("#cnt", box).textContent = rows.length;
+      PF.$("#roster-body", box).innerHTML = table(rows);
+      PF.$$("[data-detail]", box).forEach((b) =>
+        b.addEventListener("click", () => openStudent(Number(b.dataset.detail))));
+    }
+
+    const fLevel = PF.$("#f-level", box), fTrack = PF.$("#f-track", box), fKey = PF.$("#f-key", box);
+    fLevel.addEventListener("change", () => { FILTER.level = fLevel.value; paintBody(); });
+    fTrack.addEventListener("change", () => { FILTER.track = fTrack.value; paintBody(); });
+    fKey.addEventListener("input", PF.debounce(() => { FILTER.keyword = fKey.value.trim(); paintBody(); }, 240));
+    PF.$("#f-reset", box).addEventListener("click", () => {
+      FILTER = { level: "", track: "", keyword: "" };
+      fLevel.value = ""; fTrack.value = ""; fKey.value = ""; paintBody();
+    });
+    PF.$("#btn-export-roster", box).addEventListener("click", () => {
+      const rows = students.filter((s) => {
+        if (FILTER.level && String(s.grade_level) !== FILTER.level) return false;
+        if (FILTER.track && String(s.track) !== FILTER.track) return false;
+        return true;
+      });
+      const head = ["学号", "姓名", "班级", "绩点", "主标签", "等级", "推荐内容深度", "兴趣方向"];
+      const csv = [head.join(",")].concat(rows.map((s) => [
+        s.username, s.name, s.class_id || "", s.gpa, s.track, s.grade_level, s.layer || "",
+        PF.arr(s.interests).join(" / "),
+      ].map((v) => '"' + String(v === null || v === undefined ? "" : v).replace(/"/g, '""') + '"').join(","))).join("\r\n");
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "学生画像_" + (d.class_id || "全部") + ".csv";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      PF.toast("已导出 " + rows.length + " 条记录", "ok");
+    });
+
+    paintBody();
+  }
+
+  /* ---------------------------------------------------------- 学生详情 */
+  async function openStudent(id) {
+    const m = PF.modal({ title: "学生画像", width: "wide", body: PF.loading("正在读取画像与成长路线") });
+    let detail;
+    try {
+      detail = await PF.get("/api/teacher/students/" + id);
+    } catch (e) {
+      m.body.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      return;
+    }
+    const p = detail.profile || {}, st = detail.student || {};
+    const route = detail.roadmap || {};
+
+    const ability = PF.arr(p.ability_pairs);
+    const tasks = PF.arr(detail.tasks);
+    const mastery = PF.arr(detail.mastery);
+    const apps = PF.arr(detail.applications);
+
+    m.body.innerHTML =
+      '<div class="row mb-5" style="gap:12px;flex-wrap:nowrap">' +
+        '<div class="sidebar__avatar" style="width:44px;height:44px;flex-basis:44px;font-size:16px;background:linear-gradient(135deg,var(--brand-400),var(--brand-600))">' +
+          PF.esc(PF.initial(st.name)) + "</div>" +
+        "<div class=\"flex-1\">" +
+          '<div class="t-h2">' + PF.esc(st.name) + " " + PF.trackBadge(p.track) + " " + PF.levelTag(p.grade_level) + "</div>" +
+          '<div class="t-xs">' + PF.esc(st.username) + " · 行政班 " + PF.esc(st.class_id || "—") +
+            (p.engine ? " · 画像由" + (p.engine === "llm" ? "模型" : "规则") + "生成" : "") + "</div>" +
+        "</div>" +
+        '<button class="btn btn--sm" id="m-recompute">' + PF.icon("refresh", 13) + "重算掌握度</button>" +
+      "</div>" +
+
+      '<div class="grid grid-2" style="gap:16px">' +
+        '<div class="card"><div class="card__head"><h3>能力画像</h3></div><div class="card__body stack-sm">' +
+          (ability.length ? ability.map((a) =>
+            '<div class="ability-row"><span class="t-sm">' + PF.esc(a.name) + "</span>" +
+            PF.progress((Number(a.value) || 0) * 20 > 100 ? 100 : (Number(a.value) || 0) * 20) +
+            '<span class="num">' + PF.num(a.value, 1) + "</span></div>"
+          ).join("") : '<span class="t-dim">暂无数据</span>') +
+          '<div class="t-xs mt-3">每项满分 5 分，由成绩、材料与自评综合推导。</div>' +
+        "</div></div>" +
+
+        '<div class="card"><div class="card__head"><h3>画像解读</h3>' +
+          '<div class="card__head-actions">' + PF.engineBadge(p.engine) + "</div></div>" +
+          '<div class="card__body stack-sm">' +
+            '<div><span class="t-xs">推荐内容深度</span><div class="t-strong">' + PF.esc(p.layer || "—") + "</div></div>" +
+            '<div><span class="t-xs">答疑风格</span><div class="t-body">' + PF.esc(p.style || "—") + "</div></div>" +
+            '<div><span class="t-xs">兴趣方向</span><div class="row" style="gap:5px">' +
+              (PF.arr(p.interests).length ? PF.arr(p.interests).map((x) => '<span class="chip chip--brand">' + PF.esc(x) + "</span>").join("") : '<span class="t-dim">未识别</span>') +
+            "</div></div>" +
+            (p.reason ? '<div><span class="t-xs">分层依据</span><div class="t-body">' + PF.esc(p.reason) + "</div></div>" : "") +
+            (p.summary ? '<div><span class="t-xs">材料摘要</span><div class="t-body">' + PF.esc(p.summary) + "</div></div>" : "") +
+          "</div></div>" +
+      "</div>" +
+
+      '<div class="card mt-5"><div class="card__head"><h3>成长路线</h3>' +
+        '<div class="card__head-actions">' + PF.engineBadge(detail.roadmap_engine) + "</div></div>" +
+        '<div class="card__body">' +
+          '<div class="t-h3 mb-2">' + PF.esc(route.title || "成长路线") + "</div>" +
+          (route.summary ? '<p class="t-sm mb-4">' + PF.esc(route.summary) + "</p>" : "") +
+          (PF.arr(route.stages).length
+            ? '<div class="timeline">' + route.stages.map((s) =>
+                '<div class="timeline__item"><div class="row" style="gap:8px">' +
+                  '<span class="badge badge--brand">' + PF.esc(s.period) + "</span>" +
+                  '<span class="t-strong">' + PF.esc(s.focus) + "</span></div>" +
+                  '<ul class="stack-sm mt-2" style="padding-left:4px">' + PF.arr(s.actions).map((a) =>
+                    '<li class="t-body" style="line-height:1.7">· ' + PF.esc(a) + "</li>").join("") + "</ul>" +
+                "</div>").join("") + "</div>"
+            : '<span class="t-dim">暂无路线</span>') +
+        "</div></div>" +
+
+      '<div class="grid grid-2 mt-5" style="gap:16px">' +
+        '<div class="card"><div class="card__head"><h3>在办任务</h3>' +
+          '<div class="card__head-actions"><span class="t-xs">' + tasks.length + " 条</span></div></div>" +
+          '<div class="card__body card__body--flush">' +
+            (tasks.length ? '<div class="list">' + tasks.slice(0, 8).map((t) =>
+              '<div class="list__item"><div class="list__main"><div class="list__title">' + PF.esc(t.title) + "</div>" +
+              '<div class="list__meta">' + PF.statusBadge(t.status_text || t.status) +
+              '<span>进度 ' + PF.num(t.progress, 0) + "%</span>" +
+              (t.due_date ? "<span>截止 " + PF.esc(PF.date(t.due_date)) + "</span>" : "") + "</div></div></div>"
+            ).join("") + "</div>" : PF.empty({ icon: "check", title: "暂无任务" })) +
+          "</div></div>" +
+
+        '<div class="card"><div class="card__head"><h3>知识掌握度</h3>' +
+          '<div class="card__head-actions">' + PF.icon("activity", 14) + "</div></div>" +
+          '<div class="card__body stack-sm">' +
+            (mastery.length ? mastery.slice(0, 8).map((k) => {
+              const v = Math.round((Number(k.mastery) || 0) * 100);
+              const tone = v >= 85 ? "ok" : v >= 70 ? "" : "warn";
+              return '<div class="ability-row"><span class="t-sm t-clamp-1" title="' + PF.esc(k.kp_name) + '">' +
+                PF.esc(PF.trunc(k.kp_name, 8)) + "</span>" + PF.progress(v, { tone: tone }) +
+                '<span class="num">' + v + "</span></div>";
+            }).join("") : '<span class="t-dim">还没有观测记录。批改该生作业后点击「重算掌握度」即可生成。</span>') +
+          "</div></div>" +
+      "</div>" +
+
+      '<div class="card mt-5"><div class="card__head"><h3>资源申请记录</h3></div>' +
+        '<div class="card__body card__body--flush">' +
+        (apps.length ? PF.table([
+          { label: "资源", render: (a) => PF.esc(a.resource_title || a.title || "—") },
+          { label: "类型", cls: "w-sm", render: (a) => '<span class="chip">' + PF.esc(a.rtype_text || a.rtype || "—") + "</span>" },
+          { label: "状态", cls: "w-md", render: (a) => PF.statusBadge(a.status_text || a.status) },
+          { label: "申请时间", cls: "w-md", render: (a) => PF.esc(PF.when(a.created_at)) },
+        ], apps, {}) : PF.empty({ icon: "folder", title: "暂无申请记录" })) +
+        "</div></div>";
+
+    const rb = PF.$("#m-recompute", m.body);
+    if (rb) rb.addEventListener("click", async () => {
+      PF.busy(rb, true, "重算中");
+      try {
+        const res = await PF.post("/api/teacher/students/" + id + "/mastery", {});
+        PF.toast(res.message || ("已更新 " + (res.count || 0) + " 条掌握度记录"), "ok");
+        m.close();
+        PF.state.tabs && PF.state.tabs.reload && PF.state.tabs.reload();
+      } finally { PF.busy(rb, false); }
+    });
+  }
+
+  /* ============================================================ 标签三：课题组 */
+  function renderGroups(box) {
+    box.innerHTML = PF.loading("正在加载课题组");
+    Promise.all([
+      PF.get("/api/teacher/overview"),
+      PF.try(() => PF.get("/api/match/recommend"), { groups: [] }),
+    ]).then(([ov, rec]) => {
+      const mine = PF.arr(ov.groups);
+      const rg = PF.arr(rec.groups);
+      box.innerHTML =
+        '<div class="note note--brand mb-5">' + PF.icon("info", 15) +
+          "<div><strong>两个概念要分清：</strong>「常设课题组」是你长期招收学生的团队（上面这张列表）；" +
+          "「课题组类资源」是发布在资源广场、可供学生申请的名额（在资源管理页维护）。" +
+          "师生匹配页把两者合到一起用。</div></div>" +
+
+        '<div class="grid grid-2" style="gap:16px">' +
+          '<div class="card"><div class="card__head"><h3>我的常设课题组</h3>' +
+            '<div class="card__head-actions"><a class="btn btn--sm btn--primary" href="/match">' +
+              PF.icon("plus", 13) + "新建课题组</a></div></div>" +
+            '<div class="card__body card__body--flush">' +
+              (mine.length ? '<div class="list">' + mine.map((g) =>
+                '<div class="list__item"><div class="list__main">' +
+                  '<div class="list__title">' + PF.esc(g.name || "未命名") + "</div>" +
+                  '<div class="list__meta">' + PF.arr(g.directions).map((d) => '<span class="chip">' + PF.esc(d) + "</span>").join("") +
+                    "<span>容量 " + PF.esc(g.capacity || "不限") + "</span></div>" +
+                  (g.requirement ? '<div class="list__desc">' + PF.esc(g.requirement) + "</div>" : "") +
+                "</div><div class=\"list__side\">" +
+                  '<span class="badge badge--ok">已确认 ' + (g.member_count || 0) + " 人</span>" +
+                "</div></div>").join("") + "</div>"
+              : PF.empty({ icon: "users", title: "还没有课题组",
+                  desc: "课题组用于承载师生双向匹配：学生看到方向与名额、你看到候选学生。",
+                  action: '<a class="btn btn--primary" href="/match">现在创建</a>' })) +
+            "</div></div>" +
+
+          '<div class="card"><div class="card__head"><h3>匹配算法给出的候选</h3>' +
+            '<div class="card__head-actions"><a class="btn btn--sm" href="/match">' +
+              "在匹配页处理" + PF.icon("chevronRight", 13) + "</a></div></div>" +
+            '<div class="card__body card__body--flush">' +
+              (rg.length ? '<div class="list">' + rg.map((g) =>
+                '<div class="list__item"><div class="list__main">' +
+                  '<div class="list__title">' + PF.esc(g.name || "未命名") + "</div>" +
+                  '<div class="list__meta"><span>候选 ' + PF.arr(g.candidates).length + " 人</span>" +
+                    "<span>剩余名额 " + PF.esc(g.seats_left === undefined ? "—" : g.seats_left) + "</span></div>" +
+                  (PF.arr(g.candidates).length ? '<div class="list__desc">' +
+                    "首选：" + PF.esc(PF.arr(g.candidates)[0].name) + "（匹配度 " +
+                    PF.num(PF.arr(g.candidates)[0].score, 0) + "）<br>" +
+                    '<span class="t-xs">' + PF.esc(PF.arr(g.candidates)[0].reason || "") + "</span></div>" : "") +
+                "</div></div>").join("") + "</div>"
+              : PF.empty({ icon: "info", title: "暂无可推荐的学生",
+                  desc: "需要先建好课题组，且班级内有带画像的学生。" })) +
+            "</div></div>" +
+        "</div>";
+    }).catch((e) => { box.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message }); });
+  }
+
+  /* ============================================================ 自检 */
+  async function runSelfcheck() {
+    const m = PF.modal({ title: "双引擎全链路自检", body: PF.loading("正在逐项验证"), width: "wide",
+      actions: [{ label: "关闭" }] });
+    try {
+      const d = await PF.post("/api/selfcheck", {});
+      const cls = d.passed === d.total ? "badge--ok" : "badge--warn";
+      m.body.innerHTML =
+        '<div class="row mb-4"><span class="badge ' + cls + '">' + d.passed + " / " + d.total + " 项通过</span>" +
+        '<span class="t-sm">' + PF.esc(d.verdict) + "</span></div>" +
+        '<div class="card card--flat">' + PF.arr(d.checks).map((c) =>
+          '<div class="check-item">' +
+            '<div class="check-item__ico check-item__ico--' + (c.ok ? "ok" : "no") + '">' +
+              PF.icon(c.ok ? "check" : "x", 12) + "</div>" +
+            '<div class="flex-1"><div class="check-item__name">' + PF.esc(c.name) + "</div>" +
+              '<div class="check-item__detail">' + PF.esc(c.detail) + "</div></div>" +
+          "</div>").join("") + "</div>" +
+        '<div class="note mt-4">' + PF.icon("info", 15) + "<div>自检刻意逐项 try/catch：" +
+          "某一环失败不会掩盖其它环节。全部通过意味着当前环境「不配 API Key 也能完整演示」。</div></div>";
+    } catch (e) {
+      m.body.innerHTML = PF.empty({ icon: "alert", title: "自检失败", desc: e.message });
+    }
+  }
+
+  /* ============================================================ 装配 */
+  const tabs = PF.tabs(host, [
+    { key: "class", label: "班级学情", icon: "grid", render: renderClass },
+    { key: "roster", label: "学生画像库", icon: "users", render: renderRoster },
+    { key: "groups", label: "课题组", icon: "briefcase", render: renderGroups },
+  ], { base: "#", onChange: () => window.scrollTo({ top: 0, behavior: "smooth" }) });
+  PF.state.tabs = tabs;
+
+  PF.$("#btn-refresh").addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    PF.busy(b, true, "刷新中");
+    try {
+      await tabs.reload();
+      PF.toast("数据已刷新", "ok");
+    } finally { PF.busy(b, false); }
+  });
+
+  PF.$("#btn-selfcheck").addEventListener("click", runSelfcheck);
+})();
+</script>
+</body>
+</html>

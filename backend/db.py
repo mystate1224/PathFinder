@@ -1,0 +1,528 @@
+# -*- coding: utf-8 -*-
+"""db.py —— 数据层。
+
+职责边界（很重要）：
+* 只做三件事：**建表 / 通用读写 / 鉴权基础设施（密码、会话）**。
+* 任何业务规则都不许写在这里，一律放 ``services/``。
+* 每次调用新建 SQLite 连接（建连极廉价），天然适配多线程与 uvicorn 工作进程。
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import secrets
+import sqlite3
+import time
+from datetime import datetime, timedelta
+from typing import Any, Iterable, Sequence
+
+import config
+
+# FTS5 是否可用：建表失败（老版本 SQLite）时由 rag.py 降级为全表 LIKE 扫描
+FTS_OK = False
+
+
+# ================================================================ 连接
+def connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(config.DB_PATH), timeout=15)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def query(sql: str, args: Sequence[Any] = ()) -> list[dict]:
+    """查多行，返回 list[dict]。"""
+    with connect() as conn:  # with 只负责 commit/rollback，不关闭连接
+        rows = conn.execute(sql, tuple(args)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def query_one(sql: str, args: Sequence[Any] = ()) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(sql, tuple(args)).fetchone()
+    return dict(row) if row else None
+
+
+def scalar(sql: str, args: Sequence[Any] = (), default: Any = None) -> Any:
+    with connect() as conn:
+        row = conn.execute(sql, tuple(args)).fetchone()
+    if row is None or row[0] is None:
+        return default
+    return row[0]
+
+
+def execute(sql: str, args: Sequence[Any] = ()) -> int:
+    """写一行，返回 lastrowid。"""
+    with connect() as conn:
+        cur = conn.execute(sql, tuple(args))
+        return int(cur.lastrowid or 0)
+
+
+def execute_many(sql: str, rows: Iterable[Sequence[Any]]) -> int:
+    rows = [tuple(r) for r in rows]
+    if not rows:
+        return 0
+    with connect() as conn:
+        cur = conn.executemany(sql, rows)
+        return int(cur.rowcount or 0)
+
+
+def run_script(sql: str) -> None:
+    with connect() as conn:
+        conn.executescript(sql)
+
+
+def jload(value: Any, default: Any = None) -> Any:
+    """安全解析 JSON 文本列；已经是 list/dict 就原样返回。"""
+    if default is None:
+        default = []
+    if value is None or value == "":
+        return default
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return default
+    return default if parsed is None else parsed
+
+
+def jdump(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ================================================================ 建表
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT NOT NULL UNIQUE,
+    pwd_hash   TEXT NOT NULL,
+    role       TEXT NOT NULL,            -- teacher | student
+    name       TEXT NOT NULL DEFAULT '',
+    class_id   TEXT NOT NULL DEFAULT '', -- 行政班（班级总览用）
+    class_name TEXT NOT NULL DEFAULT ''  -- 教学班（作业分发用）
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS student_profiles (
+    user_id     INTEGER PRIMARY KEY,
+    track       TEXT NOT NULL DEFAULT '',   -- 学业型 | 事业型
+    grade_level TEXT NOT NULL DEFAULT 'B',  -- A | B | C
+    interests   TEXT NOT NULL DEFAULT '[]',
+    ability     TEXT NOT NULL DEFAULT '{}',
+    gpa         REAL NOT NULL DEFAULT 0,
+    research_intent REAL NOT NULL DEFAULT 3, -- 1~5，学生自评的科研倾向
+    job_intent      REAL NOT NULL DEFAULT 3, -- 1~5，学生自评的就业倾向
+    reason      TEXT NOT NULL DEFAULT '',
+    engine      TEXT NOT NULL DEFAULT 'rule'
+);
+
+CREATE TABLE IF NOT EXISTS teacher_profiles (
+    user_id    INTEGER PRIMARY KEY,
+    directions TEXT NOT NULL DEFAULT '[]',
+    expertise  TEXT NOT NULL DEFAULT '[]',
+    projects   TEXT NOT NULL DEFAULT '[]',
+    summary    TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS materials (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id  INTEGER NOT NULL,
+    kind      TEXT NOT NULL DEFAULT 'courseware',
+    category  TEXT NOT NULL DEFAULT '未分类',
+    filename  TEXT NOT NULL DEFAULT '',
+    stored    TEXT NOT NULL DEFAULT '',   -- 落盘后的相对路径
+    raw_text  TEXT NOT NULL DEFAULT '',
+    parsed    TEXT NOT NULL DEFAULT '{}',
+    engine    TEXT NOT NULL DEFAULT 'rule',
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_points (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    material_id INTEGER NOT NULL DEFAULT 0,
+    owner_id    INTEGER NOT NULL DEFAULT 0,
+    course      TEXT NOT NULL DEFAULT '',
+    name        TEXT NOT NULL DEFAULT '',
+    difficulty  TEXT NOT NULL DEFAULT 'B',  -- A | B | C（内容深度建议，不用于分班）
+    keywords    TEXT NOT NULL DEFAULT '[]',
+    source_ref  TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS kb_vec (
+    material_id INTEGER NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    dim         INTEGER NOT NULL DEFAULT 0,
+    vector      TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (material_id, chunk_index)
+);
+
+CREATE TABLE IF NOT EXISTS research_groups (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    teacher_id  INTEGER NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    directions  TEXT NOT NULL DEFAULT '[]',
+    requirement TEXT NOT NULL DEFAULT '',
+    capacity    INTEGER NOT NULL DEFAULT 3
+);
+
+CREATE TABLE IF NOT EXISTS match_records (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id     INTEGER NOT NULL,
+    group_id       INTEGER NOT NULL,
+    teacher_id     INTEGER NOT NULL DEFAULT 0,
+    score          REAL NOT NULL DEFAULT 0,
+    reason         TEXT NOT NULL DEFAULT '',
+    teacher_action TEXT NOT NULL DEFAULT 'pending',  -- pending | accepted | declined
+    student_action TEXT NOT NULL DEFAULT 'pending',
+    created_at     TEXT NOT NULL DEFAULT '',
+    UNIQUE (student_id, group_id)
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    teacher_id INTEGER NOT NULL DEFAULT 0,
+    type       TEXT NOT NULL DEFAULT 'todo',
+    title      TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT '',
+    status     TEXT NOT NULL DEFAULT 'todo',   -- todo | doing | done
+    progress   INTEGER NOT NULL DEFAULT 0,
+    due_date   TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    scene      TEXT NOT NULL DEFAULT 'tutor',  -- tutor | copilot | agent
+    role       TEXT NOT NULL DEFAULT 'user',   -- user | assistant
+    content    TEXT NOT NULL DEFAULT '',
+    refs       TEXT NOT NULL DEFAULT '[]',
+    layer      TEXT NOT NULL DEFAULT '',
+    engine     TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS teacher_resources (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    teacher_id INTEGER NOT NULL,
+    rtype      TEXT NOT NULL DEFAULT 'group', -- group | contest | internship | project
+    title      TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT '',
+    tags       TEXT NOT NULL DEFAULT '[]',
+    capacity   INTEGER NOT NULL DEFAULT 0,    -- 0 = 不限
+    deadline   TEXT NOT NULL DEFAULT '',
+    status     TEXT NOT NULL DEFAULT 'open',  -- open | closed
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS resource_applications (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    resource_id   INTEGER NOT NULL,
+    student_id    INTEGER NOT NULL,
+    message       TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'pending', -- pending | accepted | declined
+    teacher_reply TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL DEFAULT '',
+    UNIQUE (resource_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS homework (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    teacher_id INTEGER NOT NULL,
+    title      TEXT NOT NULL DEFAULT '',
+    course     TEXT NOT NULL DEFAULT '',
+    class_name TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT '',
+    full_score REAL NOT NULL DEFAULT 100,
+    deadline   TEXT NOT NULL DEFAULT '',
+    status     TEXT NOT NULL DEFAULT 'open',  -- open | closed（停止提交）
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS homework_submissions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    homework_id INTEGER NOT NULL,
+    student_id  INTEGER NOT NULL,
+    content     TEXT NOT NULL DEFAULT '',
+    files       TEXT NOT NULL DEFAULT '[]',
+    score       REAL NOT NULL DEFAULT -1,     -- -1 = 未批改
+    level       TEXT NOT NULL DEFAULT '',
+    comment     TEXT NOT NULL DEFAULT '',
+    attempt     INTEGER NOT NULL DEFAULT 1,   -- 第几次提交（留痕）
+    late        INTEGER NOT NULL DEFAULT 0,   -- 是否逾期提交
+    submitted_at TEXT NOT NULL DEFAULT '',
+    graded_at   TEXT NOT NULL DEFAULT '',
+    UNIQUE (homework_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    kind       TEXT NOT NULL DEFAULT 'md',    -- pptx | docx | md | lesson | slides
+    title      TEXT NOT NULL DEFAULT '',
+    course     TEXT NOT NULL DEFAULT '',
+    file_path  TEXT NOT NULL DEFAULT '',
+    content    TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS kp_mastery (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id  INTEGER NOT NULL,
+    kp_name     TEXT NOT NULL DEFAULT '',
+    course      TEXT NOT NULL DEFAULT '',
+    mastery     REAL NOT NULL DEFAULT 0,      -- 0~1
+    evidence    TEXT NOT NULL DEFAULT '',
+    updated_at  TEXT NOT NULL DEFAULT '',
+    UNIQUE (student_id, kp_name)
+);
+"""
+
+# 索引：把最常用的过滤/连接列都建上
+_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_kp_mat ON knowledge_points(material_id)",
+    "CREATE INDEX IF NOT EXISTS idx_kp_owner ON knowledge_points(owner_id)",
+    "CREATE INDEX IF NOT EXISTS idx_mat_owner ON materials(owner_id)",
+    "CREATE INDEX IF NOT EXISTS idx_chat_user ON chat_messages(user_id, scene, id)",
+    "CREATE INDEX IF NOT EXISTS idx_task_stu ON tasks(student_id)",
+    "CREATE INDEX IF NOT EXISTS idx_res_teacher ON teacher_resources(teacher_id)",
+    "CREATE INDEX IF NOT EXISTS idx_app_res ON resource_applications(resource_id)",
+    "CREATE INDEX IF NOT EXISTS idx_app_stu ON resource_applications(student_id)",
+    "CREATE INDEX IF NOT EXISTS idx_hw_teacher ON homework(teacher_id)",
+    "CREATE INDEX IF NOT EXISTS idx_hw_class ON homework(class_name)",
+    "CREATE INDEX IF NOT EXISTS idx_sub_hw ON homework_submissions(homework_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sub_stu ON homework_submissions(student_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
+]
+
+# 表 -> 后补列（老库平滑升级用）
+_COLUMN_UPGRADES: dict[str, list[tuple[str, str]]] = {
+    "users": [("class_name", "TEXT NOT NULL DEFAULT ''")],
+    "student_profiles": [
+        ("research_intent", "REAL NOT NULL DEFAULT 3"),
+        ("job_intent", "REAL NOT NULL DEFAULT 3"),
+    ],
+    "materials": [
+        ("category", "TEXT NOT NULL DEFAULT '未分类'"),
+        ("stored", "TEXT NOT NULL DEFAULT ''"),
+        ("engine", "TEXT NOT NULL DEFAULT 'rule'"),
+    ],
+    "knowledge_points": [("owner_id", "INTEGER NOT NULL DEFAULT 0")],
+    "homework": [("status", "TEXT NOT NULL DEFAULT 'open'")],
+    "homework_submissions": [
+        ("attempt", "INTEGER NOT NULL DEFAULT 1"),
+        ("late", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+    "chat_messages": [("scene", "TEXT NOT NULL DEFAULT 'tutor'")],
+}
+
+
+def init_db() -> None:
+    """建表 + 建索引 + 补列 + 建 FTS5 虚拟表。幂等，可反复调用。"""
+    global FTS_OK
+    with connect() as conn:
+        conn.executescript(_SCHEMA)
+        for stmt in _INDEXES:
+            try:
+                conn.execute(stmt)
+            except sqlite3.Error:
+                pass
+
+        # 补列：ALTER TABLE ADD COLUMN 在老库上补齐新增字段
+        for table, cols in _COLUMN_UPGRADES.items():
+            existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for col, decl in cols:
+                if col not in existing:
+                    try:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+                    except sqlite3.Error:
+                        pass
+
+        # 教学班回填：老库只有 class_id 时，用行政班兜底，保证作业能分发
+        try:
+            conn.execute(
+                "UPDATE users SET class_name = class_id "
+                "WHERE role='student' AND (class_name IS NULL OR class_name='') AND class_id <> ''"
+            )
+        except sqlite3.Error:
+            pass
+
+    # FTS5 独立 try/except：不支持 trigram 分词器时整条检索链降级为 LIKE
+    try:
+        with connect() as conn:
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS kb_fts USING fts5("
+                "material_id UNINDEXED, chunk_index UNINDEXED, owner_id UNINDEXED, "
+                "course, filename, content, tokenize='trigram')"
+            )
+        FTS_OK = True
+    except sqlite3.Error as exc:  # pragma: no cover
+        print(f"[db] FTS5 不可用，检索将降级为 LIKE 扫描：{exc}")
+        FTS_OK = False
+
+
+# ================================================================ 密码
+PBKDF2_ROUNDS = 100_000
+
+
+def hash_password(password: str) -> str:
+    """pbkdf2_hmac('sha256', salt, 100_000)，返回 ``salt$hash``。绝不存明文。"""
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), PBKDF2_ROUNDS)
+    return f"{salt}${dk.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    if not stored or "$" not in stored:
+        return False
+    salt, digest = stored.split("$", 1)
+    try:
+        dk = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("utf-8"), PBKDF2_ROUNDS
+        )
+    except (TypeError, ValueError):
+        return False
+    return secrets.compare_digest(dk.hex(), digest)
+
+
+# ================================================================ 会话
+def create_session(user_id: int, days: int | None = None) -> str:
+    token = secrets.token_urlsafe(32)
+    days = config.SESSION_DAYS if days is None else days
+    expires = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    with connect() as conn:
+        # 顺手清理过期会话，避免表无限膨胀
+        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now(),))
+        conn.execute(
+            "INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)",
+            (token, user_id, expires),
+        )
+    return token
+
+
+def session_user(token: str | None) -> dict | None:
+    """用 token 换用户；过期即删并返回 None。"""
+    if not token:
+        return None
+    row = query_one(
+        "SELECT s.token, s.expires_at, u.* FROM sessions s "
+        "JOIN users u ON u.id = s.user_id WHERE s.token = ?",
+        (token,),
+    )
+    if not row:
+        return None
+    if str(row.get("expires_at") or "") < now():
+        delete_session(token)
+        return None
+    row.pop("pwd_hash", None)
+    return row
+
+
+def delete_session(token: str | None) -> None:
+    if not token:
+        return
+    with connect() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+
+
+# ================================================================ 便捷读取
+def user_by_username(username: str) -> dict | None:
+    return query_one("SELECT * FROM users WHERE username = ?", (username,))
+
+
+def user_by_id(user_id: int) -> dict | None:
+    return query_one("SELECT * FROM users WHERE id = ?", (user_id,))
+
+
+def student_profile(user_id: int) -> dict | None:
+    row = query_one("SELECT * FROM student_profiles WHERE user_id = ?", (user_id,))
+    if row:
+        row["interests"] = jload(row.get("interests"), [])
+        row["ability"] = jload(row.get("ability"), {})
+    return row
+
+
+def teacher_profile(user_id: int) -> dict | None:
+    row = query_one("SELECT * FROM teacher_profiles WHERE user_id = ?", (user_id,))
+    if row:
+        row["directions"] = jload(row.get("directions"), [])
+        row["expertise"] = jload(row.get("expertise"), [])
+        row["projects"] = jload(row.get("projects"), [])
+    return row
+
+
+def students_of_class(class_name: str = "", class_id: str = "") -> list[dict]:
+    """按教学班优先、其次行政班取学生名单。"""
+    if class_name:
+        return query(
+            "SELECT * FROM users WHERE role='student' AND class_name = ? ORDER BY username",
+            (class_name,),
+        )
+    if class_id:
+        return query(
+            "SELECT * FROM users WHERE role='student' AND class_id = ? ORDER BY username",
+            (class_id,),
+        )
+    return query("SELECT * FROM users WHERE role='student' ORDER BY username")
+
+
+def all_students() -> list[dict]:
+    return query("SELECT * FROM users WHERE role='student' ORDER BY username")
+
+
+def log_chat(user_id: int, role: str, content: str, refs: Any = None,
+             scene: str = "tutor", layer: str = "", engine: str = "") -> int:
+    return execute(
+        "INSERT INTO chat_messages (user_id, scene, role, content, refs, layer, engine, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (user_id, scene, role, content, jdump(refs or []), layer, engine, now()),
+    )
+
+
+def recent_chat(user_id: int, scene: str = "tutor", turns: int = 4) -> list[dict]:
+    """最近 N 轮对话（一问一答算一轮），按时间正序返回。"""
+    limit = max(1, turns) * 2
+    rows = query(
+        "SELECT * FROM chat_messages WHERE user_id = ? AND scene = ? "
+        "ORDER BY id DESC LIMIT ?",
+        (user_id, scene, limit),
+    )
+    rows.reverse()
+    for r in rows:
+        r["refs"] = jload(r.get("refs"), [])
+    return rows
+
+
+def health_snapshot() -> dict:
+    tables = [
+        "users", "sessions", "student_profiles", "teacher_profiles", "materials",
+        "knowledge_points", "kb_vec", "research_groups", "match_records", "tasks",
+        "chat_messages", "teacher_resources", "resource_applications", "homework",
+        "homework_submissions", "artifacts", "kp_mastery",
+    ]
+    counts = {}
+    for t in tables:
+        try:
+            counts[t] = scalar(f"SELECT COUNT(*) FROM {t}", (), 0)
+        except sqlite3.Error:
+            counts[t] = -1
+    try:
+        counts["kb_fts"] = scalar("SELECT COUNT(*) FROM kb_fts", (), 0)
+    except sqlite3.Error:
+        counts["kb_fts"] = -1
+    return {"fts_ok": FTS_OK, "counts": counts, "db": str(config.DB_PATH)}
+
+
+_ = time  # 保留 time 供后续扩展（缓存/限流）

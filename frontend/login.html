@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · 寻径教育 PathFinder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css">
+<script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
+   刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
+   没选过就跟随系统 prefers-color-scheme。 */
+(function(){var t=null;try{t=localStorage.getItem("pf_theme")}catch(e){}
+if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
+document.documentElement.setAttribute("data-theme",t)})();</script>
+</head>
+<body>
+
+<button class="theme-toggle theme-toggle--float" type="button" id="pf-theme"></button>
+
+<div class="auth">
+  <!-- 左：品牌叙事 -->
+  <section class="auth__art">
+    <div class="auth__grid-lines"></div>
+    <div class="auth__inner">
+      <div class="auth__brand">
+        <div class="sidebar__mark" id="brand-mark"></div>
+        <div>
+          <div class="sidebar__name" style="font-size:16px">寻径教育</div>
+          <div class="sidebar__sub">PathFinder</div>
+        </div>
+      </div>
+
+      <h1 class="auth__headline">学业与就业<br>双轨智能导航平台</h1>
+      <p class="auth__sub">
+        把「上传的资料」变成「可检索的知识」，
+        把「模糊的自我认知」变成「可执行的成长路径」。
+        一次画像，三条出口：学业深造、科研入门、就业准备。
+      </p>
+
+      <div class="auth__points">
+        <div class="auth__point">
+          <div class="auth__point-ico" data-ico="layers"></div>
+          <div><strong>图文素材智能解析</strong><br>
+          课件、讲义、简历、成绩单拖进去，自动抽知识点与技能标签。</div>
+        </div>
+        <div class="auth__point">
+          <div class="auth__point-ico" data-ico="message"></div>
+          <div><strong>分层答疑</strong><br>
+          同一道问题，按你的画像给出匹配深度的讲解，不改变课程与考核口径。</div>
+        </div>
+        <div class="auth__point">
+          <div class="auth__point-ico" data-ico="presentation"></div>
+          <div><strong>备课与批改助手</strong><br>
+          教案、PPT 大纲一键生成，作业批改给出要点覆盖分析与改进建议。</div>
+        </div>
+        <div class="auth__point">
+          <div class="auth__point-ico" data-ico="shield"></div>
+          <div><strong>断网可完整演示</strong><br>
+          双引擎架构：没有 API Key 时全部走规则版，功能不缺、结构一致。</div>
+        </div>
+      </div>
+
+      <div class="auth__foot">© 寻径教育 PathFinder · 教学演示系统</div>
+    </div>
+  </section>
+
+  <!-- 右：登录表单 -->
+  <section class="auth__panel">
+    <div class="auth__form">
+      <h2 class="auth__title">登录</h2>
+      <p class="auth__lead">使用教师或学生账号进入系统。</p>
+
+      <form id="login-form" class="login-stack" autocomplete="on">
+        <div class="login-err" id="login-err"></div>
+
+        <div class="field">
+          <label class="field__label" for="username">账号</label>
+          <input class="input" id="username" name="username" placeholder="例如 teacher 或 stu01"
+                 autocomplete="username" required autofocus>
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="password">密码</label>
+          <input class="input" id="password" name="password" type="password"
+                 placeholder="演示密码 123456" autocomplete="current-password" required>
+        </div>
+
+        <button class="btn btn--primary btn--lg btn--block" type="submit" id="login-btn">进入系统</button>
+      </form>
+
+      <div class="demo-accounts">
+        <div class="demo-accounts__title">演示账号（密码均为 123456，点击直接填入）</div>
+        <div class="demo-grid" id="demo-grid"></div>
+      </div>
+
+      <p class="t-xs mt-5" style="line-height:1.8">
+        本平台的分层结果<strong>只用于决定推荐内容的深度与任务难度</strong>，
+        不用于任何形式的班级划分或资源分配口径。
+      </p>
+    </div>
+  </section>
+</div>
+
+<script src="/static/js/common.js"></script>
+<script>
+(function () {
+  const PF = window.PF;
+
+  // 左栏图标
+  PF.$$("[data-ico]").forEach((el) => { el.innerHTML = PF.icon(el.dataset.ico, 14); });
+  PF.$("#brand-mark").innerHTML = PF.icon("compass", 18);
+
+  // 主题切换（登录页不走 PF.shell，按钮要在这里自己接）
+  PF.theme.sync();
+  PF.$("#pf-theme").addEventListener("click", PF.theme.toggle);
+
+  // 演示账号
+  const DEMO = [
+    { u: "teacher",  name: "张明远", role: "教师 · 计算机学院", tag: "teacher" },
+    { u: "teacher2", name: "李文静", role: "教师 · 软件工程", tag: "teacher2" },
+    { u: "teacher3", name: "王海涛", role: "教师 · 人工智能", tag: "teacher3" },
+    { u: "stu01", name: "陈嘉禾", role: "学生 · 学业型 A", tag: "stu01" },
+    { u: "stu02", name: "林思远", role: "学生 · 学业型 A", tag: "stu02" },
+    { u: "stu06", name: "郑雅琳", role: "学生 · 事业型", tag: "stu06" },
+  ];
+  PF.$("#demo-grid").innerHTML = DEMO.map((d) =>
+    '<button class="demo-card" type="button" data-u="' + PF.esc(d.u) + '">' +
+      '<div class="demo-card__name">' + PF.esc(d.name) + '</div>' +
+      '<div class="demo-card__meta">' + PF.esc(d.u) + '</div>' +
+      '<div class="t-xs" style="margin-top:2px">' + PF.esc(d.role) + '</div>' +
+    '</button>'
+  ).join("");
+
+  const userEl = PF.$("#username");
+  const passEl = PF.$("#password");
+  const errEl = PF.$("#login-err");
+  const btn = PF.$("#login-btn");
+
+  PF.$("#demo-grid").addEventListener("click", (e) => {
+    const card = e.target.closest("[data-u]");
+    if (!card) return;
+    userEl.value = card.dataset.u;
+    passEl.value = "123456";
+    errEl.classList.remove("is-on");
+    passEl.focus();
+  });
+
+  function showErr(msg) {
+    errEl.innerHTML = PF.icon("alert", 15) + "<span>" + PF.esc(msg) + "</span>";
+    errEl.classList.add("is-on");
+  }
+
+  // 已登录就别停在登录页
+  (async function () {
+    const me = await PF.me();
+    if (me) window.location.replace(me.role === "teacher" ? "/teacher" : "/student");
+  })();
+
+  PF.$("#login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.classList.remove("is-on");
+    const username = userEl.value.trim();
+    const password = passEl.value;
+    if (!username || !password) { showErr("请输入账号与密码"); return; }
+
+    PF.busy(btn, true, "正在登录");
+    try {
+      const data = await PF.post("/api/auth/login", { username: username, password: password }, { quiet: true });
+      localStorage.setItem("pf_token", data.token);
+      PF.state.me = { id: data.id, username: data.username, name: data.name, role: data.role };
+      const next = new URLSearchParams(location.search).get("next");
+      window.location.href = next && next.charAt(0) === "/" ? next : (data.home || "/student");
+    } catch (err) {
+      PF.busy(btn, false);
+      showErr(err.message || "登录失败");
+      passEl.select();
+    }
+  });
+})();
+</script>
+</body>
+</html>

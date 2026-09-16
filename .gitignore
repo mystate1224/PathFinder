@@ -1,0 +1,36 @@
+# 环境变量与密钥
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行期数据（SQLite 与上传文件）
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
+data/uploads/
+data/artifacts/
+data/exports/
+
+# 验证脚本的运行期产物：服务日志、浏览器截图与巡检记录
+# （data/smoke.log 例外 —— 它是被 README 引用的验收凭据，需要入库）
+data/*.log
+!data/smoke.log
+data/browser/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+
+# 本地 AI 助手工作目录（会话记录与项目笔记，不属于项目本体）
+.learnbuddy/
+.codebuddy/
+
+# 临时验证产物
+.tmp/

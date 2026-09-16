@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作业 · 寻径教育 PathFinder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css">
+<script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
+   刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
+   没选过就跟随系统 prefers-color-scheme。 */
+(function(){var t=null;try{t=localStorage.getItem("pf_theme")}catch(e){}
+if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
+document.documentElement.setAttribute("data-theme",t)})();</script>
+<style>
+  .hw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(336px, 1fr)); gap: var(--s-4); }
+  @media (max-width: 700px) { .hw-grid { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="/static/js/common.js"></script>
+<script src="/static/js/tabs.js"></script>
+<script>
+(async function () {
+  const PF = window.PF;
+
+  const me = await PF.requireAuth("");
+  if (!me) return;
+  const isTeacher = me.role === "teacher";
+
+  const view = PF.shell({
+    active: "homework",
+    me: me,
+    title: isTeacher ? "作业管理" : "我的作业",
+    desc: isTeacher
+      ? "按教学班布置作业、跟踪提交与批改进度。批改在「批改中心」完成，AI 只给建议分，最终分由你确认。"
+      : "本班老师布置的作业都在这里。提交后可以看到批改结果；重新提交会清空原分数，需要老师重批。",
+    wide: true,
+    actions: isTeacher
+      ? '<button class="btn btn--primary" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>" +
+        '<a class="btn" href="/grade">' + PF.icon("clipboard", 15) + "去批改中心</a>"
+      : '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>",
+  });
+
+  view.innerHTML = '<div id="tabs-host"></div>';
+  const host = PF.$("#tabs-host", view);
+
+  const tabs = PF.tabs(host, isTeacher
+    ? [
+        { key: "list", label: "作业列表", icon: "file", render: renderTeacherList },
+        { key: "new", label: "布置新作业", icon: "plus", render: renderTeacherNew },
+      ]
+    : [
+        { key: "todo", label: "待完成", icon: "clock", render: function (b) { return renderStudent(b, "todo"); } },
+        { key: "all", label: "全部作业", icon: "file", render: function (b) { return renderStudent(b, "all"); } },
+      ], { base: "#/", initial: isTeacher ? "list" : "todo" });
+
+  /* ============================================================ 教师侧 */
+  let TD = null;
+
+  async function renderTeacherList(box) {
+    box.innerHTML = PF.loading("正在读取作业与进度");
+    let d;
+    try {
+      TD = await PF.get("/api/teacher/homework");
+      d = TD;
+    } catch (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      return;
+    }
+    const list = PF.arr(d.homework);
+    const s = d.stats || {};
+
+    const stats =
+      '<div class="grid grid-4">' +
+        statCard("file", "布置过的作业", PF.num(s.total, 0) + ' <span class="t-sm">份</span>',
+          "按教学班分发", "") +
+        statCard("play", "接收提交中", PF.num(s.open, 0) + ' <span class="t-sm">份</span>', "状态为 open", "info") +
+        statCard("clipboard", "待批改提交", PF.num(s.ungraded, 0) + ' <span class="t-sm">份</span>',
+          "已提交未打分", (s.ungraded || 0) > 0 ? "warn" : "") +
+        statCard("users", "有提交记录的学生", PF.num(s.students, 0) + ' <span class="t-sm">人</span>',
+          "跨全部作业去重", "ok") +
+      "</div>";
+
+    if (!list.length) {
+      box.innerHTML = stats + '<div class="mt-5">' + PF.empty({
+        icon: "file",
+        title: "还没有布置过作业",
+        desc: "作业按教学班（class_name）分发，学生只看到本班的作业。",
+        action: '<button class="btn btn--primary" id="btn-go-new">' + PF.icon("plus", 15) + "布置第一份作业</button>",
+      }) + "</div>";
+      const b = PF.$("#btn-go-new", box);
+      if (b) b.addEventListener("click", function () { tabs.go("new"); });
+      return;
+    }
+
+    box.innerHTML = stats + '<div class="hw-grid mt-5">' + list.map(function (h) {
+      return '<div class="hw-card">' +
+        '<div class="hw-card__head">' +
+          '<div class="row" style="gap:6px;margin-bottom:6px;flex-wrap:wrap">' +
+            (h.course ? '<span class="badge badge--brand">' + PF.esc(h.course) + "</span>" : "") +
+            '<span class="badge badge--info">' + PF.esc(h.class_name || "") + "</span>" +
+            PF.statusBadge(h.status_text || "") +
+            (h.overdue ? '<span class="badge badge--danger">已逾期</span>' : "") +
+          "</div>" +
+          '<div class="hw-card__title">' + PF.esc(h.title || "") + "</div>" +
+          '<div class="t-xs t-dim" style="margin-top:6px">' +
+            "满分 " + PF.num(h.full_score, 0) +
+            (h.deadline ? " · 截止 " + PF.esc(PF.date(h.deadline)) : " · 不限截止") +
+            " · " + PF.esc(PF.when(h.created_at)) + " 布置</div>" +
+        "</div>" +
+        '<div class="hw-card__body stack-sm">' +
+          (h.detail ? '<p class="t-sm" style="line-height:1.75;color:var(--ink-700);margin:0">' +
+            PF.esc(PF.trunc(h.detail, 110)) + "</p>" : "") +
+          '<div class="bar-row"><span class="t-dim">提交</span>' +
+            PF.progress(h.progress) +
+            '<span class="t-dim">' + PF.num(h.submitted, 0) + "/" + PF.num(h.expected, 0) + "</span></div>" +
+          '<div class="bar-row"><span class="t-dim">批改</span>' +
+            PF.progress(h.graded_progress, { tone: "ok" }) +
+            '<span class="t-dim">' + PF.num(h.graded, 0) + "/" + PF.num(h.expected, 0) + "</span></div>" +
+          '<div class="stat-inline mt-2">' +
+            "<span>平均分 <b>" + (h.avg_score === null || h.avg_score === undefined ? "—" : PF.num(h.avg_score, 1)) + "</b></span>" +
+            "<span>逾期 <b>" + PF.num(h.late_count, 0) + "</b></span>" +
+            "<span>待批 <b" + (max0(h.submitted - h.graded) ? ' style="color:var(--warn-700)"' : "") + ">" +
+              max0(h.submitted - h.graded) + "</b></span>" +
+          "</div>" +
+        "</div>" +
+        '<div class="hw-card__foot">' +
+          '<a class="btn btn--sm btn--primary" href="/grade">' + PF.icon("clipboard", 12) + "去批改</a>" +
+          '<button class="btn btn--sm" data-edit="' + h.id + '">' + PF.icon("edit", 12) + "编辑</button>" +
+          '<button class="btn btn--sm" data-close="' + h.id + '" data-status="' + PF.esc(h.status || "open") + '">' +
+            PF.icon(h.status === "open" ? "x" : "play", 12) + (h.status === "open" ? "停止提交" : "重新开放") + "</button>" +
+          '<div class="spacer"></div>' +
+          '<button class="btn btn--sm btn--danger" data-del="' + h.id + '">' + PF.icon("trash", 12) + "</button>" +
+        "</div>" +
+      "</div>";
+    }).join("") + "</div>";
+
+    PF.$$("[data-close]", box).forEach(function (b) {
+      b.addEventListener("click", async function () {
+        const next = b.dataset.status === "open" ? "closed" : "open";
+        try {
+          await PF.post("/api/teacher/homework/" + b.dataset.close, { status: next });
+          PF.toast(next === "closed" ? "已停止提交" : "已重新开放提交", "ok");
+          renderTeacherList(box);
+        } catch (e) { /* 已提示 */ }
+      });
+    });
+    PF.$$("[data-del]", box).forEach(function (b) {
+      b.addEventListener("click", async function () {
+        const yes = await PF.confirm({
+          title: "删除作业",
+          text: "会连同全部学生提交记录一起删除，不可恢复。",
+          okText: "删除", danger: true,
+        });
+        if (!yes) return;
+        try {
+          const r = await PF.del("/api/teacher/homework/" + b.dataset.del);
+          PF.toast("已删除（含 " + ((r && r.removed_submissions) || 0) + " 条提交）", "ok");
+          renderTeacherList(box);
+        } catch (e) { /* 已提示 */ }
+      });
+    });
+    PF.$$("[data-edit]", box).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const h = list.filter(function (x) { return x.id === Number(b.dataset.edit); })[0];
+        editModal(h, box, d.classes);
+      });
+    });
+  }
+
+  function max0(n) { return Math.max(0, Number(n) || 0); }
+
+  function statCard(icon, label, num, hint, tone) {
+    return '<div class="stat">' +
+      '<div class="stat__ico' + (tone ? " stat__ico--" + tone : "") + '">' + PF.icon(icon, 18) + "</div>" +
+      '<div class="flex-1"><div class="stat__num">' + num + "</div>" +
+      '<div class="stat__label">' + PF.esc(label) + "</div>" +
+      (hint ? '<div class="t-xs">' + PF.esc(hint) + "</div>" : "") + "</div></div>";
+  }
+
+  function classOptions(id, classes, selected) {
+    return '<select class="select" id="' + id + '">' +
+      '<option value="">请选择教学班</option>' +
+      PF.arr(classes).map(function (c) {
+        return '<option value="' + PF.esc(c.name) + '"' + (c.name === selected ? " selected" : "") + ">" +
+          PF.esc(c.name) + "（" + PF.num(c.count, 0) + " 人）</option>";
+      }).join("") + "</select>";
+  }
+
+  function editModal(h, box, classes) {
+    if (!h) return;
+    PF.modal({
+      title: "编辑作业",
+      body:
+        '<div class="stack-sm">' +
+          '<label class="t-sm t-strong">标题</label>' +
+          '<input class="input" id="e-title" value="' + PF.esc(h.title || "") + '">' +
+          '<div class="form-2col mt-2">' +
+            "<div><label class=\"t-sm t-strong\">课程</label>" +
+              '<input class="input" id="e-course" value="' + PF.esc(h.course || "") + '"></div>' +
+            "<div><label class=\"t-sm t-strong\">教学班</label>" +
+              classOptions("e-class", classes, h.class_name) + "</div>" +
+          "</div>" +
+          '<label class="t-sm t-strong mt-2">作业说明</label>' +
+          '<textarea class="input" id="e-detail" rows="4">' + PF.esc(h.detail || "") + "</textarea>" +
+          '<div class="form-2col mt-2">' +
+            "<div><label class=\"t-sm t-strong\">满分</label>" +
+              '<input class="input" type="number" id="e-full" min="1" value="' + PF.num(h.full_score, 0) + '"></div>' +
+            "<div><label class=\"t-sm t-strong\">截止时间</label>" +
+              '<input class="input" id="e-deadline" placeholder="2026-12-31 18:00" value="' +
+              PF.esc(h.deadline || "") + '"></div>' +
+          "</div>" +
+        "</div>",
+      actions: [
+        { label: "取消" },
+        { label: "保存", type: "primary", onClick: async function () {
+            try {
+              await PF.post("/api/teacher/homework/" + h.id, {
+                title: PF.$("#e-title").value.trim(),
+                course: PF.$("#e-course").value.trim(),
+                class_name: PF.$("#e-class").value,
+                detail: PF.$("#e-detail").value.trim(),
+                full_score: Number(PF.$("#e-full").value) || 100,
+                deadline: PF.$("#e-deadline").value.trim(),
+              });
+              PF.toast("已保存", "ok");
+              renderTeacherList(box);
+            } catch (e) { return true; }
+          } },
+      ],
+    });
+  }
+
+  async function renderTeacherNew(box) {
+    let d = {};
+    try { d = TD || (await PF.get("/api/teacher/homework")); TD = d; } catch (e) { /* 兜底 */ }
+    const classes = PF.arr(d.classes);
+    const courses = PF.arr(d.courses);
+
+    box.innerHTML =
+      '<div class="grid grid-3-2" style="gap:16px">' +
+        '<div class="card"><div class="card__head"><h3>' + PF.icon("plus", 15) + " 布置作业</h3></div>" +
+          '<div class="card__body stack-sm">' +
+            '<label class="t-sm t-strong">标题</label>' +
+            '<input class="input" id="n-title" placeholder="如：第三章课后习题">' +
+            '<div class="form-2col mt-2">' +
+              "<div><label class=\"t-sm t-strong\">课程</label>" +
+                '<input class="input" id="n-course" list="course-list" placeholder="如：人工智能导论">' +
+                '<datalist id="course-list">' + courses.map(function (c) {
+                  return '<option value="' + PF.esc(c) + '"></option>'; }).join("") + "</datalist></div>" +
+              "<div><label class=\"t-sm t-strong\">教学班（决定发给谁）</label>" +
+                classOptions("n-class", classes) + "</div>" +
+            "</div>" +
+            '<label class="t-sm t-strong mt-2">作业说明</label>' +
+            '<textarea class="input" id="n-detail" rows="5" placeholder="题目要求、提交格式、评分依据"></textarea>' +
+            '<div class="form-2col mt-2">' +
+              "<div><label class=\"t-sm t-strong\">满分</label>" +
+                '<input class="input" type="number" id="n-full" value="100" min="1" max="1000"></div>' +
+              "<div><label class=\"t-sm t-strong\">截止时间</label>" +
+                '<input class="input" id="n-deadline" placeholder="2026-12-31 18:00"></div>' +
+            "</div>" +
+            '<button class="btn btn--primary btn--block mt-3" id="btn-create">' +
+              PF.icon("send", 15) + "布置作业</button>" +
+            '<div class="t-xs t-dim">学生提交后可在「批改中心 → 按作业批改」逐份打分，AI 会给建议分供参考。</div>' +
+          "</div>" +
+        "</div>" +
+
+        '<div class="stack">' +
+          '<div class="card"><div class="card__head"><h3>班级口径</h3></div>' +
+            '<div class="card__body">' + PF.caveat(
+              "作业按「教学班」（users.class_name）分发；「行政班」（users.class_id）只用于驾驶舱的班级总览。一个老师可以带多个教学班。") +
+              '<div class="t-sm mt-3" style="line-height:1.8">' +
+                "当前可选教学班：<br>" +
+                (classes.length
+                  ? classes.map(function (c) {
+                      return '<span class="chip">' + PF.esc(c.name) + " · " + PF.num(c.count, 0) + " 人</span> ";
+                    }).join("")
+                  : '<span class="t-dim">暂无学生数据</span>') +
+              "</div></div>" +
+          "</div>" +
+          '<div class="card"><div class="card__head"><h3>布置后的完整链路</h3></div>' +
+            '<div class="card__body"><ol class="obj-list">' +
+              "<li>学生在本班看到作业，提交文字或图片。</li>" +
+              "<li>你在批改中心看到名单（含未提交者）与提交内容。</li>" +
+              "<li>点「生成建议」拿到建议分与评语，可一键采用，也可以自己改。</li>" +
+              "<li>保存后学生立刻能看到得分与评语；未提交的可一键记 0 分。</li>" +
+            "</ol></div>" +
+          "</div>" +
+        "</div>" +
+      "</div>";
+
+    PF.$("#btn-create", box).addEventListener("click", async function () {
+      const title = PF.$("#n-title", box).value.trim();
+      if (!title) { PF.toast("请填写作业标题", "warn"); return; }
+      const cls = PF.$("#n-class", box).value;
+      if (!cls) { PF.toast("请选择教学班", "warn"); return; }
+      const btn = PF.$("#btn-create", box);
+      PF.busy(btn, true, "布置中");
+      try {
+        await PF.post("/api/teacher/homework", {
+          title: title,
+          course: PF.$("#n-course", box).value.trim(),
+          class_name: cls,
+          detail: PF.$("#n-detail", box).value.trim(),
+          full_score: Number(PF.$("#n-full", box).value) || 100,
+          deadline: PF.$("#n-deadline", box).value.trim(),
+        });
+        TD = null;
+        PF.toast("作业已布置", "ok");
+        tabs.go("list");
+      } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
+    });
+  }
+
+  /* ============================================================ 学生侧 */
+  let SD = null;
+
+  async function renderStudent(box, mode) {
+    box.innerHTML = PF.loading("正在读取我的作业");
+    let d;
+    try {
+      SD = await PF.get("/api/homework/mine");
+      d = SD;
+    } catch (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      return;
+    }
+    const all = PF.arr(d.homework);
+    const s = d.stats || {};
+    const list = mode === "todo" ? all.filter(function (h) { return !h.submitted; }) : all;
+
+    const stats =
+      '<div class="grid grid-4">' +
+        statCard("file", "本班作业", PF.num(s.total, 0) + ' <span class="t-sm">份</span>',
+          "教学班：" + PF.esc(d.class_name || "—"), "") +
+        statCard("clock", "待完成", PF.num(s.todo, 0) + ' <span class="t-sm">份</span>',
+          "未提交且未过期", (s.todo || 0) > 0 ? "warn" : "") +
+        statCard("upload", "已提交", PF.num(s.submitted, 0) + ' <span class="t-sm">份</span>', "等待或已完成批改", "info") +
+        statCard("check", "已批改", PF.num(s.graded, 0) + ' <span class="t-sm">份</span>', "能看到得分与评语", "ok") +
+      "</div>";
+
+    if (!list.length) {
+      box.innerHTML = stats + '<div class="mt-5">' + PF.empty({
+        icon: mode === "todo" ? "check" : "file",
+        title: mode === "todo" ? "没有待完成的作业" : "本班还没有作业",
+        desc: mode === "todo"
+          ? "去「全部作业」看看已提交的批改结果。"
+          : "老师布置作业后会出现在这里；也可以先去「资源广场」看看有没有想申请的机会。",
+        action: mode === "todo"
+          ? '<button class="btn" id="btn-go-all">' + PF.icon("file", 15) + "看全部作业</button>"
+          : '<a class="btn" href="/hub">' + PF.icon("briefcase", 15) + "去资源广场</a>",
+      }) + "</div>";
+      const b = PF.$("#btn-go-all", box);
+      if (b) b.addEventListener("click", function () { tabs.go("all"); });
+      return;
+    }
+
+    box.innerHTML = stats + '<div class="hw-grid mt-5">' + list.map(function (h) {
+      const score = Number(h.score);
+      const graded = h.graded && score >= 0;
+      return '<div class="hw-card">' +
+        '<div class="hw-card__head">' +
+          '<div class="row" style="gap:6px;margin-bottom:6px;flex-wrap:wrap">' +
+            (h.course ? '<span class="badge badge--brand">' + PF.esc(h.course) + "</span>" : "") +
+            (h.submitted ? '<span class="badge badge--ok">已提交</span>'
+              : '<span class="badge badge--warn">未提交</span>') +
+            (h.closed ? '<span class="badge badge--danger">已停止提交</span>' : "") +
+            (h.deadline
+              ? '<span class="badge' + (h.overdue ? " badge--danger" : "") + '">截止 ' +
+                PF.esc(PF.date(h.deadline)) + (h.overdue ? "（已逾期）" : "") + "</span>"
+              : "") +
+          "</div>" +
+          '<div class="hw-card__title">' + PF.esc(h.title || "") + "</div>" +
+          '<div class="t-xs t-dim" style="margin-top:6px">' +
+            PF.esc(h.teacher_name || "任课教师") + " 布置 · 满分 " + PF.num(h.full_score, 0) + "</div>" +
+        "</div>" +
+        '<div class="hw-card__body stack-sm">' +
+          (h.detail ? '<p class="t-sm" style="line-height:1.75;color:var(--ink-700);margin:0">' +
+            PF.esc(PF.trunc(h.detail, 150)) + "</p>" : "") +
+          (h.submitted
+            ? '<div class="sub-mine">' +
+                '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+                  '<span class="t-sm t-strong">我的提交</span>' +
+                  (h.attempt > 1 ? '<span class="badge">第 ' + h.attempt + " 次</span>" : "") +
+                  (h.late ? '<span class="badge badge--warn">逾期</span>' : "") +
+                  '<div class="spacer"></div>' +
+                  (graded
+                    ? '<span class="badge badge--ok">' + PF.num(score, 1) + " / " + PF.num(h.full_score, 0) + "</span>" +
+                      PF.levelTag(h.level, true)
+                    : '<span class="badge badge--warn">待批改</span>') +
+                "</div>" +
+                (String(h.content || "").trim()
+                  ? '<div class="t-sm mt-2" style="line-height:1.75">' +
+                    PF.esc(PF.trunc(h.content, 140)) + "</div>"
+                  : '<div class="t-xs t-dim mt-2">没有文字内容</div>') +
+                (PF.arr(h.files).length
+                  ? '<div class="thumbs">' + PF.arr(h.files).map(function (f, i) {
+                      if (f.kind === "image") {
+                        return '<a href="/api/homework/file/' + h.submission_id + "/" + i + '" target="_blank">' +
+                          '<img class="thumb" src="/api/homework/file/' + h.submission_id + "/" + i + '" alt="附件"></a>';
+                      }
+                      return '<a class="btn btn--sm" href="/api/homework/file/' + h.submission_id + "/" + i +
+                        '" target="_blank">' + PF.icon("file", 12) + PF.esc(f.name || "附件") + "</a>";
+                    }).join("") + "</div>"
+                  : "") +
+                (graded && h.comment
+                  ? '<div class="t-sm mt-2" style="line-height:1.75;color:var(--ink-700)"><b>老师评语：</b>' +
+                    PF.esc(h.comment) + "</div>"
+                  : "") +
+              "</div>"
+            : '<span class="t-xs t-dim">还没有提交。</span>') +
+        "</div>" +
+        '<div class="hw-card__foot">' +
+          (h.closed && !h.submitted
+            ? '<span class="t-xs t-dim">教师已停止提交</span>'
+            : '<button class="btn btn--sm ' + (h.submitted ? "" : "btn--primary") + '" data-submit="' + h.id + '">' +
+              PF.icon("upload", 12) + (h.submitted ? "重新提交" : "提交作业") + "</button>") +
+          '<div class="spacer"></div>' +
+          (h.submitted_at ? '<span class="t-xs t-dim">' + PF.esc(PF.when(h.submitted_at)) + "</span>" : "") +
+        "</div>" +
+      "</div>";
+    }).join("") + "</div>";
+
+    PF.$$("[data-submit]", box).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const h = all.filter(function (x) { return x.id === Number(b.dataset.submit); })[0];
+        submitModal(h, box, mode);
+      });
+    });
+  }
+
+  function submitModal(h, box, mode) {
+    if (!h) return;
+    PF.modal({
+      title: (h.submitted ? "重新提交：" : "提交作业：") + PF.trunc(h.title, 22),
+      width: "wide",
+      body:
+        '<div class="stack-sm">' +
+          '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+            (h.course ? '<span class="badge badge--brand">' + PF.esc(h.course) + "</span>" : "") +
+            '<span class="badge">满分 ' + PF.num(h.full_score, 0) + "</span>" +
+            (h.deadline ? '<span class="badge' + (h.overdue ? " badge--danger" : "") + '">截止 ' +
+              PF.esc(PF.date(h.deadline)) + "</span>" : "") +
+          "</div>" +
+          (h.detail ? '<div class="t-sm" style="line-height:1.8;color:var(--ink-700)">' +
+            PF.esc(h.detail) + "</div>" : "") +
+          '<label class="t-sm t-strong mt-2">文字作答</label>' +
+          '<textarea class="input" id="s-content" rows="7" placeholder="把答案写在这里">' +
+            PF.esc(h.content || "") + "</textarea>" +
+          '<label class="t-sm t-strong mt-2">附件（图片 / txt / md / pdf，可多选）</label>' +
+          '<input class="input" type="file" id="s-files" multiple ' +
+            'accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp">' +
+          (h.submitted
+            ? PF.caveat("重新提交会清空原有的分数与评语，老师需要重新批改。", "warn")
+            : PF.caveat("文字和附件至少提交一项；图片作业在未配置视觉模型时会提示教师人工批改。")) +
+        "</div>",
+      actions: [
+        { label: "取消" },
+        { label: h.submitted ? "重新提交" : "提交", type: "primary", onClick: async function () {
+            const content = PF.$("#s-content").value.trim();
+            const files = PF.$("#s-files").files;
+            if (!content && !files.length) { PF.toast("文字和附件至少提交一项", "warn"); return true; }
+            const form = new FormData();
+            form.append("content", content);
+            for (let i = 0; i < files.length; i++) form.append("files", files[i]);
+            try {
+              const r = await PF.post("/api/homework/" + h.id + "/submit", null, { form: form });
+              PF.toast((r && r.message) || "已提交", "ok");
+              await renderStudent(box, mode);
+            } catch (e) { return true; }
+          } },
+      ],
+    });
+  }
+
+  if (PF.$("#btn-refresh", view)) {
+    PF.$("#btn-refresh", view).addEventListener("click", function () { TD = null; SD = null; tabs.reload(); });
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1127 @@
+/* ==========================================================================
+   common.js —— 寻径教育 PathFinder 前端运行时
+   --------------------------------------------------------------------------
+   零依赖、零构建。每个页面只引这一份 + tabs.js，页面逻辑写在各 HTML 内联脚本里。
+   对外只暴露一个全局：window.PF
+
+   设计原则：
+   1. 任何一次请求失败都必须让人看见 —— 不吞异常、不静默降级。
+   2. 所有来自后端或用户的内容都先 escapeHtml 再拼进 innerHTML。
+   3. 引擎来源（AI 生成 / 规则生成）永远显式标注，不把模拟结果冒充模型输出。
+   ========================================================================== */
+(function () {
+  "use strict";
+
+  const PF = (window.PF = {});
+
+  /* ============================================================ 图标库 */
+  /* 全部为 24×24 描边图标，stroke 继承 currentColor，避免任何图标字体依赖 */
+  const ICONS = {
+    compass: '<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    layers: '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/>',
+    message: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/>',
+    sparkles: '<path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/>',
+    presentation: '<path d="M3 4h18"/><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M12 15v4"/><path d="M8.5 22l3.5-3 3.5 3"/>',
+    clipboard: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 11l1.8 1.8L14.5 9"/>',
+    users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.2a3.2 3.2 0 0 1 0 6"/><path d="M18 20a6 6 0 0 0-2.2-4.6"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    file: '<path d="M14 3v5h5"/><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M9 13h6M9 17h4"/>',
+    upload: '<path d="M12 16V4"/><path d="M8 8l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+    download: '<path d="M12 4v12"/><path d="M8 12l4 4 4-4"/><path d="M4 18v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    check: '<path d="M4.5 12.5l5 5 10-11"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>',
+    edit: '<path d="M4 20h4l10-10-4-4L4 16z"/><path d="M14 6l4 4"/>',
+    trash: '<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/>',
+    alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.5h.01"/>',
+    chevronRight: '<path d="M9 5l7 7-7 7"/>',
+    chevronDown: '<path d="M6 9l6 6 6-6"/>',
+    chevronLeft: '<path d="M15 5l-7 7 7 7"/>',
+    logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4"/><path d="M6 12h11"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+    refresh: '<path d="M20 11a8 8 0 0 0-13.7-5.2L4 8"/><path d="M4 5v3.5h3.5"/><path d="M4 13a8 8 0 0 0 13.7 5.2L20 16"/><path d="M20 19v-3.5h-3.5"/>',
+    send: '<path d="M4 12l16-8-6 16-2.5-6.5z"/>',
+    target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
+    award: '<circle cx="12" cy="9" r="5.5"/><path d="M8.5 13.8L7 21l5-2.5L17 21l-1.5-7.2"/>',
+    briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/>',
+    chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3.5 2"/>',
+    play: '<path d="M7 4.5l12 7.5-12 7.5z"/>',
+    save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-6h8v6"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 1 0-5.7-5.7L11.5 7"/><path d="M14 10a4 4 0 0 0-5.7 0L5.5 12.8a4 4 0 1 0 5.7 5.7l1.3-1.5"/>',
+    book: '<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5A2.5 2.5 0 0 0 4 22z"/><path d="M4 17.5A2.5 2.5 0 0 1 6.5 15H20"/>',
+    shield: '<path d="M12 3l8 3v6c0 4.5-3.2 8.3-8 9.5C7.2 20.3 4 16.5 4 12V6z"/><path d="M9 12l2 2 4-4"/>',
+    scale: '<path d="M12 4v16"/><path d="M6 8h12"/><path d="M6 8l-3 6h6z"/><path d="M18 8l-3 6h6z"/><path d="M9 20h6"/>',
+    wand: '<path d="M5 19L17 7"/><path d="M15 5l4 4"/><path d="M18 13l.7 1.8L20.5 15l-1.8.7L18 17.5l-.7-1.8L15.5 15l1.8-.7z"/><path d="M7 5l.5 1.3L8.8 6.8 7.5 7.3 7 8.6 6.5 7.3 5.2 6.8 6.5 6.3z"/>',
+    filter: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
+    star: '<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z"/>',
+    bell: '<path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"/><path d="M10.5 20a2 2 0 0 0 3 0"/>',
+    activity: '<path d="M3 12h4l2.5-7 4 14 2.5-7h4"/>',
+    crop: '<path d="M6 2v16h16"/><path d="M2 6h16v16"/>',
+    home: '<path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/>',
+    sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.3M12 19.5v2.3M2.2 12h2.3M19.5 12h2.3M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"/>',
+    moon: '<path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z"/>',
+  };
+
+  /**
+   * 生成一个图标 SVG 字符串。
+   * @param {string} name  ICONS 中的键
+   * @param {number} size  像素尺寸（默认 16）
+   */
+  PF.icon = function (name, size) {
+    const body = ICONS[name] || ICONS.info;
+    const s = size || 16;
+    return (
+      '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true">' + body + "</svg>"
+    );
+  };
+
+  /* ============================================================ 基础工具 */
+  const HTML_ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  /** 转义 HTML —— 凡是拼接来自后端/用户的文本，必须先过这一层。 */
+  PF.esc = function (v) {
+    if (v === null || v === undefined) return "";
+    return String(v).replace(/[&<>"']/g, (c) => HTML_ESC[c]);
+  };
+  PF.escapeHtml = PF.esc;
+
+  /** 取元素（支持选择器或元素本身） */
+  PF.$ = function (sel, root) { return (root || document).querySelector(sel); };
+  PF.$$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+
+  /** 尽力把任意值转成数组，避免后端返回 null 时前端崩 */
+  PF.arr = function (v) { return Array.isArray(v) ? v : []; };
+
+  /** 数字格式化：保留 sign + 最多 n 位小数 */
+  PF.num = function (v, digits) {
+    const n = Number(v);
+    if (!isFinite(n)) return "—";
+    return n.toFixed(digits === undefined ? 1 : digits).replace(/\.0+$/, "");
+  };
+
+  /** 百分比（入参为 0~1 或 0~100，由 total 决定） */
+  PF.pct = function (part, total) {
+    const t = Number(total) || 0;
+    if (t <= 0) return 0;
+    return Math.round((Number(part) || 0) / t * 100);
+  };
+
+  /** 截断文本 */
+  PF.trunc = function (text, n) {
+    const s = String(text === null || text === undefined ? "" : text);
+    return s.length > n ? s.slice(0, n) + "…" : s;
+  };
+
+  /** 友好时间：刚刚 / N 分钟前 / 今天 HH:MM / MM-DD HH:MM */
+  PF.when = function (value) {
+    if (!value) return "—";
+    let iso = String(value).trim();
+    // 后端存的是 "YYYY-MM-DD HH:MM:SS"，Safari 不认，替换空格为 T
+    if (/^\d{4}-\d{2}-\d{2} /.test(iso)) iso = iso.replace(" ", "T");
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return String(value);
+    const now = new Date();
+    const diff = (now - d) / 1000;
+    if (diff >= 0 && diff < 60) return "刚刚";
+    if (diff >= 0 && diff < 3600) return Math.floor(diff / 60) + " 分钟前";
+    const pad = (x) => String(x).padStart(2, "0");
+    const hm = pad(d.getHours()) + ":" + pad(d.getMinutes());
+    if (d.toDateString() === now.toDateString()) return "今天 " + hm;
+    return pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + hm;
+  };
+
+  /** 只取日期部分 */
+  PF.date = function (value) {
+    if (!value) return "—";
+    const s = String(value).trim();
+    return s.length >= 10 ? s.slice(0, 10) : s;
+  };
+
+  /** 是否已过期（与后端 now() 同口径的字符串比较即可） */
+  PF.isPast = function (value) {
+    if (!value) return false;
+    const s = String(value).replace("T", " ").trim();
+    const d = new Date(s.replace(" ", "T"));
+    return !isNaN(d.getTime()) && d.getTime() < Date.now();
+  };
+
+  /** 取姓名首字用于头像 */
+  PF.initial = function (name) {
+    const s = String(name || "?").trim();
+    return s ? s.slice(0, 1) : "?";
+  };
+
+  /* ============================================================ 网络层 */
+  /** 模块级状态：当前用户、轻量缓存 */
+  PF.state = { me: null, meta: null };
+
+  function authHeaders() {
+    const t = localStorage.getItem("pf_token");
+    return t ? { Authorization: "Bearer " + t } : {};
+  }
+
+  /**
+   * 统一请求封装。失败一定抛 Error，调用方用 try/catch 或 PF.try 处理。
+   * @param {string} path        以 /api 开头的路径
+   * @param {object} [opts]
+   * @param {string} [opts.method]
+   * @param {object} [opts.body] 会被 JSON 序列化
+   * @param {FormData} [opts.form] multipart 上传（与 body 二选一）
+   * @param {boolean} [opts.quiet] true 时不弹 toast（由调用方自己处理）
+   */
+  PF.api = async function (path, opts) {
+    const o = opts || {};
+    const init = { method: o.method || "GET", headers: Object.assign({}, authHeaders()) };
+    if (o.form) {
+      init.body = o.form;
+    } else if (o.body !== undefined) {
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(o.body);
+    }
+    let res;
+    try {
+      res = await fetch(path, init);
+    } catch (e) {
+      const err = new Error("网络请求失败，请确认后端服务已启动（" + path + "）");
+      if (!o.quiet) PF.toast(err.message, "err");
+      throw err;
+    }
+    let payload = null;
+    const text = await res.text();
+    if (text) {
+      try { payload = JSON.parse(text); } catch (e) { payload = null; }
+    }
+    if (res.status === 401) {
+      const err = new Error((payload && payload.error) || "登录已过期，请重新登录");
+      err.status = 401;
+      if (!o.quiet) { PF.toast(err.message, "err"); }
+      // 只有明确是"登录态失效"才跳转，登录接口本身的 400 不跳。
+      // 另外：**已经在登录页时绝不能跳转** —— 登录页自身要靠 /api/auth/me 的 401
+      // 判断"当前未登录"，若无条件跳 /login，页面会自我重定向成无限刷新循环。
+      const onLoginPage = /^\/login\b/.test(window.location.pathname) || /\/auth\/login$/.test(path);
+      if (!onLoginPage && !/账号或密码/.test(err.message)) {
+        setTimeout(() => { window.location.href = "/login"; }, 700);
+      }
+      throw err;
+    }
+    if (!res.ok || !payload || payload.ok !== true) {
+      const msg = (payload && payload.error) || ("请求失败（HTTP " + res.status + "）");
+      const err = new Error(msg);
+      err.status = res.status;
+      if (!o.quiet) PF.toast(msg, "err");
+      throw err;
+    }
+    return payload.data;
+  };
+
+  PF.get = function (path, opts) { return PF.api(path, Object.assign({ method: "GET" }, opts)); };
+  PF.post = function (path, body, opts) { return PF.api(path, Object.assign({ method: "POST", body: body || {} }, opts)); };
+  PF.del = function (path, opts) { return PF.api(path, Object.assign({ method: "DELETE" }, opts)); };
+
+  /** 包一层：失败返回 fallback 而不抛出，用于非关键路径（如元数据） */
+  PF.try = async function (fn, fallback) {
+    try { return await fn(); } catch (e) { return fallback; }
+  };
+
+  /** 用 fetch + Blob 下载（保留中文文件名，且能带 Bearer 头） */
+  PF.download = async function (path, fallbackName) {
+    let res;
+    try {
+      res = await fetch(path, { headers: authHeaders() });
+    } catch (e) {
+      PF.toast("下载失败：网络不可达", "err");
+      return;
+    }
+    if (!res.ok) {
+      PF.toast("下载失败（HTTP " + res.status + "）", "err");
+      return;
+    }
+    const cd = res.headers.get("Content-Disposition") || "";
+    let name = fallbackName || "download";
+    const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+    const plain = /filename="?([^";]+)"?/i.exec(cd);
+    if (star) { try { name = decodeURIComponent(star[1]); } catch (e) { /* 保持兜底名 */ } }
+    else if (plain && plain[1]) { name = plain[1]; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+
+  /* ============================================================ 提示与弹窗 */
+  function toastHost() {
+    let host = PF.$(".toast-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "toast-host";
+      document.body.appendChild(host);
+    }
+    return host;
+  }
+
+  /**
+   * 轻提示。
+   * @param {string} message
+   * @param {"ok"|"err"|"warn"|""} [type]
+   */
+  PF.toast = function (message, type) {
+    const ico = type === "ok" ? "check" : type === "err" ? "alert" : type === "warn" ? "alert" : "info";
+    const el = document.createElement("div");
+    el.className = "toast" + (type ? " toast--" + type : "");
+    el.innerHTML = PF.icon(ico, 16) + "<span>" + PF.esc(message) + "</span>";
+    const host = toastHost();
+    host.appendChild(el);
+    const life = type === "err" ? 5200 : 3000;
+    setTimeout(() => {
+      el.classList.add("is-out");
+      setTimeout(() => el.remove(), 220);
+    }, life);
+  };
+
+  /**
+   * 打开一个对话框，返回 { el, close, body, foot }。
+   * @param {object} cfg  { title, body(HTML 或 Node), actions:[{label,type,onClick,close}], width:"narrow"|"wide" }
+   */
+  PF.modal = function (cfg) {
+    const c = cfg || {};
+    const opener = document.activeElement;      // 关掉之后要把焦点还回去
+    const host = document.createElement("div");
+    host.className = "modal-host";
+    const sizeCls = c.width === "wide" ? " modal--wide" : c.width === "narrow" ? " modal--narrow" : "";
+    const title = c.title || "对话框";
+    host.innerHTML =
+      '<div class="modal' + sizeCls + '" role="dialog" aria-modal="true" aria-label="' + PF.esc(title) + '">' +
+        '<div class="modal__head">' +
+          '<div class="modal__title">' + PF.esc(title) + "</div>" +
+          '<button class="modal__close" type="button" aria-label="关闭">' + PF.icon("x", 16) + "</button>" +
+        "</div>" +
+        '<div class="modal__body"></div>' +
+        '<div class="modal__foot"></div>' +
+      "</div>";
+    const bodyEl = PF.$(".modal__body", host);
+    const footEl = PF.$(".modal__foot", host);
+
+    let closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey, true);
+      // 退场动画只在"会动"的环境里播；播完再摘掉节点，否则动画会被打断
+      if (PF.reduced()) {
+        host.remove();
+      } else {
+        host.classList.add("is-out");
+        setTimeout(function () { host.remove(); }, 200);
+      }
+      if (opener && typeof opener.focus === "function" && opener.isConnected) {
+        try { opener.focus(); } catch (e) { /* 原元素已不可聚焦，忽略 */ }
+      }
+      if (typeof c.onClose === "function") c.onClose();
+    }
+
+    /** 当前可聚焦的控件，用于把 Tab 圈在弹窗里 */
+    function focusables() {
+      return PF.$$(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+        'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', host
+      ).filter(function (el) { return el.getClientRects().length > 0; });
+    }
+
+    function onKey(e) {
+      if (e.key === "Escape") { e.stopPropagation(); close(); return; }
+      if (e.key !== "Tab") return;
+      const list = focusables();
+      if (!list.length) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !host.contains(active))) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault(); first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKey, true);
+    PF.$(".modal__close", host).addEventListener("click", close);
+    host.addEventListener("mousedown", function (e) { if (e.target === host) close(); });
+
+    if (typeof c.body === "string") bodyEl.innerHTML = c.body;
+    else if (c.body) bodyEl.appendChild(c.body);
+
+    const actions = c.actions || [];
+    if (!actions.length) {
+      footEl.innerHTML = '<button class="btn" type="button" data-role="close">关闭</button>';
+      PF.$('[data-role="close"]', footEl).addEventListener("click", close);
+    } else {
+      actions.forEach(function (a, i) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn " + (a.type === "primary" ? "btn--primary" : a.type === "danger" ? "btn--danger" : a.type === "ok" ? "btn--ok" : "");
+        btn.textContent = a.label;
+        btn.addEventListener("click", async function () {
+          if (typeof a.onClick !== "function") { close(); return; }
+          btn.classList.add("is-loading");
+          const original = btn.textContent;
+          btn.innerHTML = '<span class="spin"></span>' + PF.esc(original);
+          try {
+            const keep = await a.onClick({ close: close, body: bodyEl, foot: footEl, button: btn });
+            if (keep !== true) close();
+          } catch (e) {
+            btn.classList.remove("is-loading");
+            btn.textContent = original;
+          }
+        });
+        footEl.appendChild(btn);
+        if (i === actions.length - 1 && a.type === "primary") btn.focus();
+      });
+    }
+    document.body.appendChild(host);
+    // 弹窗内容是动态塞进去的，新内容也要享受错峰入场（观察器会接管，这里只保证首屏）
+    if (!PF.reduced()) PF.reveal(bodyEl);
+    return { el: host, body: bodyEl, foot: footEl, close: close };
+  };
+
+  /** 二次确认（危险操作统一走这里，避免误点） */
+  PF.confirm = function (opts) {
+    const o = opts || {};
+    return new Promise((resolve) => {
+      let settled = false;
+      const m = PF.modal({
+        title: o.title || "请确认",
+        width: "narrow",
+        body: '<p class="t-body">' + PF.esc(o.text || "") + "</p>" +
+              (o.detail ? '<div class="note note--warn mt-4">' + PF.icon("alert", 15) + "<div>" + PF.esc(o.detail) + "</div></div>" : ""),
+        actions: [
+          { label: o.cancelText || "取消", onClick: () => { settled = true; resolve(false); } },
+          { label: o.okText || "确定", type: o.danger ? "danger" : "primary",
+            onClick: () => { settled = true; resolve(true); } },
+        ],
+        onClose: () => { if (!settled) resolve(false); },
+      });
+      if (o.danger) {
+        const btn = m.foot.lastElementChild;
+        if (btn) btn.classList.add("btn--danger");
+      }
+    });
+  };
+
+  /* ============================================================ 徽标构件 */
+  /** 引擎徽标：llm → "AI 生成"，rule → "规则生成" */
+  PF.engineBadge = function (engine) {
+    const isLlm = engine === "llm" || engine === "api";
+    return '<span class="engine engine--' + (isLlm ? "llm" : "rule") + '">' +
+      (isLlm ? "AI 生成" : "规则生成") + "</span>";
+  };
+
+  /** 双轨标签 */
+  PF.trackBadge = function (track) {
+    const t = String(track || "");
+    const career = t.indexOf("事业") >= 0;
+    return '<span class="track track--' + (career ? "career" : "academic") + '">' +
+      (career ? "事业型" : "学业型") + "</span>";
+  };
+
+  /** 等级标签（A/B/C，只表示推荐内容深度） */
+  PF.levelTag = function (level, large) {
+    const lv = String(level || "B").toUpperCase().slice(0, 1);
+    const safe = ["A", "B", "C"].indexOf(lv) >= 0 ? lv : "B";
+    const text = { A: "优秀", B: "良好", C: "需改进" }[safe];
+    return '<span class="level level--' + safe + (large ? " level--lg" : "") + '" title="' +
+      text + '">' + safe + "</span>";
+  };
+
+  /** 状态徽标：把任意中文状态映射到配色 */
+  PF.statusBadge = function (text) {
+    const t = String(text || "");
+    let cls = "";
+    if (/通过|已录取|已接受|已完成|已批改|已发放|已确认|开放|进行中/.test(t)) cls = "badge--ok";
+    else if (/待|申请中|审核|未|缺/.test(t)) cls = "badge--warn";
+    else if (/拒绝|驳回|关闭|过期|取消/.test(t)) cls = "badge--danger";
+    else if (/草稿|规划/.test(t)) cls = "badge--info";
+    return '<span class="badge ' + cls + '">' + PF.esc(t || "—") + "</span>";
+  };
+
+  /** 空白占位 */
+  PF.empty = function (opts) {
+    const o = opts || {};
+    return '<div class="empty">' +
+      '<div class="empty__ico">' + PF.icon(o.icon || "info", 26) + "</div>" +
+      '<div class="empty__title">' + PF.esc(o.title || "暂无数据") + "</div>" +
+      (o.desc ? '<div class="empty__desc">' + PF.esc(o.desc) + "</div>" : "") +
+      (o.action ? '<div class="empty__actions">' + o.action + "</div>" : "") +
+      "</div>";
+  };
+
+  /** 加载骨架 */
+  PF.skeleton = function (lines) {
+    const n = lines || 3;
+    let html = '<div style="padding:24px"><div class="skeleton skeleton--title"></div>';
+    for (let i = 0; i < n; i++) html += '<div class="skeleton skeleton--line"></div>';
+    return html + "</div>";
+  };
+
+  PF.loading = function (text) {
+    return '<div class="loading-row"><span class="spin"></span>' + PF.esc(text || "加载中") + "</div>";
+  };
+
+  /** 通用表格渲染 */
+  PF.table = function (cols, rows, opts) {
+    const o = opts || {};
+    if (!rows || !rows.length) return PF.empty(o.empty || {});
+    const head = cols.map((c) => '<th class="' + (c.cls || "") + '">' + PF.esc(c.label) + "</th>").join("");
+    const body = rows.map((row) => {
+      const tds = cols.map((c) => {
+        const raw = typeof c.render === "function" ? c.render(row) : row[c.key];
+        return '<td class="' + (c.cls || "") + '">' + (raw === null || raw === undefined ? "—" : raw) + "</td>";
+      }).join("");
+      const trCls = typeof o.rowClass === "function" ? ' class="' + o.rowClass(row) + '"' : "";
+      const trAttr = typeof o.rowAttr === "function" ? o.rowAttr(row) : "";
+      return "<tr" + trCls + " " + trAttr + ">" + tds + "</tr>";
+    }).join("");
+    return '<div class="table-wrap"><table class="table' + (o.fixed ? " table--fixed" : "") + '"><thead><tr>' +
+      head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+  };
+
+  /** 进度条 */
+  PF.progress = function (value, opts) {
+    const o = opts || {};
+    const v = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+    const tone = o.tone ? " progress__bar--" + o.tone : "";
+    return '<div class="progress' + (o.large ? " progress--lg" : "") + '"><div class="progress__bar' +
+      tone + '" style="width:' + v + '%"></div></div>';
+  };
+
+  /** 分数环（作业得分等） */
+  PF.ring = function (value, total, label) {
+    const t = Number(total) || 100;
+    const v = Math.max(0, Math.min(t, Number(value) || 0));
+    const r = 40, c = 2 * Math.PI * r;
+    const off = c * (1 - v / t);
+    const tone = v / t >= 0.85 ? "#2e9c6a" : v / t >= 0.7 ? "#3d7ba8" : "#c98a35";
+    return '<div class="ring">' +
+      '<svg width="96" height="96" viewBox="0 0 96 96">' +
+        '<circle class="ring__track" cx="48" cy="48" r="' + r + '"/>' +
+        '<circle class="ring__fill" cx="48" cy="48" r="' + r + '" stroke="' + tone + '" ' +
+          'stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '"/>' +
+      "</svg>" +
+      '<div class="ring__val">' + PF.num(v, 0) +
+        '<span class="t-xs" style="font-weight:500">/' + PF.num(t, 0) + "</span></div>" +
+      (label ? '<div class="t-xs t-center" style="margin-top:2px">' + PF.esc(label) + "</div>" : "") +
+      "</div>";
+  };
+
+  /** 表单取值助手 */
+  PF.form = function (root) {
+    const out = {};
+    PF.$$("[name]", root).forEach((el) => {
+      const k = el.getAttribute("name");
+      if (!k) return;
+      if (el.type === "checkbox") {
+        if (el.dataset.multi !== undefined) {
+          out[k] = out[k] || [];
+          if (el.checked) out[k].push(el.value);
+        } else {
+          out[k] = el.checked;
+        }
+      } else if (el.type === "radio") {
+        if (el.checked) out[k] = el.value;
+      } else if (el.type === "number" || el.type === "range") {
+        out[k] = el.value === "" ? null : Number(el.value);
+      } else {
+        out[k] = el.value;
+      }
+    });
+    return out;
+  };
+
+  /** 按钮加载态开关 */
+  PF.busy = function (btn, on, labelWhenBusy) {
+    if (!btn) return;
+    if (on) {
+      if (!btn.dataset.origin) btn.dataset.origin = btn.innerHTML;
+      btn.classList.add("is-loading");
+      btn.innerHTML = '<span class="spin"></span>' + PF.esc(labelWhenBusy || "处理中");
+    } else {
+      btn.classList.remove("is-loading");
+      if (btn.dataset.origin) { btn.innerHTML = btn.dataset.origin; delete btn.dataset.origin; }
+    }
+  };
+
+  /** 防抖 */
+  PF.debounce = function (fn, wait) {
+    let timer = null;
+    return function () {
+      const args = arguments, self = this;
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(self, args), wait || 260);
+    };
+  };
+
+  /* ============================================================ 动效层
+     设计约束（写在最前面，改这里之前先读）：
+       1. 只动 opacity 与 transform，不碰 width/height/margin 等布局属性；
+       2. 时长封顶 400ms，缓动一律 ease-out（快起慢收）；
+       3. 尊重 prefers-reduced-motion —— 命中时整个动效层直接不启动，
+          元素保持样式表里的最终状态，功能一个不少；
+       4. 元素默认是"可见"的，动画只是在 JS 参与时额外加的入场效果。
+          也就是说 JS 挂了页面照样能看，不会白屏。
+     ============================================================ */
+
+  /** 是否处于"减少动效"偏好。为 true 时全站不做任何入场/增长动画。 */
+  PF.reduced = function () {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  };
+
+  /* 会被错峰淡入的元素。宁可少列几种，也不要让满屏都在动。 */
+  const REVEAL_SEL = [
+    ".card", ".stat", ".list__item", ".empty", ".note", ".suggest-box",
+    ".kp", ".hit", ".slide-card", ".seg", ".matrix__cell", ".check-item",
+    ".mk-card", ".res-card", ".hub-card", ".hw-card", ".hw-item", ".pick",
+    ".ref", ".ref-item", ".msg", ".file-pill", ".demo-card", ".mini-student",
+    ".timeline__item", ".thumb",
+  ].join(",");
+
+  /* 需要"从 0 长出来"的进度类元素 */
+  const GROW_W = ".progress__bar, .dist-bar > span, .bar-mini > span";
+  const GROW_H = ".bars__fill";
+  const GROW_RING = ".ring__fill";
+  /* 需要数字滚动的元素 */
+  const COUNT_SEL = ".stat__num, .mk-score__n, .ring__val, .res-stat b";
+
+  /** 一个元素上最多排到第几号（后面的不再增加延迟，避免总时长失控） */
+  const MAX_STAGGER = 30;
+
+  /**
+   * 数字平滑递增。只改文本节点的值、不动 DOM 结构，因此不触发重排。
+   * 能安全处理 "12 人"（数字 + 后置元素）、"3.52"、"86%" 这类结构。
+   */
+  function countUp(el) {
+    if (el.dataset.pfCounted) return;
+    const node = el.firstChild;
+    if (!node || node.nodeType !== 3) return;
+    const raw = node.nodeValue;
+    const m = /^(\s*)(\d+(?:\.\d+)?)/.exec(raw);
+    if (!m) return;
+    const target = parseFloat(m[2]);
+    if (!isFinite(target) || target <= 0) return;
+    const digits = (m[2].split(".")[1] || "").length;
+    const head = m[1];
+    const tail = raw.slice(m[0].length);
+    el.dataset.pfCounted = "1";
+    el.classList.add("is-counting");
+
+    const dur = 620;
+    const t0 = performance.now();
+    requestAnimationFrame(function frame(now) {
+      const p = Math.min(1, (now - t0) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      node.nodeValue = head + (target * eased).toFixed(digits) + tail;
+      if (p < 1) { requestAnimationFrame(frame); return; }
+      node.nodeValue = raw;              // 收尾一定回到原值，不留浮点残差
+      el.classList.remove("is-counting");
+    });
+  }
+
+  /**
+   * 进度条 / 柱状图 / 分数环从 0 长到目标值。
+   * 用"写起始值 → 连等两帧 → 写目标值"的顺序触发 CSS transition：
+   * 只等一帧的话，起始值还没来得及被浏览器采信就又被覆盖，transition 不会触发。
+   * 刻意不用 offsetWidth 强制同步布局 —— 那个写法在几十个条同时渲染时会明显掉帧。
+   */
+  function growBars(scope) {
+    PF.$$(GROW_W, scope).forEach(function (el) {
+      if (el.dataset.pfGrown || !el.style.width) return;
+      el.dataset.pfGrown = "1";
+      const target = el.style.width;
+      el.style.width = "0%";
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { el.style.width = target; });
+      });
+    });
+
+    PF.$$(GROW_H, scope).forEach(function (el) {
+      if (el.dataset.pfGrown || !el.style.height) return;
+      el.dataset.pfGrown = "1";
+      const target = el.style.height;
+      el.style.height = "0%";
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { el.style.height = target; });
+      });
+    });
+
+    PF.$$(GROW_RING, scope).forEach(function (el) {
+      const off = el.getAttribute("stroke-dashoffset");
+      if (el.dataset.pfGrown || off === null) return;
+      el.dataset.pfGrown = "1";
+      // 属性优先级低于行内样式，所以先摘掉属性、改走 style，transition 才生效
+      const total = parseFloat(el.getAttribute("stroke-dasharray")) || 0;
+      el.removeAttribute("stroke-dashoffset");
+      el.style.strokeDashoffset = total + "px";
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { el.style.strokeDashoffset = off + "px"; });
+      });
+    });
+  }
+
+  /**
+   * 扫描一个子树，给其中新出现的元素挂上入场动画并启动进度/数字动效。
+   * @param {Element} node 新增的节点（它自身也可能是候选）
+   * @param {number}  seq  已排到的错峰序号，返回推进后的值
+   */
+  function scan(node, seq) {
+    if (!node || node.nodeType !== 1 || !node.isConnected) return seq;
+
+    const all = [];
+    if (node.matches && node.matches(REVEAL_SEL)) all.push(node);
+    PF.$$(REVEAL_SEL, node).forEach(function (el) { all.push(el); });
+
+    // 先读后写：可见性判定全部做完再改 class，避免读写交替触发多次同步布局
+    const todo = all.filter(function (el) { return !el.dataset.pfIn; });
+    const shown = todo.filter(function (el) { return el.getClientRects().length > 0; });
+    const stagger = shown.length > 24 ? "10ms" : "34ms";
+    let n = seq;
+    shown.forEach(function (el) {
+      el.dataset.pfIn = "1";
+      el.style.setProperty("--i", Math.min(n, MAX_STAGGER));
+      el.style.setProperty("--stagger", stagger);
+      el.classList.add("anim-in");
+      n++;
+    });
+
+    growBars(node);
+    PF.$$(COUNT_SEL, node).forEach(countUp);
+    if (node.matches && node.matches(COUNT_SEL)) countUp(node);
+    return n;
+  }
+
+  /* 把 MutationObserver 的多次回调合并到一帧里处理 */
+  let pendingNodes = [];
+  let pendingFrame = 0;
+  function flushPending() {
+    pendingFrame = 0;
+    const batch = pendingNodes;
+    pendingNodes = [];
+    let seq = 0;
+    batch.forEach(function (node) { seq = scan(node, seq); });
+  }
+  function collect(node) {
+    if (!node || node.nodeType !== 1) return;
+    pendingNodes.push(node);
+    if (!pendingFrame) pendingFrame = requestAnimationFrame(flushPending);
+  }
+
+  let mo = null;
+  function installObserver() {
+    if (mo || !document.body || PF.reduced()) return;
+    if (typeof MutationObserver !== "function") return;
+    mo = new MutationObserver(function (records) {
+      for (let i = 0; i < records.length; i++) {
+        const added = records[i].addedNodes;
+        for (let j = 0; j < added.length; j++) collect(added[j]);
+      }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+  }
+
+  /**
+   * 手动触发一次动效扫描（一般不用调 —— 观察器会自动处理动态渲染的内容）。
+   * @param {Element} [scope] 默认整页
+   */
+  PF.reveal = function (scope) {
+    const root = scope || document.body;
+    if (!root || PF.reduced()) return;
+    scan(root, 0);
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installObserver);
+  } else {
+    installObserver();
+  }
+
+  /* ============================================================ 主题
+     明暗主题的唯一切换入口。CSS 那边只有一个开关 html[data-theme="dark"]，
+     这里负责三件事：读初值、写回 localStorage、跟随系统偏好。
+
+     为什么初值不在这里定：本文件在各页 <body> 顶部加载，而登录页在它之前就有
+     静态 DOM，等到这里再定性会先亮一帧白。所以各页 <head> 里有一小段引导脚本
+     抢在首帧前把 data-theme 写好，这里只做兜底与后续交互。 */
+  PF.theme = (function () {
+    const KEY = "pf_theme";
+    const root = document.documentElement;
+    const mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+    function stored() {
+      try {
+        const v = localStorage.getItem(KEY);
+        return v === "dark" || v === "light" ? v : null;
+      } catch (e) { return null; }
+    }
+    function system() { return mq && mq.matches ? "dark" : "light"; }
+    function current() { return root.getAttribute("data-theme") === "dark" ? "dark" : "light"; }
+
+    /** 把当前主题同步到顶栏按钮（图标 / aria / title）。按钮可能还没渲染，允许空跑。 */
+    function sync() {
+      const btn = document.getElementById("pf-theme");
+      if (!btn) return;
+      const dark = current() === "dark";
+      btn.innerHTML = PF.icon(dark ? "sun" : "moon", 17);
+      const label = dark ? "切换到浅色模式" : "切换到深色模式";
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("title", label);
+      btn.setAttribute("aria-pressed", dark ? "true" : "false");
+    }
+
+    function apply(t, persist) {
+      root.setAttribute("data-theme", t);
+      if (persist) { try { localStorage.setItem(KEY, t); } catch (e) { /* 隐私模式下写不进去，忽略 */ } }
+      sync();
+    }
+
+    function toggle() { apply(current() === "dark" ? "light" : "dark", true); }
+
+    function init() {
+      // 兜底：引导脚本被 CSP 拦掉、或 localStorage 不可用时，至少别缺主题属性
+      if (root.getAttribute("data-theme") !== "dark" && root.getAttribute("data-theme") !== "light") {
+        apply(stored() || system(), false);
+      }
+      if (mq) {
+        // 只有"用户从没手动选过"才跟随系统变化，否则手动选择会被系统偏好顶掉
+        const onChange = function () { if (!stored()) apply(system(), false); };
+        if (mq.addEventListener) mq.addEventListener("change", onChange);
+        else if (mq.addListener) mq.addListener(onChange);
+      }
+      sync();
+    }
+
+    return {
+      KEY: KEY,
+      init: init,
+      sync: sync,
+      toggle: toggle,
+      current: current,
+      system: system,
+      set: function (t) { apply(t, true); },
+      reset: function () {
+        try { localStorage.removeItem(KEY); } catch (e) { /* 同上 */ }
+        apply(system(), false);
+      },
+      icon: function () { return PF.icon(current() === "dark" ? "sun" : "moon", 17); },
+    };
+  })();
+  PF.theme.init();
+
+  /* ============================================================ 导航外壳 */
+  const NAV = {
+    teacher: [
+      { group: "教学", items: [
+        { key: "teacher", href: "/teacher", label: "驾驶舱", icon: "grid" },
+        { key: "teach", href: "/teach", label: "备课助手", icon: "presentation" },
+        { key: "grade", href: "/grade", label: "批改中心", icon: "clipboard" },
+        { key: "tutor", href: "/tutor", label: "教师 Copilot", icon: "sparkles" },
+      ]},
+      { group: "事务", items: [
+        { key: "homework", href: "/homework", label: "作业管理", icon: "file" },
+        { key: "resources", href: "/resources", label: "资源管理", icon: "folder" },
+        { key: "match", href: "/match", label: "师生匹配", icon: "users" },
+        { key: "library", href: "/library", label: "资料与知识库", icon: "layers" },
+      ]},
+    ],
+    student: [
+      { group: "我的成长", items: [
+        { key: "student", href: "/student", label: "我的画像", icon: "compass" },
+        { key: "ask", href: "/ask", label: "分层答疑", icon: "message" },
+        { key: "match", href: "/match", label: "课题组匹配", icon: "users" },
+      ]},
+      { group: "学习事务", items: [
+        { key: "homework", href: "/homework", label: "我的作业", icon: "file" },
+        { key: "hub", href: "/hub", label: "资源广场", icon: "briefcase" },
+        { key: "library", href: "/library", label: "我的资料库", icon: "layers" },
+      ]},
+    ],
+  };
+
+  function navHtml(role, active) {
+    const groups = NAV[role] || NAV.student;
+    return groups.map((g) => {
+      const items = g.items.map((it) => {
+        const on = it.key === active;
+        return '<a class="nav-item' + (on ? " is-active" : "") + '" href="' + it.href + '"' +
+          (on ? ' aria-current="page"' : "") + ">" +
+          PF.icon(it.icon, 17) + "<span>" + PF.esc(it.label) + "</span>" +
+          (it.tag ? '<span class="nav-item__tag">' + PF.esc(it.tag) + "</span>" : "") +
+          "</a>";
+      }).join("");
+      return '<div class="nav-group"><div class="nav-group__title">' + PF.esc(g.group) + "</div>" + items + "</div>";
+    }).join("");
+  }
+
+  /**
+   * 构建整站外壳（侧边栏 + 顶栏 + 内容区），返回内容挂载点。
+   * @param {object} cfg { active, title, desc, actions, narrow, wide, me }
+   * @returns {HTMLElement} 内容挂载点 #view
+   */
+  PF.shell = function (cfg) {
+    const c = cfg || {};
+    const me = c.me || PF.state.me || {};
+    const role = me.role || "student";
+    const roleName = role === "teacher" ? "教师" : "学生";
+    const root = PF.$("#app") || document.body;
+    const widthCls = c.narrow ? " content--narrow" : c.wide ? " content--wide" : "";
+
+    root.innerHTML =
+      '<a class="skip-link" href="#pf-main">跳到主要内容</a>' +
+      '<div class="shell">' +
+        '<aside class="sidebar">' +
+          '<div class="sidebar__brand">' +
+            '<div class="sidebar__mark">' + PF.icon("compass", 18) + "</div>" +
+            "<div><div class=\"sidebar__name\">寻径教育</div>" +
+            '<div class="sidebar__sub">PathFinder</div></div>' +
+          "</div>" +
+          '<nav class="sidebar__scroll" aria-label="主导航">' + navHtml(role, c.active) + "</nav>" +
+          '<div class="sidebar__foot">' +
+            '<div class="sidebar__user">' +
+              '<div class="sidebar__avatar" aria-hidden="true">' + PF.esc(PF.initial(me.name)) + "</div>" +
+              '<div class="flex-1"><div class="sidebar__uname">' + PF.esc(me.name || me.username || "未登录") + "</div>" +
+              '<div class="sidebar__urole">' + roleName + " · " + PF.esc(me.username || "") + "</div></div>" +
+              '<button class="btn--ghost" type="button" id="pf-logout" title="退出登录" aria-label="退出登录" ' +
+                'style="color:var(--ink-400);padding:6px;border-radius:6px">' + PF.icon("logout", 15) + "</button>" +
+            "</div>" +
+          "</div>" +
+        "</aside>" +
+        '<div class="main">' +
+          '<header class="topbar">' +
+            '<button class="btn--ghost nav-toggle" type="button" id="pf-nav-toggle" ' +
+              'aria-label="展开导航" aria-controls="pf-main" aria-expanded="false">' + PF.icon("menu", 18) + "</button>" +
+            "<div>" +
+              '<div class="topbar__title">' + PF.esc(c.title || "") + "</div>" +
+              (c.crumb ? '<div class="topbar__crumb">' + PF.esc(c.crumb) + "</div>" : "") +
+            "</div>" +
+            '<div class="topbar__spacer"></div>' +
+            '<button class="theme-toggle" type="button" id="pf-theme"></button>' +
+            '<span class="badge badge--brand">' + PF.icon(role === "teacher" ? "book" : "compass", 11) + roleName + "端</span>" +
+            '<span id="pf-engine"></span>' +
+          "</header>" +
+          '<main class="content' + widthCls + '" id="pf-main" tabindex="-1">' +
+            (c.title ? '<div class="page-head">' +
+              '<div class="page-head__main">' +
+                '<h1 class="page-head__title">' + PF.esc(c.title) + "</h1>" +
+                (c.desc ? '<p class="page-head__desc">' + PF.esc(c.desc) + "</p>" : "") +
+              "</div>" +
+              (c.actions ? '<div class="page-head__actions">' + c.actions + "</div>" : "") +
+            "</div>" : "") +
+            '<div id="view"></div>' +
+          "</main>" +
+        "</div>" +
+      "</div>";
+
+    // 页面标题区淡入：外壳是静态的，只有这块每次加载都是"新内容"
+    if (!PF.reduced()) {
+      const ph = PF.$(".page-head", root);
+      if (ph) ph.classList.add("anim-in");
+    }
+
+    /* 导航滑块（v2.2）：把本页选中项的位置记进 sessionStorage；
+       若上一页选中项在同一角色的菜单里且位置不同，就创建一块
+       .nav-glider 底光，从旧位置滑到当前项 —— 多页应用里最接近
+       单页应用"滑动指示器"的做法。滑完即删，落点样式与
+       .is-active 常态一致，不会有二次跳变。 */
+    if (!PF.reduced()) {
+      const navScroll = PF.$(".sidebar__scroll", root);
+      const cur = navScroll ? navScroll.querySelector(".nav-item.is-active") : null;
+      if (cur) {
+        let prev = null;
+        try { prev = JSON.parse(sessionStorage.getItem("pf.nav") || "null"); } catch (e) { prev = null; }
+        try { sessionStorage.setItem("pf.nav", JSON.stringify({ role: role, top: cur.offsetTop })); } catch (e) {}
+        if (prev && prev.role === role && typeof prev.top === "number" &&
+            Math.abs(prev.top - cur.offsetTop) > 1) {
+          const sidebar = PF.$(".sidebar", root);
+          const glider = document.createElement("div");
+          glider.className = "nav-glider";
+          glider.style.top = prev.top + "px";
+          glider.style.left = cur.offsetLeft + "px";
+          glider.style.width = cur.offsetWidth + "px";
+          glider.style.height = cur.offsetHeight + "px";
+          navScroll.appendChild(glider);
+          sidebar.classList.add("has-glider");
+          // 双 rAF 确保起始位置先提交渲染，再改 top 触发过渡
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              glider.style.top = cur.offsetTop + "px";
+            });
+          });
+          const glideClean = function () {
+            if (!glider.parentNode) return;
+            glider.remove();
+            sidebar.classList.remove("has-glider");
+          };
+          glider.addEventListener("transitionend", function (e) {
+            if (e.target === glider && e.propertyName === "top") glideClean();
+          });
+          // 兜底：transitionend 偶发不触发（切后台等），超时强制复位
+          setTimeout(glideClean, 1200);
+        }
+      }
+    }
+
+    PF.$("#pf-logout").addEventListener("click", async () => {
+      const yes = await PF.confirm({ title: "退出登录", text: "确定要退出当前账号吗？", okText: "退出" });
+      if (!yes) return;
+      await PF.try(() => PF.post("/api/auth/logout"));
+      localStorage.removeItem("pf_token");
+      window.location.href = "/login";
+    });
+
+    // 主题切换：图标与 aria 由 PF.theme.sync 统一维护，这里只负责把点击接上去
+    PF.theme.sync();
+    const themeBtn = PF.$("#pf-theme");
+    if (themeBtn) themeBtn.addEventListener("click", PF.theme.toggle);
+
+    /* 移动端贴底操作条（拇指可达性）
+       只有显式声明 dock:true 的页面才把页头主操作搬到屏幕底部。
+       之所以按视口开关 class 而不是纯 CSS 媒体查询：挂载点就是 .page-head__actions
+       本身，桌面端它必须留在页头流内，两套定位没法用同一条媒体查询切换。 */
+    const actionsEl = PF.$(".page-head__actions", root);
+    if (c.dock && actionsEl && window.matchMedia) {
+      const mq = window.matchMedia("(max-width: 620px)");
+      const syncDock = function () {
+        actionsEl.classList.toggle("fab-bar", mq.matches);
+        document.body.classList.toggle("has-dock", mq.matches);
+      };
+      syncDock();
+      if (mq.addEventListener) mq.addEventListener("change", syncDock);
+      else if (mq.addListener) mq.addListener(syncDock);
+    }
+
+    const toggle = PF.$("#pf-nav-toggle");
+    function setNav(open) {
+      document.body.classList.toggle("nav-open", open);
+      if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    if (toggle) toggle.addEventListener("click", () => setNav(!document.body.classList.contains("nav-open")));
+    PF.$$(".nav-item").forEach((a) => a.addEventListener("click", () => setNav(false)));
+
+    // 点空白处或按 Esc 关掉移动端抽屉 —— 只点按钮关不了会很难用
+    document.addEventListener("click", (e) => {
+      if (!document.body.classList.contains("nav-open")) return;
+      if (toggle && toggle.contains(e.target)) return;
+      const bar = PF.$(".sidebar");
+      if (bar && bar.contains(e.target)) return;
+      setNav(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && document.body.classList.contains("nav-open")) setNav(false);
+    });
+
+    // 顶栏引擎状态：让"现在是 AI 还是规则"始终可见
+    const engineSlot = PF.$("#pf-engine");
+    if (engineSlot) {
+      PF.try(() => PF.get("/api/health", { quiet: true })).then((health) => {
+        if (!health) { engineSlot.innerHTML = ""; return; }
+        const llm = health.llm || {};
+        const mode = llm.api_ready ? "真实模型" : "规则版";
+        const cls = llm.api_ready ? "badge--ok" : "badge--info";
+        engineSlot.innerHTML = '<span class="badge ' + cls + '" title="' +
+          PF.esc(llm.api_ready ? ("模型：" + llm.model) : "未配置 API Key，全程规则生成（断网可完整演示）") +
+          '">' + PF.icon("activity", 11) + PF.esc(mode) + "</span>";
+      });
+    }
+    return PF.$("#view");
+  };
+
+  /** 拉取当前用户；未登录返回 null */
+  PF.me = async function (force) {
+    if (PF.state.me && !force) return PF.state.me;
+    try {
+      const me = await PF.get("/api/auth/me", { quiet: true });
+      PF.state.me = me;
+      return me;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  /**
+   * 页面守卫：未登录跳登录页；角色不符跳自己的首页。
+   * @param {"teacher"|"student"|""} role 需要的角色，空串表示登录即可
+   */
+  PF.requireAuth = async function (role) {
+    const me = await PF.me();
+    if (!me) {
+      const next = encodeURIComponent(location.pathname + location.search);
+      window.location.replace("/login?next=" + next);
+      return null;
+    }
+    if (role && me.role !== role) {
+      PF.toast("当前账号无权访问该页面，已跳转到你的首页", "warn");
+      setTimeout(() => { window.location.replace(me.role === "teacher" ? "/teacher" : "/student"); }, 800);
+      return null;
+    }
+    return me;
+  };
+
+  /** 站点元数据（学科方向、资源类型、口径说明等），进程内缓存 */
+  PF.meta = async function () {
+    if (PF.state.meta) return PF.state.meta;
+    const meta = await PF.try(() => PF.get("/api/meta", { quiet: true }), null);
+    if (meta) PF.state.meta = meta;
+    return meta;
+  };
+
+  /** 把 select 填充为 options（value/label 由 pick 指定） */
+  PF.fillSelect = function (el, items, opts) {
+    const o = opts || {};
+    const list = PF.arr(items);
+    el.innerHTML = (o.placeholder ? '<option value="">' + PF.esc(o.placeholder) + "</option>" : "") +
+      list.map((it) => {
+        const v = typeof it === "string" ? it : (it[o.valueKey || "value"] !== undefined ? it[o.valueKey || "value"] : it.value);
+        const l = typeof it === "string" ? it : (it[o.labelKey || "label"] !== undefined ? it[o.labelKey || "label"] : it.label);
+        return '<option value="' + PF.esc(v) + '">' + PF.esc(l) + "</option>";
+      }).join("");
+    if (o.selected !== undefined) el.value = o.selected;
+    return el;
+  };
+
+  /** 口径提示条：分层免责说明等，全站统一文案入口 */
+  PF.caveat = function (text, tone) {
+    return '<div class="note' + (tone ? " note--" + tone : "") + '">' + PF.icon(tone === "warn" ? "alert" : "info", 15) +
+      "<div>" + PF.esc(text) + "</div></div>";
+  };
+
+  /** 从检索命中里高亮查询词 */
+  PF.highlight = function (text, terms) {
+    let html = PF.esc(text);
+    PF.arr(terms).filter(Boolean).slice(0, 6).forEach((t) => {
+      const safe = PF.esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (!safe) return;
+      html = html.replace(new RegExp(safe, "g"), (m) => "<mark>" + m + "</mark>");
+    });
+    return html;
+  };
+
+  /** 折线/条形迷你图：把 [{label,value}] 渲染成 .bars */
+  PF.bars = function (items, opts) {
+    const o = opts || {};
+    const list = PF.arr(items);
+    const max = Math.max.apply(null, list.map((d) => Number(d.value) || 0).concat([1]));
+    return '<div class="bars">' + list.map((d) => {
+      const h = Math.max(3, Math.round((Number(d.value) || 0) / max * 100));
+      const color = o.color ? "background:" + o.color + ";" : "";
+      return '<div class="bars__item" title="' + PF.esc(d.label + "：" + d.value) + '">' +
+        '<div class="bars__fill" style="height:' + h + "%;" + color + '"></div></div>';
+    }).join("") + "</div>";
+  };
+
+  window.PF = PF;
+})();

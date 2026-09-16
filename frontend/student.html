@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的画像 · 寻径教育 PathFinder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css">
+<script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
+   刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
+   没选过就跟随系统 prefers-color-scheme。 */
+(function(){var t=null;try{t=localStorage.getItem("pf_theme")}catch(e){}
+if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
+document.documentElement.setAttribute("data-theme",t)})();</script>
+<style>
+  input[type="range"] { width: 100%; accent-color: var(--brand-500); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="/static/js/common.js"></script>
+<script src="/static/js/tabs.js"></script>
+<script>
+(async function () {
+  const PF = window.PF;
+
+  const me = await PF.requireAuth("student");
+  if (!me) return;
+
+  const view = PF.shell({
+    active: "student",
+    me: me,
+    title: "我的画像",
+    desc: "画像由成绩、学科倾向、上传材料与答疑记录综合推导，用于决定推荐内容的深度与任务难度，不用于任何分班。",
+    wide: true,
+    actions:
+      '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>" +
+      '<a class="btn" href="/ask">' + PF.icon("message", 15) + "去答疑</a>",
+  });
+
+  view.innerHTML = '<div id="tabs-host"></div>';
+  const host = PF.$("#tabs-host", view);
+
+  let DATA = null;      // /api/student/profile 结果缓存
+  let TASKS = null;     // /api/student/tasks 结果缓存
+  let FLT = "all";
+
+  const ABILITY_LABEL = {
+    foundation: "专业基础", practice: "实践能力", research: "科研素养",
+    communication: "沟通协作", driveself: "自驱力",
+  };
+
+  async function loadProfile(force) {
+    if (DATA && !force) return DATA;
+    DATA = await PF.get("/api/student/profile");
+    return DATA;
+  }
+  async function loadTasks(force) {
+    if (TASKS && !force) return TASKS;
+    TASKS = await PF.get("/api/student/tasks");
+    return TASKS;
+  }
+  function invalidate() { DATA = null; TASKS = null; }
+
+  /* ============================================================ 标签一：画像 */
+  function renderProfile(box) {
+    box.innerHTML = PF.loading("正在读取你的画像");
+    loadProfile(true).then(function (d) {
+      const p = d.profile || {}, st = d.user || {}, s = d.stats || {};
+      const route = d.roadmap || {};
+
+      box.innerHTML =
+        '<div class="card mb-5"><div class="card__body">' +
+          '<div class="hero">' +
+            '<div class="hero__avatar">' + PF.esc(PF.initial(st.name)) + "</div>" +
+            '<div class="flex-1">' +
+              '<div class="row" style="gap:8px">' +
+                '<span class="t-h2">' + PF.esc(st.name || "—") + "</span>" +
+                PF.trackBadge(p.track) + PF.levelTag(p.grade_level, true) +
+                PF.engineBadge(p.engine) +
+              "</div>" +
+              '<div class="t-xs mt-2">' + PF.esc(st.username || "") +
+                " · 行政班 " + PF.esc(st.class_id || "—") +
+                (st.class_name && st.class_name !== st.class_id ? " · 教学班 " + PF.esc(st.class_name) : "") +
+                " · 绩点 " + PF.num(p.gpa, 2) +
+              "</div>" +
+              '<div class="t-body mt-3">推荐内容深度：<strong>' + PF.esc(p.layer || "—") + "</strong>" +
+                '　答疑风格：<strong>' + PF.esc(p.style || "—") + "</strong></div>" +
+            "</div>" +
+            '<div class="stack-sm" style="min-width:150px">' +
+              '<span class="badge badge--brand">' + PF.icon("target", 11) + "科研倾向 " + PF.num(p.research_intent, 1) + "/5</span>" +
+              '<span class="badge badge--info">' + PF.icon("briefcase", 11) + "就业倾向 " + PF.num(p.job_intent, 1) + "/5</span>" +
+            "</div>" +
+          "</div>" +
+        "</div></div>" +
+
+        '<div class="grid grid-4">' +
+          statCard("clipboard", "待办任务", (s.tasks_todo || 0) + ' <span class="t-sm">条</span>', "来自你的成长计划", (s.tasks_todo || 0) ? "warn" : "") +
+          statCard("layers", "我的资料", (s.materials || 0) + ' <span class="t-sm">份</span>', "上传后自动抽知识点", "") +
+          statCard("briefcase", "资源申请", (s.applications || 0) + ' <span class="t-sm">条</span>', "课题组 / 项目 / 比赛", "") +
+          statCard("chart", "综合绩点", PF.num(p.gpa, 2), "满分 100，折算为等级依据", "info") +
+        "</div>" +
+
+        '<div class="grid grid-2 mt-5" style="gap:16px">' +
+          '<div class="card"><div class="card__head"><h3>能力画像</h3>' +
+            '<div class="card__head-actions"><span class="t-xs">每项满分 5 分</span></div></div>' +
+            '<div class="card__body stack-sm">' +
+              abilityHtml(p.ability_pairs) +
+              '<p class="t-xs mt-3">由课程成绩、作业表现、上传材料与答疑提问综合推导，会随数据积累逐步细化。</p>' +
+            "</div></div>" +
+
+          '<div class="card"><div class="card__head"><h3>画像解读</h3>' +
+            '<div class="card__head-actions">' + PF.engineBadge(p.engine) + "</div></div>" +
+            '<div class="card__body stack">' +
+              '<div><span class="t-xs">为什么是这个结果</span><div class="t-body" style="line-height:1.75">' +
+                PF.esc(p.reason || "暂无依据") + "</div></div>" +
+              '<div><span class="t-xs">兴趣方向</span><div class="row mt-2" style="gap:5px">' +
+                (PF.arr(p.interests).length
+                  ? PF.arr(p.interests).map(function (x) { return '<span class="chip chip--brand">' + PF.esc(x) + "</span>"; }).join("")
+                  : '<span class="t-dim t-sm">未识别，可在下方自评中填写</span>') +
+              "</div></div>" +
+              (p.next_step ? '<div><span class="t-xs">下一步建议</span><div class="t-body">' + PF.esc(p.next_step) + "</div></div>" : "") +
+              (route.caveat ? PF.caveat(route.caveat) : "") +
+            "</div></div>" +
+        "</div>" +
+
+        '<div class="card mt-5"><div class="card__head"><h3>' + PF.icon("edit", 15) + " 完善我的画像（自评）</h3></div>" +
+          '<div class="card__body">' +
+            '<p class="t-sm mb-4">科研与就业倾向、兴趣方向由你自己决定。提交后会立刻重算画像与成长路线 —— ' +
+              "同一个知识点，倾向不同，给你讲的深度和练的题目难度就不同。</p>" +
+            '<div class="grid grid-2" style="gap:20px">' +
+              '<div class="stack">' +
+                '<div class="slider-row"><span class="t-sm t-strong">科研倾向</span>' +
+                  '<input type="range" id="self-research" min="0" max="5" step="0.5" value="' + PF.num(p.research_intent, 1) + '">' +
+                  "<output>" + PF.num(p.research_intent, 1) + "</output></div>" +
+                '<div class="slider-row"><span class="t-sm t-strong">就业倾向</span>' +
+                  '<input type="range" id="self-job" min="0" max="5" step="0.5" value="' + PF.num(p.job_intent, 1) + '">' +
+                  "<output>" + PF.num(p.job_intent, 1) + "</output></div>" +
+                '<div><span class="t-sm t-strong">兴趣方向</span>' +
+                  '<input class="input mt-2" id="self-interests" placeholder="用逗号分隔，如：机器学习, NLP" value="' +
+                    PF.esc(PF.arr(p.interests).join(", ")) + '"></div>' +
+              "</div>" +
+              '<div class="stack">' +
+                '<div><span class="t-sm t-strong">一句话说明你的打算</span>' +
+                  '<textarea class="input mt-2" id="self-extra" rows="5" ' +
+                    'placeholder="例如：打算读研做多模态方向，希望课程内容多讲原理推导。"></textarea></div>' +
+                '<div class="row"><button class="btn btn--primary" id="btn-save-self">' +
+                  PF.icon("save", 15) + "保存并重算画像</button>" +
+                  '<span class="t-xs">保存后成长路线同步更新</span></div>' +
+              "</div>" +
+            "</div>" +
+          "</div></div>";
+
+      const rIn = PF.$("#self-research", box), jIn = PF.$("#self-job", box);
+      rIn.addEventListener("input", function () { rIn.nextElementSibling.textContent = Number(rIn.value).toFixed(1); });
+      jIn.addEventListener("input", function () { jIn.nextElementSibling.textContent = Number(jIn.value).toFixed(1); });
+
+      PF.$("#btn-save-self", box).addEventListener("click", async function (e) {
+        const btn = e.currentTarget;
+        PF.busy(btn, true, "重算中");
+        try {
+          const res = await PF.post("/api/student/profile", {
+            research_intent: Number(rIn.value),
+            job_intent: Number(jIn.value),
+            interests: PF.$("#self-interests", box).value,
+            extra_text: PF.$("#self-extra", box).value,
+          });
+          invalidate();
+          PF.toast(res.message || "画像已更新", "ok");
+          await tabs.reload();
+        } finally { PF.busy(btn, false); }
+      });
+    }).catch(function (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "画像加载失败", desc: e.message });
+    });
+  }
+
+  function abilityHtml(pairs) {
+    const list = PF.arr(pairs);
+    if (!list.length) return '<span class="t-dim t-sm">暂无能力数据</span>';
+    return list.map(function (a) {
+      const v = Number(a.value) || 0;
+      const pctVal = Math.round(v / 5 * 100);
+      const tone = pctVal >= 85 ? "ok" : pctVal >= 60 ? "" : "warn";
+      return '<div class="ability-row"><span class="t-sm">' +
+        PF.esc(ABILITY_LABEL[a.name] || a.name) + "</span>" +
+        PF.progress(pctVal, { tone: tone }) +
+        '<span class="num">' + PF.num(v, 1) + "</span></div>";
+    }).join("");
+  }
+
+  function statCard(icon, label, num, hint, tone) {
+    return '<div class="stat">' +
+      '<div class="stat__ico' + (tone ? " stat__ico--" + tone : "") + '">' + PF.icon(icon, 18) + "</div>" +
+      '<div class="flex-1"><div class="stat__num">' + num + "</div>" +
+      '<div class="stat__label">' + PF.esc(label) + "</div>" +
+      (hint ? '<div class="t-xs">' + PF.esc(hint) + "</div>" : "") +
+      "</div></div>";
+  }
+
+  /* ============================================================ 标签二：成长路线 */
+  function renderRoadmap(box) {
+    box.innerHTML = PF.loading("正在生成成长路线");
+    loadProfile().then(function (d) {
+      const route = d.roadmap || {};
+      const stages = PF.arr(route.stages);
+      box.innerHTML =
+        '<div class="card"><div class="card__head">' +
+          "<h3>" + PF.esc(route.title || "我的成长路线") + "</h3>" +
+          '<div class="card__head-actions">' + PF.engineBadge(d.roadmap_engine) +
+            '<span class="badge badge--brand">' + PF.icon("target", 11) + PF.esc(route.direction || "方向待定") + "</span></div>" +
+        "</div>" +
+        '<div class="card__body">' +
+          (route.summary ? '<p class="t-body mb-5" style="line-height:1.8">' + PF.esc(route.summary) + "</p>" : "") +
+          (stages.length
+            ? '<div class="timeline">' + stages.map(function (s, i) {
+                return '<div class="timeline__item">' +
+                  '<div class="row" style="gap:8px">' +
+                    '<span class="badge badge--brand">' + PF.esc(s.period) + "</span>" +
+                    '<span class="t-strong">' + PF.esc(s.focus) + "</span>" +
+                    '<div class="spacer"></div>' +
+                    '<button class="btn btn--sm" data-stage="' + i + '">' +
+                      PF.icon("plus", 12) + "加入我的计划</button>" +
+                  "</div>" +
+                  '<ul class="stack-sm mt-3" style="padding-left:4px">' + PF.arr(s.actions).map(function (a) {
+                    return '<li class="t-body" style="line-height:1.75">· ' + PF.esc(a) + "</li>";
+                  }).join("") + "</ul>" +
+                "</div>";
+              }).join("") + "</div>"
+            : PF.empty({ icon: "compass", title: "暂无路线", desc: "先完善画像，路线会自动生成。" })) +
+          '<div class="mt-5">' + PF.caveat(route.caveat ||
+            "建议每月复核一次分层结果：分层不是标签，而是随成绩与兴趣动态变化的培养依据。") + "</div>" +
+        "</div></div>";
+
+      PF.$$("[data-stage]", box).forEach(function (b) {
+        b.addEventListener("click", async function () {
+          const s = stages[Number(b.dataset.stage)] || {};
+          PF.busy(b, true, "添加中");
+          try {
+            await PF.post("/api/student/tasks", {
+              title: s.focus || "成长阶段任务",
+              detail: PF.arr(s.actions).join("；"),
+              type: "roadmap",
+            });
+            invalidate();
+            PF.toast("已加入我的计划，可在「我的任务」里推进进度", "ok");
+          } finally { PF.busy(b, false); }
+        });
+      });
+    }).catch(function (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "路线加载失败", desc: e.message });
+    });
+  }
+
+  /* ============================================================ 标签三：我的任务 */
+  function renderTasks(box) {
+    box.innerHTML = PF.loading("正在加载任务");
+    loadTasks(true).then(function (d) { paintTasks(box, d); })
+      .catch(function (e) { box.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message }); });
+  }
+
+  function paintTasks(box, d) {
+    const all = PF.arr(d.tasks);
+    const by = d.by_status || {};
+    const opts = PF.arr(d.status_options);
+
+    box.innerHTML =
+      '<div class="grid grid-4 mb-5">' +
+        statCard("clipboard", "全部任务", (d.count || 0) + ' <span class="t-sm">条</span>', "平均进度 " + PF.num(d.avg_progress, 0) + "%", "") +
+        statCard("clock", "待开始", (by.todo || 0) + ' <span class="t-sm">条</span>', "还没动手", (by.todo || 0) ? "warn" : "") +
+        statCard("play", "进行中", (by.doing || 0) + ' <span class="t-sm">条</span>', "正在推进", "") +
+        statCard("check", "已完成", (by.done || 0) + ' <span class="t-sm">条</span>', "已收口", "info") +
+      "</div>" +
+
+      '<div class="card mb-5"><div class="card__head"><h3>' + PF.icon("plus", 15) + " 新建任务</h3></div>" +
+        '<div class="card__body"><div class="row">' +
+          '<input class="input" id="nt-title" placeholder="任务标题，如：精读一篇多模态综述" style="flex:2;min-width:200px">' +
+          '<input class="input" id="nt-due" type="date" style="width:160px">' +
+          '<button class="btn btn--primary" id="btn-add-task">' + PF.icon("save", 15) + "添加</button>" +
+        "</div></div></div>" +
+
+      '<div class="card"><div class="card__head">' +
+        '<h3>任务清单</h3>' +
+        '<div class="card__head-actions">' +
+          '<div class="row" style="gap:6px" id="task-flt">' +
+            '<button class="btn btn--sm" data-f="all">全部</button>' +
+            opts.map(function (o) {
+              return '<button class="btn btn--sm" data-f="' + PF.esc(o.value) + '">' + PF.esc(o.label) + "</button>";
+            }).join("") +
+          "</div>" +
+        "</div></div>" +
+        '<div class="card__body card__body--flush" id="task-body"></div></div>';
+
+    function paintBody() {
+      const rows = all.filter(function (t) { return FLT === "all" || String(t.status) === FLT; });
+      const el = PF.$("#task-body", box);
+      if (!rows.length) {
+        el.innerHTML = PF.empty({ icon: "clipboard", title: "这里还没有任务",
+          desc: "可以在「成长路线」里把某个阶段加入计划，或在上面直接新建。" });
+        return;
+      }
+      el.innerHTML = '<div class="list">' + rows.map(function (t) {
+        const overdue = t.overdue || (t.due_date && PF.isPast(t.due_date) && t.status !== "done");
+        return '<div class="list__item"><div class="list__main">' +
+          '<div class="list__title">' + PF.esc(t.title) +
+            (overdue ? ' <span class="badge badge--danger">已逾期</span>' : "") + "</div>" +
+          (t.detail ? '<div class="list__desc">' + PF.esc(PF.trunc(t.detail, 110)) + "</div>" : "") +
+          '<div class="list__meta">' + PF.statusBadge(t.status_text || t.status) +
+            '<span class="chip">' + PF.esc(t.type_label || t.type) + "</span>" +
+            (t.due_date ? "<span>截止 " + PF.esc(PF.date(t.due_date)) + "</span>" : "") +
+          "</div>" +
+          '<div class="row mt-3" style="gap:10px">' +
+            '<input type="range" min="0" max="100" step="10" value="' + (Number(t.progress) || 0) + '" ' +
+              'data-prog="' + t.id + '" style="max-width:220px">' +
+            '<span class="t-sm t-mono" id="pv-' + t.id + '">' + (Number(t.progress) || 0) + "%</span>" +
+          "</div>" +
+        "</div>" +
+        '<div class="list__side">' +
+          '<select class="select select--sm" data-st="' + t.id + '" style="width:110px">' +
+            opts.map(function (o) {
+              return '<option value="' + PF.esc(o.value) + '"' +
+                (String(o.value) === String(t.status) ? " selected" : "") + ">" + PF.esc(o.label) + "</option>";
+            }).join("") +
+          "</select>" +
+        "</div></div>";
+      }).join("") + "</div>";
+
+      PF.$$("[data-st]", el).forEach(function (sel) {
+        sel.addEventListener("change", async function () {
+          try {
+            await PF.post("/api/student/tasks/" + sel.dataset.st, { status: sel.value });
+            invalidate();
+            PF.toast("状态已更新", "ok");
+            await tabs.reload();
+          } catch (e) { /* 已提示 */ }
+        });
+      });
+      PF.$$("[data-prog]", el).forEach(function (rg) {
+        rg.addEventListener("input", function () {
+          PF.$("#pv-" + rg.dataset.prog, el).textContent = rg.value + "%";
+        });
+        rg.addEventListener("change", async function () {
+          try {
+            await PF.post("/api/student/tasks/" + rg.dataset.prog, { progress: Number(rg.value) });
+            invalidate();
+            PF.toast("进度已保存", "ok");
+            await tabs.reload();
+          } catch (e) { /* 已提示 */ }
+        });
+      });
+    }
+
+    PF.$$("[data-f]", box).forEach(function (b) {
+      if (b.dataset.f === FLT) b.classList.add("btn--primary");
+      b.addEventListener("click", function () {
+        FLT = b.dataset.f;
+        PF.$$("[data-f]", box).forEach(function (x) { x.classList.remove("btn--primary"); });
+        b.classList.add("btn--primary");
+        paintBody();
+      });
+    });
+
+    PF.$("#btn-add-task", box).addEventListener("click", async function (e) {
+      const title = PF.$("#nt-title", box).value.trim();
+      if (!title) { PF.toast("请填写任务标题", "warn"); return; }
+      const btn = e.currentTarget;
+      PF.busy(btn, true, "添加中");
+      try {
+        await PF.post("/api/student/tasks", { title: title, due_date: PF.$("#nt-due", box).value, type: "todo" });
+        PF.$("#nt-title", box).value = "";
+        PF.$("#nt-due", box).value = "";
+        invalidate();
+        PF.toast("任务已添加", "ok");
+        await tabs.reload();
+      } finally { PF.busy(btn, false); }
+    });
+
+    paintBody();
+  }
+
+  /* ============================================================ 标签四：我的资料 */
+  function renderMaterials(box) {
+    box.innerHTML = PF.loading("正在加载资料");
+    loadProfile().then(function (d) {
+      const list = PF.arr(d.materials);
+      box.innerHTML =
+        '<div class="card"><div class="card__head"><h3>我上传的资料</h3>' +
+          '<div class="card__head-actions">' +
+            '<span class="t-xs">共 ' + list.length + " 份</span>" +
+            '<a class="btn btn--sm btn--primary" href="/library">' + PF.icon("upload", 13) + "去上传</a>" +
+          "</div></div>" +
+          '<div class="card__body card__body--flush">' +
+            (list.length ? PF.table([
+              { label: "文件名", render: function (r) { return '<span class="t-strong">' + PF.esc(r.filename) + "</span>"; } },
+              { label: "类型", cls: "w-md", render: function (r) { return '<span class="chip">' + PF.esc(r.kind || "其它") + "</span>"; } },
+              { label: "分类", cls: "w-sm", render: function (r) { return PF.esc(r.category || "未分类"); } },
+              { label: "知识点", cls: "w-sm num", render: function (r) { return PF.num(r.knowledge_count, 0); } },
+              { label: "来源", cls: "w-md", render: function (r) { return PF.engineBadge(r.engine); } },
+              { label: "上传时间", cls: "w-md", render: function (r) { return PF.esc(PF.when(r.created_at)); } },
+            ], list, { empty: { icon: "layers", title: "还没有上传资料" } })
+              : PF.empty({ icon: "upload", title: "还没有上传资料",
+                  desc: "上传课件、笔记或作业后，系统会自动解析并抽取知识点，答疑时也能引用。",
+                  action: '<a class="btn btn--primary" href="/library">上传第一份资料</a>' })) +
+          "</div></div>" +
+        '<div class="mt-5">' + PF.caveat("资料越完整，答疑引用的原文越准确。教师上传的课件同样对全班可见。") + "</div>";
+    }).catch(function (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message });
+    });
+  }
+
+  /* ============================================================ 装配 */
+  const tabs = PF.tabs(host, [
+    { key: "profile", label: "我的画像", icon: "compass", render: renderProfile },
+    { key: "roadmap", label: "成长路线", icon: "target", render: renderRoadmap },
+    { key: "tasks", label: "我的任务", icon: "clipboard", render: renderTasks },
+    { key: "materials", label: "我的资料", icon: "layers", render: renderMaterials },
+  ], { base: "#", onChange: function () { window.scrollTo({ top: 0, behavior: "smooth" }); } });
+  PF.state.tabs = tabs;
+
+  PF.$("#btn-refresh").addEventListener("click", async function (e) {
+    const btn = e.currentTarget;
+    PF.busy(btn, true, "刷新中");
+    try {
+      invalidate();
+      await tabs.reload();
+      PF.toast("已刷新", "ok");
+    } finally { PF.busy(btn, false); }
+  });
+})();
+</script>
+</body>
+</html>

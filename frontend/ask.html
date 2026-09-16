@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>分层答疑 · 寻径教育 PathFinder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css">
+<script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
+   刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
+   没选过就跟随系统 prefers-color-scheme。 */
+(function(){var t=null;try{t=localStorage.getItem("pf_theme")}catch(e){}
+if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
+document.documentElement.setAttribute("data-theme",t)})();</script>
+<style>
+  .ask-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--s-5); align-items: start; }
+  @media (max-width: 1080px) { .ask-wrap { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="/static/js/common.js"></script>
+<script src="/static/js/tabs.js"></script>
+<script>
+(async function () {
+  const PF = window.PF;
+
+  const me = await PF.requireAuth("student");
+  if (!me) return;
+
+  const view = PF.shell({
+    active: "ask",
+    me: me,
+    title: "分层答疑",
+    desc: "同一个问题，会按你的主标签与学业等级给出不同深度的讲解 —— 决定的是内容深度，不是班级划分。答案优先引用教师上传的课件原文。",
+    wide: true,
+    actions:
+      '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
+  });
+
+  const META = (await PF.try(function () { return PF.get("/api/meta", { quiet: true }); }, {})) || {};
+  const COURSES = PF.arr(META.my_courses);
+
+  view.innerHTML =
+    '<div class="ask-wrap">' +
+      '<div class="stack">' +
+        '<div class="card"><div class="card__head">' +
+          "<h3>" + PF.icon("message", 15) + " 对话" +
+            ' <span class="t-xs" style="font-weight:400">（历史会自动带上，支持追问）</span></h3>' +
+          '<div class="card__head-actions"><span class="badge badge--brand" id="b-layer">—</span></div>' +
+        "</div>" +
+        '<div class="card__body"><div class="chat" id="chat">' + PF.loading("正在读取历史对话") + "</div></div>" +
+        '<div class="card__foot"><div class="composer stack">' +
+          '<div class="row">' +
+            '<select class="select select--sm" id="c-course" style="width:170px"><option value="">全部课程</option>' +
+              COURSES.map(function (c) { return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>"; }).join("") +
+            "</select>" +
+            '<select class="select select--sm" id="c-top" style="width:120px">' +
+              '<option value="4">引用 4 段</option><option value="6">引用 6 段</option>' +
+              '<option value="2">引用 2 段</option></select>' +
+            '<div class="spacer"></div>' +
+            '<span class="t-xs">Ctrl / ⌘ + Enter 发送</span>' +
+          "</div>" +
+          '<div class="row" style="align-items:flex-end">' +
+            '<textarea class="input" id="c-input" rows="2" ' +
+              'placeholder="把问题写具体一点，例如：注意力机制为什么要除以根号 d_k？"></textarea>' +
+            '<button class="btn btn--primary" id="btn-send">' + PF.icon("send", 15) + "提问</button>" +
+          "</div>" +
+        "</div></div></div>" +
+      "</div>" +
+
+      '<div class="stack">' +
+        '<div class="card"><div class="card__head"><h3>本次答疑风格</h3></div>' +
+          '<div class="card__body stack-sm">' +
+            '<dl class="style-grid">' +
+              "<dt>主标签</dt><dd id=\"s-track\">—</dd>" +
+              "<dt>学业等级</dt><dd id=\"s-level\">—</dd>" +
+              "<dt>讲解风格</dt><dd id=\"s-style\">—</dd>" +
+              "<dt>回答引擎</dt><dd id=\"s-engine\">—</dd>" +
+            "</dl>" +
+            '<div id="s-caveat"></div>' +
+          "</div></div>" +
+
+        '<div class="card"><div class="card__head"><h3>引用依据</h3>' +
+          '<div class="card__head-actions"><span class="t-xs" id="ref-cnt">0 条</span></div></div>' +
+          '<div class="card__body" id="refs">' +
+            '<span class="t-dim t-sm">提问后显示命中的课件原文片段。</span>' +
+          "</div></div>" +
+
+        '<div class="card"><div class="card__head"><h3>试试这些问题</h3></div>' +
+          '<div class="card__body stack-sm" id="suggest">' + PF.loading("加载中") + "</div></div>" +
+      "</div>" +
+    "</div>";
+
+  /* ---------------------------------------------------------- 历史渲染 */
+  async function loadHistory() {
+    const chat = PF.$("#chat");
+    try {
+      const d = await PF.get("/api/tutor/history?limit=40");
+      const msgs = PF.arr(d.messages);
+      if (!msgs.length) {
+        chat.innerHTML =
+          '<div class="msg msg--ai"><div class="msg__avatar">AI</div>' +
+            '<div class="msg__bubble">你好，我是这门课的 AI 助教。' +
+            "提问时我会先看你的画像，再决定从哪里讲起、讲多深；" +
+            "答案只引用教师上传的课件原文，没有依据的地方会直接说明。\n\n" +
+            "可以先问一个你最近卡住的知识点。</div></div>";
+        return;
+      }
+      chat.innerHTML = msgs.map(renderMsg).join("");
+      const lastAi = msgs.filter(function (m) { return m.role === "assistant"; }).pop();
+      if (lastAi) {
+        setStyle(lastAi.layer, lastAi.engine, lastAi.refs);
+      }
+      scrollBottom();
+    } catch (e) {
+      chat.innerHTML = PF.empty({ icon: "alert", title: "历史加载失败", desc: e.message });
+    }
+  }
+
+  function renderMsg(m) {
+    const isUser = m.role === "user";
+    const refs = PF.arr(m.refs);
+    return '<div class="msg ' + (isUser ? "msg--user" : "msg--ai") + '">' +
+      '<div class="msg__avatar">' + (isUser ? PF.esc(PF.initial(me.name)) : "AI") + "</div>" +
+      '<div class="msg__bubble">' +
+        '<div class="msg__meta">' +
+          '<span class="t-xs t-strong">' + (isUser ? "我" : "AI 助教") + "</span>" +
+          (m.layer ? '<span class="badge badge--brand">' + PF.esc(m.layer) + "</span>" : "") +
+          (!isUser ? PF.engineBadge(m.engine) : "") +
+          '<div class="spacer"></div>' +
+          '<span class="t-xs t-dim">' + PF.esc(PF.when(m.created_at)) + "</span>" +
+        "</div>" +
+        PF.esc(m.content || "") +
+        (refs.length ? '<div class="t-xs mt-3" style="color:var(--ink-500)">依据：' +
+          refs.slice(0, 3).map(function (r) { return "[" + PF.esc(r) + "]"; }).join(" ") + "</div>" : "") +
+      "</div></div>";
+  }
+
+  function scrollBottom() {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  }
+
+  /* ---------------------------------------------------------- 风格面板 */
+  function setStyle(layer, engine, refs) {
+    const parts = String(layer || "").split("·").map(function (s) { return s.trim(); });
+    PF.$("#s-track").innerHTML = parts[0] ? PF.trackBadge(parts[0]) : "—";
+    PF.$("#s-level").innerHTML = parts[1] ? PF.levelTag(parts[1].replace("级", "").trim()) +
+      ' <span class="t-xs">' + PF.esc(parts[1]) + "</span>" : "—";
+    PF.$("#s-style").textContent = parts[2] || "—";
+    PF.$("#s-engine").innerHTML = engine ? PF.engineBadge(engine) : "—";
+    PF.$("#b-layer").textContent = layer || "等待提问";
+    PF.$("#s-caveat").innerHTML = PF.caveat(META.caveats && META.caveats.layer
+      ? META.caveats.layer
+      : "分层只用于决定推荐内容深度与任务难度，不用于分班、不产生标签。");
+    paintRefs(refs);
+  }
+
+  function paintRefs(refs) {
+    const list = PF.arr(refs);
+    PF.$("#ref-cnt").textContent = list.length + " 条";
+    PF.$("#refs").innerHTML = list.length
+      ? list.map(function (r, i) {
+          return '<div class="ref-item"><div class="ref-item__idx">' + (i + 1) + "</div>" +
+            '<div class="ref-item__text">' + PF.esc(r) + "</div></div>";
+        }).join("")
+      : '<span class="t-dim t-sm">本次未命中课件原文，答案会明确说明这一点。</span>';
+  }
+
+  /* ---------------------------------------------------------- 提问 */
+  async function send() {
+    const input = PF.$("#c-input");
+    const q = input.value.trim();
+    if (!q) { PF.toast("请先输入问题", "warn"); return; }
+    const btn = PF.$("#btn-send");
+    const chat = PF.$("#chat");
+    if (!chat.querySelector(".msg")) chat.innerHTML = "";
+
+    // 乐观渲染用户消息
+    const userEl = document.createElement("div");
+    userEl.innerHTML = renderMsg({ role: "user", content: q, created_at: new Date().toISOString(), refs: [] });
+    chat.appendChild(userEl.firstElementChild);
+
+    const pending = document.createElement("div");
+    pending.className = "msg msg--ai";
+    pending.innerHTML = '<div class="msg__avatar">AI</div><div class="msg__bubble">' +
+      '<div class="msg__meta"><span class="t-xs t-strong">AI 助教</span>' +
+      '<span class="t-xs t-dim">正在按你的画像组织答案并检索课件…</span></div>' +
+      '<span class="spin"></span></div>';
+    chat.appendChild(pending);
+
+    input.value = "";
+    PF.busy(btn, true, "生成中");
+    scrollBottom();
+
+    try {
+      const d = await PF.post("/api/tutor/ask", {
+        question: q,
+        course: PF.$("#c-course").value,
+        top_k: Number(PF.$("#c-top").value),
+      });
+      pending.innerHTML = renderMsg({
+        role: "assistant", content: d.answer, layer: d.layer, engine: d.engine,
+        created_at: new Date().toISOString(), refs: d.refs,
+      });
+      setStyle(d.layer, d.engine, d.refs);
+      if (PF.arr(d.hits).length) paintHits(d.hits);
+      scrollBottom();
+    } catch (e) {
+      pending.innerHTML = '<div class="msg__avatar">AI</div><div class="msg__bubble">' +
+        PF.esc("生成失败：" + e.message) + "</div>";
+    } finally { PF.busy(btn, false); }
+  }
+
+  function paintHits(hits) {
+    const VIA = { "bm25": "关键词", "vec": "语义", "bm25+vec": "双路" };
+    PF.$("#refs").innerHTML = PF.arr(hits).map(function (h, i) {
+      return '<div class="ref-item"><div class="ref-item__idx">' + (i + 1) + "</div>" +
+        '<div class="ref-item__text">' +
+          '<div class="row" style="gap:6px"><span class="badge badge--brand">' + PF.esc(VIA[h.via] || h.via || "命中") + "</span>" +
+          '<span class="t-xs t-mono">' + PF.num(h.score, 5) + "</span></div>" +
+          '<div class="t-mono mt-2" style="font-size:11px">' + PF.esc(h.ref || "") + "</div>" +
+          '<div class="mt-2">' + PF.esc(PF.trunc(h.snippet || "", 120)) + "</div>" +
+        "</div></div>";
+    }).join("");
+  }
+
+  /* ---------------------------------------------------------- 推荐问题 */
+  (async function loadSuggest() {
+    const box = PF.$("#suggest");
+    const preset = new URLSearchParams(location.search).get("q");
+    const staticQ = [
+      "注意力机制为什么要除以根号 d_k？",
+      "梯度下降的学习率该怎么选？",
+      "Dijkstra 为什么不能处理负权边？",
+      "讲讲知识图谱的表示学习",
+    ];
+    const kps = await PF.try(function () {
+      return PF.get("/api/materials/knowledge", { quiet: true });
+    }, null);
+    const fromKp = PF.arr(kps && kps.knowledge).slice(0, 6).map(function (k) { return "讲讲" + k.name; });
+    const list = (fromKp.length ? fromKp : staticQ).slice(0, 6);
+    box.innerHTML = list.map(function (q) {
+      return '<button class="btn btn--sm q-chip" data-q="' + PF.esc(q) + '">' +
+        PF.icon("message", 12) + PF.esc(PF.trunc(q, 26)) + "</button>";
+    }).join("") + (COURSES.length ? '<div class="t-xs t-dim mt-2">课程范围：' + PF.esc(COURSES.join("、")) + "</div>" : "");
+
+    PF.$$("[data-q]", box).forEach(function (b) {
+      b.addEventListener("click", function () {
+        PF.$("#c-input").value = b.dataset.q;
+        send();
+      });
+    });
+
+    if (preset) {
+      PF.$("#c-input").value = preset;
+      send();
+    }
+  })();
+
+  PF.$("#btn-send").addEventListener("click", send);
+  PF.$("#c-input").addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
+  });
+
+  PF.$("#btn-clear").addEventListener("click", async function () {
+    const yes = await PF.confirm({
+      title: "清空对话", text: "会删除你与 AI 助教的全部答疑记录，不可恢复。", okText: "清空", danger: true,
+    });
+    if (!yes) return;
+    try {
+      await PF.post("/api/tutor/clear");
+      setStyle("", "", []);
+      await loadHistory();
+      PF.toast("对话已清空", "ok");
+    } catch (e) { /* 已提示 */ }
+  });
+
+  setStyle("", "", []);
+  await loadHistory();
+})();
+</script>
+</body>
+</html>

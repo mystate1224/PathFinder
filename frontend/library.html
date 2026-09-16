@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>资料与知识库 · 寻径教育 PathFinder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css">
+<script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
+   刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
+   没选过就跟随系统 prefers-color-scheme。 */
+(function(){var t=null;try{t=localStorage.getItem("pf_theme")}catch(e){}
+if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
+document.documentElement.setAttribute("data-theme",t)})();</script>
+</head>
+<body>
+<div id="app"></div>
+<script src="/static/js/common.js"></script>
+<script src="/static/js/tabs.js"></script>
+<script>
+(async function () {
+  const PF = window.PF;
+
+  const me = await PF.requireAuth("");
+  if (!me) return;
+  const isTeacher = me.role === "teacher";
+
+  const view = PF.shell({
+    active: "library",
+    me: me,
+    title: isTeacher ? "资料与知识库" : "我的资料库",
+    desc: "上传课件、笔记、作业图片，系统自动解析文本、抽取知识点，并建立关键词 + 语义双路索引，供答疑与备课引用。",
+    wide: true,
+    actions:
+      '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>",
+  });
+
+  view.innerHTML = '<div id="tabs-host"></div>';
+  const host = PF.$("#tabs-host", view);
+
+  let META = null;
+  let OV = null;
+  let MATS = null;
+  let KPS = null;
+
+  async function meta() {
+    if (!META) META = await PF.try(function () { return PF.get("/api/meta", { quiet: true }); }, {});
+    return META || {};
+  }
+  async function overview(force) {
+    if (OV && !force) return OV;
+    OV = await PF.get("/api/materials/overview");
+    return OV;
+  }
+  async function materials(force) {
+    if (MATS && !force) return MATS;
+    MATS = await PF.get("/api/materials");
+    return MATS;
+  }
+  async function knowledge(force) {
+    if (KPS && !force) return KPS;
+    KPS = await PF.get("/api/materials/knowledge");
+    return KPS;
+  }
+  function invalidate() { OV = MATS = KPS = null; }
+
+  const VIA_TEXT = { "bm25": "关键词命中", "vec": "语义命中", "bm25+vec": "双路命中" };
+  const VIA_CLS = { "bm25": "badge--info", "vec": "badge--brand", "bm25+vec": "badge--ok" };
+
+  function statCard(icon, label, num, hint, tone) {
+    return '<div class="stat">' +
+      '<div class="stat__ico' + (tone ? " stat__ico--" + tone : "") + '">' + PF.icon(icon, 18) + "</div>" +
+      '<div class="flex-1"><div class="stat__num">' + num + "</div>" +
+      '<div class="stat__label">' + PF.esc(label) + "</div>" +
+      (hint ? '<div class="t-xs">' + PF.esc(hint) + "</div>" : "") +
+      "</div></div>";
+  }
+
+  /* ============================================================ 标签一：概览 + 上传 */
+  function renderOverview(box) {
+    box.innerHTML = PF.loading("正在统计资料库");
+    Promise.all([overview(true), materials(true), meta()]).then(function (res) {
+      const ov = res[0], mats = res[1], m = res[2] || {};
+      const s = ov.stats || {};
+      const kinds = PF.arr(ov.kinds).length ? ov.kinds : PF.arr(m.material_kinds);
+      const cats = PF.arr(ov.categories).length ? ov.categories : PF.arr(m.material_categories);
+      const courses = isTeacher ? PF.arr(m.courses) : PF.arr(m.my_courses);
+
+      box.innerHTML =
+        '<div class="grid grid-4 mb-5">' +
+          statCard("layers", "资料总数", (s.materials || 0) + ' <span class="t-sm">份</span>',
+            isTeacher ? "全班可见的资料" : "我的 + 教师共享", "") +
+          statCard("target", "知识点", (s.knowledge_points || 0) + ' <span class="t-sm">个</span>',
+            PF.esc(s.knowledge_scope || ""), "info") +
+          statCard("grid", "索引片段", (s.chunks || 0) + ' <span class="t-sm">条</span>',
+            "供答疑与备课检索", "") +
+          statCard("activity", "向量条目", (s.vectors || 0) + ' <span class="t-sm">条</span>',
+            s.fts_ok ? "FTS5 关键词索引可用" : "FTS5 不可用，已降级 LIKE 扫描", s.fts_ok ? "" : "warn") +
+        "</div>" +
+
+        '<div class="card mb-5"><div class="card__head"><h3>' + PF.icon("upload", 15) + " 上传并智能解析</h3>" +
+          '<div class="card__head-actions"><span class="t-xs">支持 ' + PF.esc(PF.arr(kinds).map(function (k) { return k.label; }).join(" / ")) + "</span></div></div>" +
+          '<div class="card__body stack">' +
+            '<div class="drop" id="drop">' +
+              '<div class="drop__ico">' + PF.icon("upload", 30) + "</div>" +
+              '<div class="t-strong mt-3">点击选择文件，或把文件拖到这里</div>' +
+              '<div class="t-xs mt-2">PDF / Word / PPT / TXT / Markdown / 图片均支持；图片走视觉模型识别，' +
+                "未配 API Key 时按文件名与结构生成规则解析结果（结构一致）。</div>" +
+              '<input type="file" id="file-input" multiple hidden>' +
+            "</div>" +
+            '<div id="picked" class="row" style="gap:8px"></div>' +
+            '<div class="row" style="gap:12px;flex-wrap:wrap">' +
+              '<label class="row" style="gap:7px"><span class="t-sm t-strong">归类到</span>' +
+                '<select class="select select--sm" id="up-cat" style="width:150px">' +
+                  PF.arr(cats).map(function (c) { return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>"; }).join("") +
+                "</select></label>" +
+              '<label class="row" style="gap:7px"><input type="checkbox" id="up-preview">' +
+                '<span class="t-sm">仅预览解析结果，不保存</span></label>' +
+              '<div class="spacer"></div>' +
+              '<button class="btn btn--primary" id="btn-upload" disabled>' +
+                PF.icon("wand", 15) + "开始解析</button>" +
+            "</div>" +
+            '<div id="up-result"></div>' +
+          "</div></div>" +
+
+        '<div class="card"><div class="card__head"><h3>最近上传</h3>' +
+          '<div class="card__head-actions"><span class="t-xs">解析引擎标注在右侧</span></div></div>' +
+          '<div class="card__body card__body--flush">' +
+            (PF.arr(ov.recent).length
+              ? '<div class="list">' + PF.arr(ov.recent).map(function (r) {
+                  return '<div class="list__item"><div class="list__main">' +
+                    '<div class="list__title">' + PF.esc(r.filename) + "</div>" +
+                    '<div class="list__meta"><span class="chip">' + PF.esc(r.kind || "其它") + "</span>" +
+                      '<span class="chip">' + PF.esc(r.category || "未分类") + "</span>" +
+                      "<span>" + PF.num(r.knowledge_count, 0) + " 个知识点</span>" +
+                      "<span>" + PF.num(r.size_chars, 0) + " 字</span>" +
+                      "<span>" + PF.esc(PF.when(r.created_at)) + "</span></div>" +
+                  "</div>" +
+                  '<div class="list__side">' + PF.engineBadge(r.engine) + "</div></div>";
+                }).join("") + "</div>"
+              : PF.empty({ icon: "layers", title: "还没有资料", desc: "上传第一份课件试试。" })) +
+          "</div></div>" +
+
+        '<div class="mt-5">' + PF.caveat("解析结果由「规则版 / 真实模型版」两个引擎产出，返回结构完全一致 —— " +
+          "配置 API Key 后无需改动任何前端代码即可升级。") + "</div>";
+
+      bindUpload(box, cats);
+    }).catch(function (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message });
+    });
+  }
+
+  function bindUpload(box, cats) {
+    const drop = PF.$("#drop", box);
+    const input = PF.$("#file-input", box);
+    const btn = PF.$("#btn-upload", box);
+    const pickedBox = PF.$("#picked", box);
+    let picked = [];
+
+    function paintPicked() {
+      pickedBox.innerHTML = picked.map(function (f, i) {
+        return '<span class="file-pill">' + PF.icon("file", 13) + PF.esc(f.name) +
+          ' <span class="t-xs t-dim">' + Math.max(1, Math.round(f.size / 1024)) + " KB</span>" +
+          ' <button class="btn--ghost" data-rm="' + i + '" style="padding:2px 4px;color:var(--ink-400)">' +
+            PF.icon("x", 12) + "</button></span>";
+      }).join("") + (picked.length ? '<span class="t-xs t-dim">共 ' + picked.length + " 个文件</span>" : "");
+      btn.disabled = !picked.length;
+      PF.$$("[data-rm]", pickedBox).forEach(function (b) {
+        b.addEventListener("click", function () {
+          picked.splice(Number(b.dataset.rm), 1);
+          paintPicked();
+        });
+      });
+    }
+
+    drop.addEventListener("click", function () { input.click(); });
+    input.addEventListener("change", function () {
+      picked = picked.concat(Array.prototype.slice.call(input.files || []));
+      input.value = "";
+      paintPicked();
+    });
+    ["dragenter", "dragover"].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("is-over"); });
+    });
+    ["dragleave", "drop"].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("is-over"); });
+    });
+    drop.addEventListener("drop", function (e) {
+      const dt = e.dataTransfer;
+      if (dt && dt.files) { picked = picked.concat(Array.prototype.slice.call(dt.files)); paintPicked(); }
+    });
+
+    btn.addEventListener("click", async function () {
+      if (!picked.length) return;
+      PF.busy(btn, true, "解析中");
+      const fd = new FormData();
+      picked.forEach(function (f) { fd.append("files", f, f.name); });
+      fd.append("category", PF.$("#up-cat", box).value);
+      fd.append("save", PF.$("#up-preview", box).checked ? "false" : "true");
+      try {
+        const d = await PF.api("/api/materials/upload", { method: "POST", form: fd });
+        paintUploadResult(PF.$("#up-result", box), d);
+        picked = [];
+        paintPicked();
+        if (!PF.$("#up-preview", box).checked) {
+          invalidate();
+          PF.toast("上传完成：" + (d.summary.ok || 0) + " 份解析成功", "ok");
+        }
+      } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
+    });
+
+    paintPicked();
+  }
+
+  function paintUploadResult(box, d) {
+    const files = PF.arr(d.files), s = d.summary || {};
+    box.innerHTML =
+      '<div class="row mt-4" style="gap:8px">' +
+        '<span class="badge badge--ok">成功 ' + (s.ok || 0) + "</span>" +
+        ((s.failed || 0) ? '<span class="badge badge--danger">失败 ' + s.failed + "</span>" : "") +
+        '<span class="badge badge--brand">新增知识点 ' + (s.knowledge_points || 0) + "</span>" +
+        '<span class="badge badge--info">索引片段 ' + (s.chunks || 0) + "</span>" +
+      "</div>" +
+      '<div class="stack mt-4">' + files.map(function (f) {
+        if (f.error) {
+          return '<div class="note note--warn">' + PF.icon("alert", 15) +
+            "<div><strong>" + PF.esc(f.filename) + "</strong>：" + PF.esc(f.error) + "</div></div>";
+        }
+        const kps = PF.arr(f.parsed && f.parsed.knowledge_points);
+        return '<div class="card card--flat"><div class="card__head">' +
+          "<h3>" + PF.esc(f.filename) + "</h3>" +
+          '<div class="card__head-actions">' + PF.engineBadge(f.engine) +
+            '<span class="chip">' + PF.esc(f.kind) + "</span></div></div>" +
+          '<div class="card__body stack-sm">' +
+            (f.summary ? '<p class="t-sm">' + PF.esc(f.summary) + "</p>" : "") +
+            '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+              '<span class="badge badge--brand">知识点 ' + (f.knowledge_points || 0) + " 个</span>" +
+              '<span class="badge badge--info">正文字数 ' + PF.num(f.text_chars, 0) + "</span>" +
+              (f.material_id ? '<span class="badge badge--ok">已入库 #' + f.material_id + "</span>" : "") +
+              (f.indexed_chunks ? '<span class="badge">索引 ' + f.indexed_chunks + " 段</span>" : "") +
+              (f.knowledge_saved ? '<span class="badge">已存知识点 ' + f.knowledge_saved + " 个</span>" : "") +
+            "</div>" +
+            (PF.arr(f.directions).length ? '<div class="row" style="gap:6px">' +
+              PF.arr(f.directions).map(function (x) { return '<span class="chip chip--brand">' + PF.esc(x) + "</span>"; }).join("") + "</div>" : "") +
+            (kps.length ? '<div class="table-wrap"><table class="table"><thead><tr>' +
+              "<th>抽取到的知识点</th><th>难度</th><th>关键词</th></tr></thead><tbody>" +
+              kps.slice(0, 12).map(function (k) {
+                return "<tr><td>" + PF.esc(k.name) + "</td><td>" + PF.levelTag(k.difficulty) +
+                  ' <span class="t-xs">' + PF.esc(k.difficulty || "") + "</span></td><td>" +
+                  PF.arr(k.keywords).map(function (w) { return '<span class="chip">' + PF.esc(w) + "</span>"; }).join(" ") +
+                  "</td></tr>";
+              }).join("") + "</tbody></table></div>" : "") +
+            (f.knowledge_points > 12 ? '<div class="t-xs t-dim">仅显示前 12 个知识点，全部已入库。</div>' : "") +
+            (f.note ? '<div class="t-xs">' + PF.esc(f.note) + "</div>" : "") +
+          "</div></div>";
+      }).join("") + "</div>";
+  }
+
+  /* ============================================================ 标签二：我的资料 */
+  function renderMats(box) {
+    box.innerHTML = PF.loading("正在加载资料列表");
+    Promise.all([materials(true), meta()]).then(function (res) {
+      const d = res[0], m = res[1] || {};
+      const cats = PF.arr(d.categories);
+      const courses = isTeacher ? PF.arr(m.courses) : PF.arr(m.my_courses);
+      let filter = { category: "", course: "", keyword: "" };
+
+      box.innerHTML =
+        '<div class="card mb-5"><div class="card__body card__body--tight"><div class="row">' +
+          '<div class="row" style="gap:8px">' + PF.icon("filter", 15) + '<span class="t-sm t-strong">筛选</span></div>' +
+          '<select class="select select--sm" id="m-cat" style="width:150px"><option value="">全部分类</option>' +
+            cats.map(function (c) { return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>"; }).join("") + "</select>" +
+          '<select class="select select--sm" id="m-course" style="width:160px"><option value="">全部课程</option>' +
+            courses.map(function (c) { return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>"; }).join("") + "</select>" +
+          '<input class="input input--sm" id="m-key" placeholder="搜索文件名或正文" style="width:210px">' +
+          '<button class="btn btn--sm" id="m-reset">重置</button>' +
+          '<div class="spacer"></div>' +
+          '<span class="t-xs">共 <strong id="m-cnt">' + PF.arr(d.materials).length + "</strong> 份</span>" +
+        "</div></div></div>" +
+        '<div id="m-body"></div>';
+
+      function paint() {
+        const qs = new URLSearchParams();
+        if (filter.category) qs.set("category", filter.category);
+        if (filter.course) qs.set("course", filter.course);
+        if (filter.keyword) qs.set("keyword", filter.keyword);
+        const body = PF.$("#m-body", box);
+        body.innerHTML = PF.loading("筛选中");
+        PF.get("/api/materials" + (qs.toString() ? "?" + qs.toString() : "")).then(function (dd) {
+          const list = PF.arr(dd.materials);
+          PF.$("#m-cnt", box).textContent = list.length;
+          body.innerHTML = '<div class="card"><div class="card__body card__body--flush">' +
+            PF.table([
+              { label: "文件名", render: function (r) {
+                  return '<div><div class="t-strong">' + PF.esc(r.filename) + "</div>" +
+                    '<div class="t-xs t-dim">' + PF.esc(r.stored || "") + "</div></div>"; } },
+              { label: "类型", cls: "w-md", render: function (r) { return '<span class="chip">' + PF.esc(r.kind || "其它") + "</span>"; } },
+              { label: "分类", cls: "w-md", render: function (r) {
+                  return '<select class="select select--sm" data-cat="' + r.id + '" style="width:110px">' +
+                    cats.map(function (c) {
+                      const sel = String(c) === String(r.category) ? " selected" : "";
+                      return '<option value="' + PF.esc(c) + '"' + sel + ">" + PF.esc(c) + "</option>";
+                    }).join("") + "</select>"; } },
+              { label: "知识点", cls: "w-sm num", render: function (r) { return PF.num(r.knowledge_count, 0); } },
+              { label: "字数", cls: "w-sm num", render: function (r) { return PF.num(r.size_chars, 0); } },
+              { label: "引擎", cls: "w-md", render: function (r) { return PF.engineBadge(r.engine); } },
+              { label: "上传时间", cls: "w-md", render: function (r) { return PF.esc(PF.when(r.created_at)); } },
+              { label: "", cls: "w-md nowrap", render: function (r) {
+                  return '<button class="btn btn--sm" data-view="' + r.id + '">解析详情</button> ' +
+                    '<button class="btn btn--sm btn--danger" data-del="' + r.id + '">删除</button>'; } },
+            ], list, { empty: { icon: "layers", title: "没有匹配的资料", desc: "换个筛选条件，或先上传。" } }) +
+            "</div></div>";
+
+          PF.$$("[data-cat]", body).forEach(function (sel) {
+            sel.addEventListener("change", async function () {
+              try {
+                await PF.post("/api/materials/" + sel.dataset.cat + "/category", { category: sel.value });
+                invalidate();
+                PF.toast("分类已更新", "ok");
+              } catch (e) { /* 已提示 */ }
+            });
+          });
+          PF.$$("[data-view]", body).forEach(function (b) {
+            b.addEventListener("click", function () {
+              const r = list.filter(function (x) { return String(x.id) === String(b.dataset.view); })[0];
+              if (r) showDetail(r);
+            });
+          });
+          PF.$$("[data-del]", body).forEach(function (b) {
+            b.addEventListener("click", async function () {
+              const yes = await PF.confirm({
+                title: "删除资料", text: "删除后该资料的正文、知识点与索引会一并清理，且不可恢复。",
+                okText: "确认删除", danger: true,
+              });
+              if (!yes) return;
+              try {
+                await PF.del("/api/materials/" + b.dataset.del);
+                invalidate();
+                PF.toast("已删除（知识点与索引同步清理）", "ok");
+                invalidate();
+                paint();
+              } catch (e) { /* 已提示 */ }
+            });
+          });
+        }).catch(function (e) {
+          body.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message });
+        });
+      }
+
+      function showDetail(r) {
+        const p = r.parsed || {};
+        const kps = PF.arr(p.knowledge_points);
+        PF.modal({
+          title: r.filename, width: "wide",
+          body:
+            '<div class="row mb-4" style="gap:8px">' + PF.engineBadge(r.engine) +
+              '<span class="chip">' + PF.esc(r.kind || "其它") + "</span>" +
+              '<span class="chip">' + PF.esc(r.category || "未分类") + "</span>" +
+              '<span class="badge badge--info">' + PF.num(r.size_chars, 0) + " 字</span></div>" +
+            (p.summary ? '<div class="note note--brand">' + PF.icon("info", 15) + "<div>" + PF.esc(p.summary) + "</div></div>" : "") +
+            '<div class="card card--flat mt-4"><div class="card__head"><h3>抽取到的知识点（' + kps.length + "）</h3></div>" +
+              '<div class="card__body card__body--flush">' +
+                (kps.length ? PF.table([
+                  { label: "知识点", render: function (k) { return '<span class="t-strong">' + PF.esc(k.name) + "</span>"; } },
+                  { label: "难度", cls: "w-sm", render: function (k) { return PF.levelTag(k.difficulty) + ' <span class="t-xs">' + PF.esc(k.difficulty || "") + "</span>"; } },
+                  { label: "关键词", render: function (k) { return PF.arr(k.keywords).map(function (w) { return '<span class="chip">' + PF.esc(w) + "</span>"; }).join(" ") || '<span class="t-dim">—</span>'; } },
+                ], kps, {}) : PF.empty({ icon: "target", title: "未抽取到知识点", desc: "可能是图片或扫描件，配置视觉模型后效果更好。" })) +
+              "</div></div>" +
+            (PF.arr(p.directions).length ? '<div class="mt-4"><span class="t-xs">识别到的学科方向</span><div class="row mt-2" style="gap:6px">' +
+              PF.arr(p.directions).map(function (x) { return '<span class="chip chip--brand">' + PF.esc(x) + "</span>"; }).join("") + "</div></div>" : ""),
+        });
+      }
+
+      PF.$("#m-cat", box).addEventListener("change", function (e) { filter.category = e.target.value; paint(); });
+      PF.$("#m-course", box).addEventListener("change", function (e) { filter.course = e.target.value; paint(); });
+      PF.$("#m-key", box).addEventListener("input", PF.debounce(function (e) { filter.keyword = e.target.value.trim(); paint(); }, 320));
+      PF.$("#m-reset", box).addEventListener("click", function () {
+        filter = { category: "", course: "", keyword: "" };
+        PF.$("#m-cat", box).value = ""; PF.$("#m-course", box).value = ""; PF.$("#m-key", box).value = "";
+        paint();
+      });
+
+      paint();
+    }).catch(function (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message });
+    });
+  }
+
+  /* ============================================================ 标签三：知识点库 */
+  function renderKP(box) {
+    box.innerHTML = PF.loading("正在加载知识点");
+    Promise.all([knowledge(true), meta()]).then(function (res) {
+      const d = res[0], m = res[1] || {};
+      const dist = d.dist || {};
+      const total = (dist.A || 0) + (dist.B || 0) + (dist.C || 0) || 1;
+      const courses = isTeacher ? PF.arr(m.courses) : PF.arr(m.my_courses);
+      const colors = { A: "var(--level-a-500)", B: "var(--level-b-500)", C: "var(--level-c-500)" };
+      let filter = { course: "", difficulty: "", keyword: "" };
+
+      box.innerHTML =
+        '<div class="grid grid-2 mb-5" style="gap:16px">' +
+          '<div class="card"><div class="card__head"><h3>难度分布</h3>' +
+            '<div class="card__head-actions"><span class="t-xs">A 优秀 / B 良好 / C 需改进 仅表示讲解深度</span></div></div>' +
+            '<div class="card__body stack-sm">' +
+              '<div class="bar-mini">' + ["A", "B", "C"].map(function (k) {
+                const w = Math.round((dist[k] || 0) / total * 100);
+                return '<span style="width:' + w + "%;background:" + colors[k] + '" title="' + k + " " + (dist[k] || 0) + '"></span>';
+              }).join("") + "</div>" +
+              '<div class="grid grid-3" style="gap:10px">' + ["A", "B", "C"].map(function (k) {
+                return '<div class="row" style="gap:6px"><span class="dot" style="background:' + colors[k] + '"></span>' +
+                  PF.levelTag(k) + '<span class="t-strong">' + (dist[k] || 0) + "</span>" +
+                  '<span class="t-xs">' + PF.pct(dist[k] || 0, total) + "%</span></div>";
+              }).join("") + "</div>" +
+              '<p class="t-xs">难度来自材料自身的结构特征与关键词密度，用于决定推荐内容深度。</p>' +
+            "</div></div>" +
+          '<div class="card"><div class="card__head"><h3>按课程分布</h3></div>' +
+            '<div class="card__body">' +
+              (PF.arr(d.courses).length
+                ? '<div class="stack-sm">' + PF.arr(d.courses).map(function (c) {
+                    const w = Math.round((c.count || 0) / (d.count || 1) * 100);
+                    return '<div><div class="row" style="gap:8px"><span class="t-sm t-strong">' + PF.esc(c.course || "未标注") + "</span>" +
+                      '<div class="spacer"></div><span class="t-xs">' + c.count + " 个</span></div>" +
+                      PF.progress(w, {}) + "</div>";
+                  }).join("") + "</div>"
+                : '<span class="t-dim t-sm">暂无课程信息</span>') +
+            "</div></div>" +
+        "</div>" +
+
+        '<div class="card mb-5"><div class="card__body card__body--tight"><div class="row">' +
+          '<div class="row" style="gap:8px">' + PF.icon("filter", 15) + '<span class="t-sm t-strong">筛选</span></div>' +
+          '<select class="select select--sm" id="k-course" style="width:170px"><option value="">全部课程</option>' +
+            courses.map(function (c) { return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>"; }).join("") + "</select>" +
+          '<select class="select select--sm" id="k-diff" style="width:140px"><option value="">全部难度</option>' +
+            '<option value="A">A 优秀</option><option value="B">B 良好</option><option value="C">C 需改进</option></select>' +
+          '<input class="input input--sm" id="k-key" placeholder="搜索知识点或关键词" style="width:200px">' +
+          '<button class="btn btn--sm" id="k-reset">重置</button>' +
+          '<div class="spacer"></div>' +
+          '<span class="t-xs">共 <strong id="k-cnt">' + (d.count || 0) + "</strong> 个</span>" +
+        "</div></div></div>" +
+        '<div id="k-body"></div>';
+
+      function paint() {
+        const qs = new URLSearchParams();
+        if (filter.course) qs.set("course", filter.course);
+        if (filter.difficulty) qs.set("difficulty", filter.difficulty);
+        if (filter.keyword) qs.set("keyword", filter.keyword);
+        const body = PF.$("#k-body", box);
+        body.innerHTML = PF.loading("筛选中");
+        PF.get("/api/materials/knowledge" + (qs.toString() ? "?" + qs.toString() : "")).then(function (dd) {
+          const rows = PF.arr(dd.knowledge);
+          PF.$("#k-cnt", box).textContent = rows.length;
+          body.innerHTML = '<div class="card"><div class="card__body card__body--flush">' +
+            PF.table([
+              { label: "知识点", render: function (r) {
+                  return '<div><div class="t-strong">' + PF.esc(r.name) + "</div>" +
+                    (r.source_ref ? '<div class="t-xs t-mono t-dim">' + PF.esc(r.source_ref) + "</div>" : "") + "</div>"; } },
+              { label: "课程", cls: "w-md", render: function (r) { return PF.esc(r.course || "—"); } },
+              { label: "难度", cls: "w-sm", render: function (r) { return PF.levelTag(r.difficulty) + ' <span class="t-xs">' + PF.esc(r.difficulty || "") + "</span>"; } },
+              { label: "关键词", render: function (r) { return PF.arr(r.keywords).map(function (w) { return '<span class="chip">' + PF.esc(w) + "</span>"; }).join(" ") || '<span class="t-dim">—</span>'; } },
+              { label: "来源资料", cls: "w-lg", render: function (r) { return '<span class="t-sm">' + PF.esc(PF.trunc(r.filename || "—", 22)) + "</span>"; } },
+              { label: "", cls: "w-md nowrap", render: function (r) {
+                  if (isTeacher) return '<span class="t-dim t-xs">—</span>';
+                  return '<a class="btn btn--sm" href="/ask?q=' + encodeURIComponent("讲讲" + r.name) + '">' +
+                    PF.icon("message", 12) + "去答疑</a>"; } },
+            ], rows, { empty: { icon: "target", title: "没有匹配的知识点", desc: "换个筛选条件，或先上传资料。" } }) +
+            "</div></div>";
+        }).catch(function (e) {
+          body.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message });
+        });
+      }
+
+      PF.$("#k-course", box).addEventListener("change", function (e) { filter.course = e.target.value; paint(); });
+      PF.$("#k-diff", box).addEventListener("change", function (e) { filter.difficulty = e.target.value; paint(); });
+      PF.$("#k-key", box).addEventListener("input", PF.debounce(function (e) { filter.keyword = e.target.value.trim(); paint(); }, 320));
+      PF.$("#k-reset", box).addEventListener("click", function () {
+        filter = { course: "", difficulty: "", keyword: "" };
+        PF.$("#k-course", box).value = ""; PF.$("#k-diff", box).value = ""; PF.$("#k-key", box).value = "";
+        paint();
+      });
+
+      paint();
+    }).catch(function (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message });
+    });
+  }
+
+  /* ============================================================ 标签四：检索实验室 */
+  function renderSearch(box) {
+    box.innerHTML =
+      '<div class="card mb-5"><div class="card__head"><h3>' + PF.icon("search", 15) + " 混合检索" +
+        "</h3><div class=\"card__head-actions\">" +
+        '<span class="badge badge--info">BM25 关键词</span>' +
+        '<span class="badge badge--brand">向量语义</span>' +
+        '<span class="badge badge--ok">RRF 融合</span></div></div>' +
+        '<div class="card__body">' +
+          '<p class="t-sm mb-4">两路召回各自排序，再用 RRF（倒数排名融合）合并，最后按覆盖度重排。' +
+            "命中来源会标在每条结果上，方便看清「关键词命中」与「语义命中」的差别。</p>" +
+          '<div class="row">' +
+            '<input class="input" id="s-q" placeholder="例如：注意力机制为什么要除以根号 d_k" style="flex:1;min-width:240px">' +
+            '<input class="input" id="s-course" placeholder="限定课程（可留空）" style="width:180px">' +
+            '<select class="select" id="s-top" style="width:110px"><option value="5">Top 5</option>' +
+              '<option value="8">Top 8</option><option value="12">Top 12</option></select>' +
+            '<button class="btn btn--primary" id="btn-search">' + PF.icon("search", 15) + "检索</button>" +
+          "</div>" +
+          '<div id="s-out" class="mt-4"></div>' +
+        "</div></div>" +
+      '<div class="mt-5">' + PF.caveat("向量能力说明：未配置向量模型时，自动退化为本地字符 3-gram 哈希向量（1024 维、L2 归一化）—— " +
+        "断网同样可用，命中质量略低于真实向量模型，但接口与数据结构完全一致。") + "</div>";
+
+    async function run() {
+      const q = PF.$("#s-q", box).value.trim();
+      if (!q) { PF.toast("请输入检索内容", "warn"); return; }
+      const out = PF.$("#s-out", box);
+      const btn = PF.$("#btn-search", box);
+      PF.busy(btn, true, "检索中");
+      out.innerHTML = PF.loading("正在两路召回并融合排序");
+      try {
+        const d = await PF.post("/api/materials/search", {
+          query: q,
+          course: PF.$("#s-course", box).value.trim(),
+          top_k: Number(PF.$("#s-top", box).value),
+        });
+        const hits = PF.arr(d.hits);
+        const terms = PF.arr(d.terms);
+        out.innerHTML =
+          '<div class="row mb-4" style="gap:6px;flex-wrap:wrap">' +
+            '<span class="t-xs t-strong">候选术语</span>' +
+            terms.map(function (t) { return '<span class="chip chip--brand">' + PF.esc(t) + "</span>"; }).join("") +
+          "</div>" +
+          (hits.length
+            ? '<div class="stack">' + hits.map(function (h, i) {
+                return '<div class="card card--flat"><div class="card__head">' +
+                  '<h3><span class="badge badge--brand">#' + (i + 1) + "</span> " + PF.esc(h.filename || "—") + "</h3>" +
+                  '<div class="card__head-actions">' +
+                    '<span class="badge ' + (VIA_CLS[h.via] || "badge--info") + '"><span class="via">' + PF.esc(h.via || "—") + "</span> " +
+                      PF.esc(VIA_TEXT[h.via] || h.via || "") + "</span>" +
+                    '<span class="t-xs t-mono">score ' + PF.num(h.score, 5) + "</span>" +
+                  "</div></div>" +
+                  '<div class="card__body">' +
+                    '<div class="t-xs t-mono t-dim mb-2">' + PF.esc(h.course || "") + " · " + PF.esc(h.ref || "") + "</div>" +
+                    '<div class="hit-body">' + PF.highlight(h.content || "", terms) + "</div>" +
+                  "</div></div>";
+              }).join("") + "</div>"
+            : PF.empty({ icon: "search", title: "没有命中任何片段",
+                desc: "试试更短的关键词，或先在「概览」上传相关资料。" })) +
+          '<div class="mt-4">' + PF.caveat("检索范围：你的资料 + 教师共享课件；命中的原文片段会作为答疑与备课的依据。") + "</div>";
+      } catch (e) {
+        out.innerHTML = PF.empty({ icon: "alert", title: "检索失败", desc: e.message });
+      } finally { PF.busy(btn, false); }
+    }
+
+    PF.$("#btn-search", box).addEventListener("click", run);
+    PF.$("#s-q", box).addEventListener("keydown", function (e) { if (e.key === "Enter") run(); });
+    const preset = new URLSearchParams(location.search).get("q");
+    if (preset) { PF.$("#s-q", box).value = preset; run(); }
+  }
+
+  /* ============================================================ 装配 */
+  const tabs = PF.tabs(host, [
+    { key: "overview", label: "概览与上传", icon: "upload", render: renderOverview },
+    { key: "mats", label: "资料列表", icon: "layers", render: renderMats },
+    { key: "kp", label: "知识点库", icon: "target", render: renderKP },
+    { key: "search", label: "检索实验室", icon: "search", render: renderSearch },
+  ], { base: "#", onChange: function () { window.scrollTo({ top: 0, behavior: "smooth" }); } });
+  PF.state.tabs = tabs;
+
+  PF.$("#btn-refresh").addEventListener("click", async function (e) {
+    const btn = e.currentTarget;
+    PF.busy(btn, true, "刷新中");
+    try {
+      invalidate();
+      await tabs.reload();
+      PF.toast("已刷新", "ok");
+    } finally { PF.busy(btn, false); }
+  });
+})();
+</script>
+</body>
+</html>
