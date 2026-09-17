@@ -141,10 +141,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               field("兴趣方向", chips(data.interests, "brand")) +
               '<div><div class="t-xs t-dim mb-2">五维能力</div>' +
                 (PF.arr(data.ability_pairs).length
-                  ? '<div class="stack-sm">' + PF.arr(data.ability_pairs).map((a) =>
-                      '<div class="ability-row"><span class="t-sm">' + PF.esc(a.name) + "</span>" +
-                      PF.progress(Math.min(100, (Number(a.value) || 0) * 20)) +
-                      '<span class="num">' + PF.num(a.value, 1) + "</span></div>").join("") + "</div>"
+                  ? PF.radar(PF.arr(data.ability_pairs), { max: 5, r: 70, label: "五维能力雷达图" }) +
+                    PF.radarTips(PF.arr(data.ability_pairs))
                   : '<span class="t-sm t-dim">暂无数据</span>') +
               "</div>") +
         "</div></div>" +

@@ -2217,3 +2217,64 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) { background: rgba(255, 
 }
 /* 侧边栏当前项：字重提一档，和"路过"的项区分开 */
 .nav-item.is-active { font-weight: 650; }
+
+/* ============================ v2.5 能力画像雷达图 ============================
+   纯 SVG 手绘（零依赖）。颜色全部走 CSS 变量，深浅色主题自动跟随。 */
+.radar-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 2px;
+}
+.radar {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  display: block;
+  overflow: visible;          /* 轴标签贴边时不被裁掉 */
+}
+.radar__ring {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.radar__ring--outer {
+  fill: var(--surface-2);
+  stroke: var(--border-strong);
+}
+.radar__spoke { stroke: var(--border); stroke-width: 1; }
+.radar__area {
+  stroke: var(--brand-500);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 4px 10px rgba(22, 161, 255, .22));
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: radar-in var(--dur-4, .5s) var(--ease-out) both;
+}
+.radar__dot {
+  fill: var(--surface);
+  stroke: var(--brand-500);
+  stroke-width: 2;
+  transition: r .18s var(--ease-out), stroke .18s var(--ease-out);
+}
+.radar__dot:hover { r: 5.2; stroke: var(--brand-600); }
+.radar__label { fill: var(--ink-600); font-size: 11.5px; font-weight: 600; }
+.radar__val { fill: var(--brand-700); font-size: 11.5px; font-weight: 700; }
+html[data-theme="dark"] .radar__label { fill: var(--ink-700); }
+html[data-theme="dark"] .radar__val { fill: var(--brand-700); }
+.radar-tips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 2px;
+}
+.radar-tips .chip { font-weight: 600; }
+@keyframes radar-in {
+  from { opacity: 0; transform: scale(.42); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar__area { animation: none !important; }
+}

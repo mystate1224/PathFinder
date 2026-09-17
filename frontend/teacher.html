@@ -485,12 +485,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div>" +
 
       '<div class="grid grid-2" style="gap:16px">' +
-        '<div class="card"><div class="card__head"><h3>能力画像</h3></div><div class="card__body stack-sm">' +
-          (ability.length ? ability.map((a) =>
-            '<div class="ability-row"><span class="t-sm">' + PF.esc(a.name) + "</span>" +
-            PF.progress((Number(a.value) || 0) * 20 > 100 ? 100 : (Number(a.value) || 0) * 20) +
-            '<span class="num">' + PF.num(a.value, 1) + "</span></div>"
-          ).join("") : '<span class="t-dim">暂无数据</span>') +
+        '<div class="card"><div class="card__head"><h3>能力画像</h3>' +
+          '<div class="card__head-actions"><span class="t-xs">满分 5 分</span></div></div>' +
+          '<div class="card__body stack-sm">' +
+            (ability.length
+              ? PF.radar(ability, { max: 5, r: 74, label: "五维能力雷达图" }) + PF.radarTips(ability)
+              : '<span class="t-dim">暂无数据</span>') +
           '<div class="t-xs mt-3">每项满分 5 分，由成绩、材料与自评综合推导。</div>' +
         "</div></div>" +
 

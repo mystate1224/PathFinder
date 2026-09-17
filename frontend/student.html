@@ -105,8 +105,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           '<div class="card"><div class="card__head"><h3>能力画像</h3>' +
             '<div class="card__head-actions"><span class="t-xs">每项满分 5 分</span></div></div>' +
             '<div class="card__body stack-sm">' +
-              abilityHtml(p.ability_pairs) +
-              '<p class="t-xs mt-3">由课程成绩、作业表现、上传材料与答疑提问综合推导，会随数据积累逐步细化。</p>' +
+              PF.radar(abilityPairs(p.ability_pairs), { max: 5, label: "五维能力雷达图" }) +
+              PF.radarTips(abilityPairs(p.ability_pairs)) +
+              '<p class="t-xs mt-3">由课程成绩、作业表现、上传材料与答疑提问综合推导，会随数据积累逐步细化。悬停顶点可看单项分数。</p>' +
             "</div></div>" +
 
           '<div class="card"><div class="card__head"><h3>画像解读</h3>' +
@@ -175,18 +176,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     });
   }
 
-  function abilityHtml(pairs) {
-    const list = PF.arr(pairs);
-    if (!list.length) return '<span class="t-dim t-sm">暂无能力数据</span>';
-    return list.map(function (a) {
-      const v = Number(a.value) || 0;
-      const pctVal = Math.round(v / 5 * 100);
-      const tone = pctVal >= 85 ? "ok" : pctVal >= 60 ? "" : "warn";
-      return '<div class="ability-row"><span class="t-sm">' +
-        PF.esc(ABILITY_LABEL[a.name] || a.name) + "</span>" +
-        PF.progress(pctVal, { tone: tone }) +
-        '<span class="num">' + PF.num(v, 1) + "</span></div>";
-    }).join("");
+  /** 能力维度：统一成 { name(中文), value }，喂给雷达图 */
+  function abilityPairs(pairs) {
+    return PF.arr(pairs).map(function (a) {
+      return { name: ABILITY_LABEL[a.name] || a.name || "—", value: Number(a.value) || 0 };
+    });
   }
 
   function statCard(icon, label, num, hint, tone) {

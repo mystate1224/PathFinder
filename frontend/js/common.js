@@ -522,6 +522,94 @@
       "</div>";
   };
 
+  /**
+   * 雷达图（能力画像）：零依赖，纯 SVG。
+   * items: [{ name, value }]（至少 3 项）；opts: { max, r, levels, label, emptyText }
+   */
+  var _radarSeq = 0;
+  PF.radar = function (items, opts) {
+    const o = opts || {};
+    const max = Number(o.max) || 5;
+    const list = PF.arr(items).map(function (a) {
+      const v = Number(a && a.value);
+      return { name: String((a && a.name) || "").trim(), value: isFinite(v) && v > 0 ? v : 0 };
+    }).filter(function (a) { return a.name; });
+    if (list.length < 3) {
+      return '<div class="t-sm t-dim t-center">' +
+        PF.esc(o.emptyText || "维度不足，暂无法绘制雷达图") + "</div>";
+    }
+    const n = list.length;
+    const levels = o.levels || 4;
+    const W = 300, H = 250, cx = 150, cy = 118, R = Number(o.r) || 78;
+    const uid = "pfradar" + (++_radarSeq);
+    const ang = function (i) { return -Math.PI / 2 + (Math.PI * 2 * i) / n; };
+    const px = function (i, k) { return cx + Math.cos(ang(i)) * R * k; };
+    const py = function (i, k) { return cy + Math.sin(ang(i)) * R * k; };
+    const clamp = function (v) { return Math.max(0.02, Math.min(1, v / max)); };
+    const poly = function (k) {
+      const pts = [];
+      for (let i = 0; i < n; i++) pts.push(px(i, k).toFixed(1) + "," + py(i, k).toFixed(1));
+      return pts.join(" ");
+    };
+
+    let rings = "";
+    for (let L = levels; L >= 1; L--) {
+      const k = L / levels;
+      rings += '<polygon class="radar__ring' + (L === levels ? " radar__ring--outer" : "") +
+        '" points="' + poly(k) + '"/>';
+    }
+    let spokes = "", dots = "", labels = "", area = [];
+    for (let i = 0; i < n; i++) {
+      spokes += '<line class="radar__spoke" x1="' + cx + '" y1="' + cy +
+        '" x2="' + px(i, 1).toFixed(1) + '" y2="' + py(i, 1).toFixed(1) + '"/>';
+      const k = clamp(list[i].value);
+      dots += '<circle class="radar__dot" cx="' + px(i, k).toFixed(1) + '" cy="' + py(i, k).toFixed(1) +
+        '" r="3.6"><title>' + PF.esc(list[i].name + " " + PF.num(list[i].value, 1) +
+        " / " + PF.num(max, 0)) + "</title></circle>";
+      area.push(px(i, k).toFixed(1) + "," + py(i, k).toFixed(1));
+
+      const cos = Math.cos(ang(i)), sin = Math.sin(ang(i));
+      const anchor = Math.abs(cos) < 0.25 ? "middle" : cos > 0 ? "start" : "end";
+      const lx = cx + cos * (R + 14), ly = cy + sin * (R + 14);
+      const shift = sin < -0.6 ? -4 : sin > 0.6 ? 8 : 0;
+      labels += '<text class="radar__label" x="' + lx.toFixed(1) + '" y="' + (ly + shift).toFixed(1) +
+        '" text-anchor="' + anchor + '">' + PF.esc(list[i].name) + "</text>" +
+        '<text class="radar__val" x="' + lx.toFixed(1) + '" y="' + (ly + shift + 13).toFixed(1) +
+        '" text-anchor="' + anchor + '">' + PF.num(list[i].value, 1) + "</text>";
+    }
+
+    return '<div class="radar-wrap">' +
+      '<svg class="radar" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' +
+        PF.esc(o.label || "能力雷达图") + '">' +
+        "<defs><linearGradient id=\"" + uid + '" x1="0" y1="0" x2="0" y2="1">' +
+          '<stop offset="0" style="stop-color:var(--brand-400);stop-opacity:.58"/>' +
+          '<stop offset="1" style="stop-color:var(--brand-600);stop-opacity:.16"/>' +
+        "</linearGradient></defs>" +
+        '<g class="radar__rings">' + rings + "</g>" +
+        '<g class="radar__spokes">' + spokes + "</g>" +
+        '<polygon class="radar__area" points="' + area.join(" ") + '" style="fill:url(#' + uid + ')"/>' +
+        '<g class="radar__dots">' + dots + "</g>" +
+        '<g class="radar__labels">' + labels + "</g>" +
+      "</svg></div>";
+  };
+
+  /** 雷达图旁的「优势 / 待提升」小结 */
+  PF.radarTips = function (items) {
+    const list = PF.arr(items).filter(function (a) { return a && a.name; })
+      .map(function (a) { return { name: String(a.name), value: Number(a.value) || 0 }; });
+    if (list.length < 2) return "";
+    const sorted = list.slice().sort(function (a, b) { return b.value - a.value; });
+    const best = sorted[0], weak = sorted[sorted.length - 1];
+    return '<div class="radar-tips">' +
+      '<span class="chip chip--ok">' + PF.icon("award", 11) +
+        "优势 " + PF.esc(best.name) + " " + PF.num(best.value, 1) + "</span>" +
+      (weak.name !== best.name
+        ? '<span class="chip chip--warn">' + PF.icon("target", 11) +
+          "待提升 " + PF.esc(weak.name) + " " + PF.num(weak.value, 1) + "</span>"
+        : "") +
+      "</div>";
+  };
+
   /** 表单取值助手 */
   PF.form = function (root) {
     const out = {};
