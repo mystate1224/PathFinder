@@ -1,5 +1,5 @@
 /* ==========================================================================
-   寻径教育 PathFinder · 设计系统 v2
+   寻径教育 PathFinder · 设计系统 v3
    --------------------------------------------------------------------------
    单一样式表。零构建、零框架：所有页面只引这一份 CSS。
    设计令牌集中在 :root，改主题只改这里。
@@ -19,72 +19,93 @@
        背景从灰调雾白 → 更亮的蓝调雪白；暗色主题同步转蓝保持同源
      · 导航选中态新增 .nav-glider 滑块：跨页切换时底光从上一页
        选中项位置滑过来（见第 6 节 nav 样式与 common.js PF.shell）
+
+   v3「去灰」重构（依旧零破坏：只翻令牌 + 对齐散落的硬编码 rgba）：
+     "整体发灰"的根因不是主色不够蓝，而是三件事叠加，v3 逐个拆掉：
+     · 中性色整阶换成中性炭黑灰阶（950→50 纯中性，仅极轻冷偏）。
+       旧色阶每一档都掺了蓝，叠在蓝底上整页发闷；换成中性后，
+       "蓝"只由品牌色来表达，层次立刻拉开 —— 这是最关键的一步
+     · 品牌色 215° 晴空蓝 #3a72c4 → 电光蓝 #2563eb（饱和度抬到 85% 上下），
+       语义色同步提到"一眼可辨"；副色换靛蓝 #6366f1 撑起第二层级
+     · 阴影从蓝调黑 rgba(20,32,54) 换成中性黑 rgba(15,23,42) 并再压一档
+       不透明度 —— 蓝调阴影叠白底会让卡片边缘发脏，是"灰"的第二个来源
+     · 字号阶梯拉开：display 30→34、h1 22→25，标题/正文/辅助三档的
+       差距从 2px 拉到 5px 以上，一屏之内能分清"看什么/读什么/扫什么"
+     · 表面：底色 #f6f9fd → #f8fafc，卡片纯白，两者只差一档，
+       改由"极淡描边 + 留白"分层，不再靠把阴影压黑来拉层次
    ========================================================================== */
 
 /* ---------------------------------------------------------------- 1. 令牌 */
 :root {
-  /* 品牌色：晴空蓝（v2.2 由 196° 雾青蓝转来）。
-     用户反馈浅色主题"太灰"，希望更亮、更蓝但别过头：
-     · 色相 196° → 215°，从"水感青"变成"天空蓝"，更明亮也更有精神；
-     · 饱和度 46% → 54%，只抬一档，撑得起强调层级又不至于"后台模板"；
-     · 明度阶梯整体上移半档，浅端（50/100）带蓝调白，避免发灰。 */
-  --brand-50:  #eff5fc;
-  --brand-100: #dce9f8;
-  --brand-200: #bcd5f1;
-  --brand-300: #8fb9e7;
-  --brand-400: #5c93da;
-  --brand-500: #3a72c4;
-  --brand-600: #2f5da3;
-  --brand-700: #274b85;
-  --brand-800: #1e3c69;
+  /* 品牌色：电光蓝（v3 由 215° 晴空蓝转来）。
+     上一版反馈"整体还是灰"：问题不在色相，而在饱和度与中性色太"雾"。
+     · 主色 500 定为 #2563eb —— 饱和度拉到 85% 上下，屏幕上一眼可辨，
+       但仍是"可信的企业蓝"而非霓虹，长时间看不刺眼；
+     · 阶梯用 50→800 完整八档，浅端（50/100)接近纯白，深端够压得住字；
+     · 中性色同步换成中性偏冷的炭黑灰阶，彻底告别蓝灰发闷的旧底。 */
+  --brand-50:  #eff6ff;
+  --brand-100: #dbeafe;
+  --brand-200: #bfdbfe;
+  --brand-300: #93c5fd;
+  --brand-400: #60a5fa;
+  --brand-500: #2563eb;
+  --brand-600: #1d4ed8;
+  --brand-700: #1e40af;
+  --brand-800: #1e3a8a;
 
-  /* 副强调色：淡靛。只用在需要"第二层级"的地方（学业型、信息态），
-     与主色成 60° 左右色相差，配合起来有秩序感而不打架。 */
-  --accent-50:  #f0f2fb;
-  --accent-500: #6b78c9;
-  --accent-600: #5560ad;
+  /* 副强调色：靛蓝。与主色相邻（相差约 45°），做"第二层级"时不抢戏，
+     用在学业型标签、信息态、知识图谱等需要"换一档颜色"的地方。 */
+  --accent-50:  #eef2ff;
+  --accent-500: #6366f1;
+  --accent-600: #4f46e5;
 
-  /* 语义色：统一降低饱和度，与主色的"淡"保持同一呼吸 */
-  --ok-50: #e9f6f0;   --ok-500: #2e9c6a;  --ok-700: #1d6b47;
-  --warn-50: #fdf5e8; --warn-500: #c98a35; --warn-700: #8a5a1c;
-  --danger-50: #fdeeee; --danger-500: #d95459; --danger-700: #9c3338;
-  --info-50: #eef4fa; --info-500: #3d7ba8; --info-700: #2a577a;
+  /* 语义色：提到"一眼能认出"的饱和度。
+     旧版刻意压低饱和度以配合雾蓝，主色换鲜之后它们反而显得脏，
+     所以这里整体提亮半档，并保持四色明度齐平（不互相抢注意力）。 */
+  --ok-50: #ecfdf5;     --ok-500: #10b981;     --ok-700: #047857;
+  --warn-50: #fffbeb;   --warn-500: #f59e0b;   --warn-700: #b45309;
+  --danger-50: #fef2f2; --danger-500: #ef4444; --danger-700: #b91c1c;
+  --info-50: #f0f9ff;   --info-500: #0ea5e9;   --info-700: #0369a1;
 
-  /* 双轨语义色：学业型=淡靛（与研究同源），事业型=琥珀（与机会同源） */
+  /* 双轨语义色：学业型=靛蓝（与研究同源），事业型=琥珀（与机会同源）。
+     直接挂在语义色上：改语义色时这里自动跟随，不会再出现"两套琥珀不一致"。 */
   --track-academic-50: var(--accent-50);
   --track-academic-500: var(--accent-500);
-  --track-career-50: #fdf5e8;
-  --track-career-500: #c98a35;
+  --track-career-50: var(--warn-50);
+  --track-career-500: var(--warn-500);
 
   /* 等级 A/B/C —— 只表示"推荐内容深度"，不表示分班 */
   --level-a-50: var(--ok-50); --level-a-500: var(--ok-500);
   --level-b-50: var(--info-50); --level-b-500: var(--info-500);
   --level-c-50: var(--warn-50); --level-c-500: var(--warn-500);
 
-  /* 中性色：保持雾灰的"不抢戏"，但浅端（300→50）从纯灰调成
-     带一点蓝调的雪灰，与新的晴空蓝背景同一呼吸，消除"灰蒙蒙"感 */
-  --ink-950: #101828;
-  --ink-900: #1b2437;
-  --ink-800: #2c374b;
-  --ink-700: #414d63;
-  --ink-600: #5b6779;
-  --ink-500: #7a8698;
-  --ink-400: #9ea9b9;
-  --ink-300: #c6cfdd;
-  --ink-200: #dfe6f0;
-  --ink-100: #eef2f8;
-  --ink-50:  #f8fafd;
+  /* 中性色：从"带蓝调的雾灰"整体换成中性炭黑灰阶。
+     这是解决"灰蒙蒙"的关键——旧色阶每一档都掺了蓝，叠在蓝底上整页发闷；
+     新色阶是纯中性灰（仅极轻冷偏），深端够黑（950/900 撑得起标题），
+     浅端干净（50/100 接近纯白），于是"蓝"只由品牌色来表达，层次立刻拉开。 */
+  --ink-950: #0f172a;
+  --ink-900: #111827;
+  --ink-800: #1f2937;
+  --ink-700: #374151;
+  --ink-600: #4b5563;
+  --ink-500: #6b7280;
+  --ink-400: #9ca3af;
+  --ink-300: #d1d5db;
+  --ink-200: #e5e7eb;
+  --ink-100: #f3f4f6;
+  --ink-50:  #f9fafb;
   --white:   #ffffff;
 
-  /* 表面：v2.2 底色从 #f4f7fa 提到 #f6f9fd —— 亮半档且蓝调更明确；
-     半透明层用于顶栏/侧栏/悬浮条 */
-  --bg: #f6f9fd;
+  /* 表面：底色提到近乎纯白的 #f8fafc，卡片本体是纯白。
+     两者只差一档——层次改由"极淡描边 + 留白"承担，不再靠把阴影压黑。
+     这是从"后台模板感"走向"干净产品感"的核心一步。 */
+  --bg: #f8fafc;
   --surface: var(--white);
-  --surface-2: #fafcff;
-  --surface-3: #f1f6fc;
-  --surface-glass: rgba(255, 255, 255, .74);
-  --border: #e6ecf5;
-  --border-strong: #d3dcee;
+  --surface-2: #fbfcfe;
+  --surface-3: #f1f5f9;
+  --surface-glass: rgba(255, 255, 255, .8);
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
 
   /* 反相块：代码块 / 跳到主内容的提示条。它们在浅色主题里就是"深底浅字"，
      暗色主题里必须单独翻，不能跟着中性色阶一起倒（否则会变成白底白字）。 */
@@ -108,27 +129,31 @@
   --r-xl: 22px;
   --r-pill: 999px;
 
-  /* 阴影：把不透明度压到 3%～12%，靠扩散半径而不是靠"黑"来拉层次。
-     卡片因此显得是"浮起来的纸"，而不是"压下去的块"。 */
-  --sh-1: 0 1px 2px rgba(20, 32, 54, .04), 0 1px 3px rgba(20, 32, 54, .03);
-  --sh-2: 0 2px 6px rgba(20, 32, 54, .045), 0 1px 2px rgba(20, 32, 54, .03);
-  --sh-3: 0 8px 22px rgba(20, 32, 54, .07), 0 2px 6px rgba(20, 32, 54, .04);
-  --sh-4: 0 22px 52px rgba(20, 32, 54, .13);
-  --sh-inset: inset 0 1px 0 rgba(255, 255, 255, .72);
+  /* 阴影：进一步压低不透明度（3%～11%），并把色相从蓝调换成中性黑。
+     旧的蓝调阴影叠在白底上会让卡片边缘发脏，是"灰"的另一来源；
+     中性阴影只负责"浮起"，冷调交给背景与品牌色，画面立刻干净。 */
+  --sh-1: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .03);
+  --sh-2: 0 2px 6px rgba(15, 23, 42, .05), 0 1px 2px rgba(15, 23, 42, .03);
+  --sh-3: 0 8px 22px rgba(15, 23, 42, .07), 0 2px 6px rgba(15, 23, 42, .04);
+  --sh-4: 0 22px 52px rgba(15, 23, 42, .11);
+  --sh-inset: inset 0 1px 0 rgba(255, 255, 255, .8);
 
-  /* 微光：只给"当前活动/可交互"的元素加，不铺满全屏 */
-  --glow-brand: 0 0 0 3px rgba(58, 114, 196, .14);
-  --glow-brand-sm: 0 0 10px rgba(58, 114, 196, .30);
+  /* 微光：与主色同源的聚焦环。只给"当前活动/可交互"的元素加，不铺满全屏。 */
+  --glow-brand: 0 0 0 3px rgba(37, 99, 235, .16);
+  --glow-brand-sm: 0 0 10px rgba(37, 99, 235, .28);
 
   /* 间距 */
   --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
   --s-5: 20px; --s-6: 24px; --s-7: 32px; --s-8: 40px; --s-9: 56px;
 
-  /* 字号阶梯 —— 收敛到 6 级，页面里不再出现 13.5 / 12.8 这种游离值 */
-  --fs-display: 30px;
-  --fs-h1: 22px;
-  --fs-h2: 17px;
-  --fs-h3: 15px;
+  /* 字号阶梯 —— 拉开"标题 / 正文 / 辅助"三档的真实差距。
+     旧版 30/22/17 相邻只差 2～3px，一屏扫下去层级几乎糊成一片；
+     新版把 display 与 h1 各抬一档、正文保持 14px 不动、辅助信息压小，
+     于是一眼能分清"看什么（标题）/ 读什么（正文）/ 扫什么（辅助）"。 */
+  --fs-display: 34px;
+  --fs-h1: 25px;
+  --fs-h2: 19px;
+  --fs-h3: 16px;
   --fs-body: 14px;
   --fs-sm: 13px;
   --fs-xs: 12px;
@@ -244,9 +269,9 @@ hr { border: none; border-top: 1px solid var(--border); margin: var(--s-5) 0; }
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(44rem 28rem at 10% -8%, rgba(58, 114, 196, .10), transparent 62%),
+    radial-gradient(44rem 28rem at 10% -8%, rgba(37, 99, 235, .10), transparent 62%),
     radial-gradient(38rem 26rem at 94% 2%, rgba(107, 120, 201, .09), transparent 60%),
-    radial-gradient(50rem 32rem at 72% 106%, rgba(58, 114, 196, .07), transparent 62%);
+    radial-gradient(50rem 32rem at 72% 106%, rgba(37, 99, 235, .07), transparent 62%);
 }
 body::after {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
@@ -283,7 +308,7 @@ body::after {
 /* 顶部一团极淡的品牌光晕，是"科技感"唯一的主动表达 */
 .sidebar::before {
   content: ""; position: absolute; left: -30%; right: -30%; top: -140px; height: 340px;
-  background: radial-gradient(50% 50% at 50% 50%, rgba(58, 114, 196, .18), transparent 72%);
+  background: radial-gradient(50% 50% at 50% 50%, rgba(37, 99, 235, .18), transparent 72%);
   pointer-events: none;
 }
 
@@ -300,7 +325,7 @@ body::after {
   border-radius: 10px;
   background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
   display: grid; place-items: center;
-  box-shadow: 0 4px 12px rgba(58, 114, 196, .30), var(--sh-inset);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, .30), var(--sh-inset);
   color: #fff;
 }
 .sidebar__mark svg { width: 18px; height: 18px; }
@@ -332,10 +357,10 @@ body::after {
   position: relative;
   transition: background var(--transition), color var(--transition);
 }
-.nav-item:hover { background: rgba(58, 114, 196, .08); color: var(--brand-700); }
+.nav-item:hover { background: rgba(37, 99, 235, .08); color: var(--brand-700); }
 .nav-item svg { width: 17px; height: 17px; flex: 0 0 17px; opacity: .9; }
 .nav-item.is-active {
-  background: linear-gradient(90deg, rgba(58, 114, 196, .16), rgba(58, 114, 196, .05));
+  background: linear-gradient(90deg, rgba(37, 99, 235, .16), rgba(37, 99, 235, .05));
   color: var(--brand-700);
   font-weight: 650;
 }
@@ -359,7 +384,7 @@ body::after {
 .nav-glider {
   position: absolute;
   border-radius: var(--r-sm);
-  background: linear-gradient(90deg, rgba(58, 114, 196, .16), rgba(58, 114, 196, .05));
+  background: linear-gradient(90deg, rgba(37, 99, 235, .16), rgba(37, 99, 235, .05));
   pointer-events: none;
   transition: top var(--dur-3) var(--ease-soft);
 }
@@ -380,7 +405,7 @@ body::after {
   font-size: 10.5px; font-weight: 650;
   padding: 1px 7px;
   border-radius: var(--r-pill);
-  background: rgba(58, 114, 196, .12);
+  background: rgba(37, 99, 235, .12);
   color: var(--brand-700);
 }
 
@@ -457,7 +482,7 @@ body::after {
 .page-head__title::after {
   content: ""; display: block; width: 42px; height: 2px; margin-top: 10px;
   border-radius: 2px;
-  background: linear-gradient(90deg, var(--brand-400), rgba(58, 114, 196, 0));
+  background: linear-gradient(90deg, var(--brand-400), rgba(37, 99, 235, 0));
 }
 
 /* ---------------------------------------------------------------- 5. 卡片 */
@@ -484,12 +509,17 @@ body::after {
 }
 
 .card__head {
-  padding: 14px var(--s-6);
+  padding: 15px var(--s-6);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: var(--s-3);
-  background: linear-gradient(180deg, var(--surface-2), rgba(250, 252, 254, .4));
+  /* 渐变 → 纯色：表头的浅渐变是上一代后台模板的痕迹，
+     在纯白卡片上也让顶部显脏。纯色 + 一道发丝描边已经足够分区。 */
+  background: var(--surface-2);
 }
-.card__head h3 { font-size: 14.5px; font-weight: 650; color: var(--ink-900); display: inline-flex; align-items: center; gap: 7px; }
+.card__head h3 {
+  font-size: var(--fs-h3); font-weight: 650; color: var(--ink-900);
+  display: inline-flex; align-items: center; gap: 7px;
+}
 .card__head h3 svg { color: var(--brand-500); flex: 0 0 auto; }
 .card__head .t-xs { margin-top: 1px; }
 .card__head-actions { margin-left: auto; display: flex; gap: var(--s-2); align-items: center; }
@@ -521,15 +551,19 @@ body::after {
   box-shadow: var(--sh-2);
   border-color: var(--border-strong);
 }
+/* 内边距从 15px 提到 18px，标题从 14px 提到 16px。
+   这四个卡片族是 match / resources / hub / homework 的主力展示单元，
+   原来比主卡片（24px）窄了近一半，一屏里四五个挤在一起就显"密"；
+   提到 18px 后与主卡片同一呼吸，卡片内也能容下更大的标题层级。 */
 .mk-card__head, .res-card__head, .hub-card__head, .hw-card__head {
-  padding: 13px 15px 11px;
+  padding: 16px 18px 14px;
   border-bottom: 1px solid var(--border);
 }
 .mk-card__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .mk-card__title, .res-card__title, .hub-card__title, .hw-card__title {
-  font-size: var(--fs-body); font-weight: 700; color: var(--ink-900); line-height: 1.5;
+  font-size: var(--fs-h3); font-weight: 700; color: var(--ink-900); line-height: 1.5;
 }
-.mk-card__body, .res-card__body, .hub-card__body, .hw-card__body { padding: 12px 15px; }
+.mk-card__body, .res-card__body, .hub-card__body, .hw-card__body { padding: 16px 18px; }
 .hw-card__body, .hub-card__body { flex: 1; }
 .mk-card__foot, .res-card__foot, .hub-card__foot, .hw-card__foot {
   padding: 10px 15px;
@@ -696,25 +730,35 @@ body::after {
 .btn svg { width: 15px; height: 15px; }
 .btn[disabled], .btn.is-loading { opacity: .55; pointer-events: none; }
 
+/* 主按钮：从渐变改为实心色。
+   渐变是上一代后台模板的典型特征，实心色更接近现代产品；
+   同时补齐 :active —— 之前只有 :hover，点击时缺少"按下去了"的确认感。 */
 .btn--primary {
-  background: linear-gradient(180deg, var(--brand-400), var(--brand-600));
-  border-color: var(--brand-600);
+  background: var(--brand-500);
+  border-color: var(--brand-500);
   color: #fff;
-  box-shadow: 0 1px 2px rgba(29, 67, 84, .22), var(--sh-inset);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .18);
 }
 .btn--primary:hover {
-  background: linear-gradient(180deg, var(--brand-500), var(--brand-700));
-  border-color: var(--brand-700); color: #fff;
-  box-shadow: 0 4px 14px rgba(58, 114, 196, .32), var(--sh-inset);
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, .32);
+}
+.btn--primary:active {
+  background: var(--brand-700);
+  border-color: var(--brand-700);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .22);
 }
 
 .btn--ghost { background: transparent; border-color: transparent; color: var(--ink-600); box-shadow: none; }
 .btn--ghost:hover { background: var(--ink-100); color: var(--ink-900); border-color: transparent; box-shadow: none; }
 
-.btn--danger { background: var(--white); border-color: #f0ccce; color: var(--danger-500); }
+.btn--danger { background: var(--white); border-color: #fecaca; color: var(--danger-500); }
 .btn--danger:hover { background: var(--danger-50); border-color: var(--danger-500); color: var(--danger-700); }
 
-.btn--ok { background: var(--white); border-color: #c4e6d6; color: var(--ok-500); }
+.btn--ok { background: var(--white); border-color: #a7f3d0; color: var(--ok-500); }
 .btn--ok:hover { background: var(--ok-50); border-color: var(--ok-500); color: var(--ok-700); }
 
 .btn--sm { height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: var(--r-xs); }
@@ -797,10 +841,10 @@ body::after {
   width: 17px; height: 17px; margin-top: -6px;
   border-radius: 50%; background: #fff;
   border: 2.5px solid var(--brand-500);
-  box-shadow: 0 1px 4px rgba(20, 32, 54, .2);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, .2);
   transition: transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
 }
-.range::-webkit-slider-thumb:hover { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(58, 114, 196, .13); }
+.range::-webkit-slider-thumb:hover { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(37, 99, 235, .13); }
 .range::-moz-range-track { height: 5px; border-radius: var(--r-pill); background: var(--ink-200); }
 .range::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%; background: #fff; border: 2.5px solid var(--brand-500); }
 
@@ -953,11 +997,11 @@ body::after {
   border: 1px solid var(--brand-100);
 }
 .stat__ico svg { width: 18px; height: 18px; }
-.stat__ico--ok { background: var(--ok-50); color: var(--ok-500); border-color: #c4e6d6; }
-.stat__ico--warn { background: var(--warn-50); color: var(--warn-500); border-color: #ecd6b2; }
-.stat__ico--info { background: var(--info-50); color: var(--info-500); border-color: #c8ddef; }
+.stat__ico--ok { background: var(--ok-50); color: var(--ok-500); border-color: #a7f3d0; }
+.stat__ico--warn { background: var(--warn-50); color: var(--warn-500); border-color: #fde68a; }
+.stat__ico--info { background: var(--info-50); color: var(--info-500); border-color: #bae6fd; }
 .stat__num {
-  font-size: 24px; font-weight: 750; line-height: 1.15;
+  font-size: 26px; font-weight: 750; line-height: 1.15;
   color: var(--ink-950); letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
 }
@@ -1043,7 +1087,7 @@ body::after {
   position: absolute; left: 0; bottom: 0; height: 2px; width: 0; opacity: 0;
   border-radius: 2px 2px 0 0;
   background: var(--brand-500);
-  box-shadow: 0 0 8px rgba(58, 114, 196, .45);
+  box-shadow: 0 0 8px rgba(37, 99, 235, .45);
   transition: transform var(--dur-3) var(--ease-out), width var(--dur-3) var(--ease-out), opacity var(--dur-2) var(--ease-out);
   pointer-events: none;
   z-index: 2;
@@ -1318,7 +1362,7 @@ body::after {
 .auth__art {
   position: relative;
   background:
-    radial-gradient(120% 90% at 0% 0%, rgba(58, 114, 196, .16) 0%, rgba(255, 255, 255, 0) 58%),
+    radial-gradient(120% 90% at 0% 0%, rgba(37, 99, 235, .16) 0%, rgba(255, 255, 255, 0) 58%),
     radial-gradient(110% 110% at 100% 100%, rgba(107, 120, 201, .14) 0%, rgba(255, 255, 255, 0) 62%),
     linear-gradient(160deg, #f8fbfd 0%, #eef5f9 100%);
   color: var(--ink-800);
@@ -1331,7 +1375,7 @@ body::after {
   content: "";
   position: absolute; right: -140px; bottom: -160px;
   width: 460px; height: 460px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(58, 114, 196, .20), transparent 68%);
+  background: radial-gradient(circle, rgba(37, 99, 235, .20), transparent 68%);
 }
 .auth__grid-lines {
   position: absolute; inset: 0;
@@ -1640,7 +1684,7 @@ mark { background: var(--mark-bg); padding: 0 2px; border-radius: 3px; }
   width: 56px; height: 56px; flex: 0 0 56px; border-radius: 16px; display: grid; place-items: center;
   font-size: 22px; font-weight: 700; color: #fff;
   background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
-  box-shadow: 0 6px 18px rgba(58, 114, 196, .26), var(--sh-inset);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, .26), var(--sh-inset);
 }
 .slider-row { display: grid; grid-template-columns: 92px 1fr 46px; align-items: center; gap: 12px; }
 .slider-row output {
@@ -1838,7 +1882,7 @@ body.nav-open::after { animation: fade-in var(--dur-2) var(--ease-out); }
  * 否则用系统偏好）+ CSS 里只有一个 data-theme 开关"，规则全站只有这一份。
  *
  * 与浅色主题的三条对应关系：
- *   · 色相不动，只把明度整体上移（215° 的晴空蓝在暗底上提到 500 → #5c8ec9）
+ *   · 色相不动，只把明度整体上移（电光蓝在暗底上提到 500 → #60a5fa）
  *   · 中性墨阶整体倒转：--ink-950 最亮（标题），--ink-50 最暗（描边底）
  *   · 层次从"靠阴影"改为"靠明度差 + 一道极淡的内高光"，因为黑底上的阴影几乎看不见
  */
@@ -1847,52 +1891,53 @@ html { color-scheme: light; }
 html[data-theme="dark"] {
   color-scheme: dark;
 
-  --brand-50:  #14243c;
-  --brand-100: #1a2d4a;
-  --brand-200: #223c60;
-  --brand-300: #2e4d78;
-  --brand-400: #3f6da4;
-  --brand-500: #5c8ec9;
-  --brand-600: #82a9d9;
-  --brand-700: #a8c5e6;
-  --brand-800: #cfe1f5;
+  --brand-50:  #172554;
+  --brand-100: #1e3a8a;
+  --brand-200: #1e40af;
+  --brand-300: #2563eb;
+  --brand-400: #3b82f6;
+  --brand-500: #60a5fa;
+  --brand-600: #93c5fd;
+  --brand-700: #bfdbfe;
+  --brand-800: #dbeafe;
 
-  --accent-50:  #1e2244;
-  --accent-500: #8b96dd;
-  --accent-600: #a3adea;
+  --accent-50:  #1e1b4b;
+  --accent-500: #818cf8;
+  --accent-600: #a5b4fc;
 
-  --ok-50: #0f2a1e;     --ok-500: #4fbe8a;     --ok-700: #86d9b3;
-  --warn-50: #2e2410;   --warn-500: #dda85c;   --warn-700: #eec485;
-  --danger-50: #331a1c; --danger-500: #e8787c; --danger-700: #f0a2a5;
-  --info-50: #12283a;   --info-500: #6aa8d4;   --info-700: #9bc6e5;
+  --ok-50: #052e22;     --ok-500: #34d399;     --ok-700: #6ee7b7;
+  --warn-50: #3a2a06;   --warn-500: #fbbf24;   --warn-700: #fcd34d;
+  --danger-50: #3f1416; --danger-500: #f87171; --danger-700: #fca5a5;
+  --info-50: #082f49;   --info-500: #38bdf8;   --info-700: #7dd3fc;
 
-  /* 双轨语义色里事业型是写死的琥珀，学业型跟着 accent 走，这里补上 */
-  --track-career-50: #2e2410;
-  --track-career-500: #dda85c;
+  /* 双轨语义色：学业型跟着 accent，事业型是琥珀。
+     改挂到语义色变量后，暗色下不会再出现"两套琥珀不一致"的历史问题。 */
+  --track-career-50: var(--warn-50);
+  --track-career-500: var(--warn-500);
 
-  --ink-950: #f3f6fb;
-  --ink-900: #e4eaf3;
-  --ink-800: #d1dae6;
-  --ink-700: #b3bfd0;
-  --ink-600: #94a2b5;
-  --ink-500: #7a8698;
-  --ink-400: #626e7e;
-  --ink-300: #4a5563;
-  --ink-200: #333d4a;
-  --ink-100: #232b36;
-  --ink-50:  #1a212a;
+  --ink-950: #f8fafc;
+  --ink-900: #e5e7eb;
+  --ink-800: #d1d5db;
+  --ink-700: #9ca3af;
+  --ink-600: #6b7280;
+  --ink-500: #4b5563;
+  --ink-400: #374151;
+  --ink-300: #1f2937;
+  --ink-200: #111827;
+  --ink-100: #0f172a;
+  --ink-50:  #0b1120;
   /* --white 在这里被重定义为"实心表面"。全站只有 6 处把 --white 当背景用
      （表面 / 按钮 / 顶栏 / 单选点），语义上都是"不透明的面"，
      所以翻掉它是安全的；变量名保留是为了让 12 个页面一行都不用改。 */
-  --white: #161d27;
+  --white: #111827;
 
-  --bg: #0e131a;
-  --surface: #161d27;
-  --surface-2: #1a222c;
-  --surface-3: #1e2732;
-  --surface-glass: rgba(22, 29, 39, .76);
-  --border: #262f3b;
-  --border-strong: #384353;
+  --bg: #0b1120;
+  --surface: #111827;
+  --surface-2: #1a2436;
+  --surface-3: #1f2937;
+  --surface-glass: rgba(17, 24, 39, .8);
+  --border: #1f2937;
+  --border-strong: #374151;
 
   /* 反相块在暗色下改成"比表面再深一档"，继续保持凹陷感 */
   --code-bg: #0b1017;
@@ -1909,8 +1954,8 @@ html[data-theme="dark"] {
   --sh-4: 0 22px 52px rgba(0, 0, 0, .64);
   --sh-inset: inset 0 1px 0 rgba(255, 255, 255, .05);
 
-  --glow-brand: 0 0 0 3px rgba(92, 142, 201, .22);
-  --glow-brand-sm: 0 0 10px rgba(92, 142, 201, .42);
+  --glow-brand: 0 0 0 3px rgba(96, 165, 250, .24);
+  --glow-brand-sm: 0 0 10px rgba(96, 165, 250, .42);
 }
 
 /* --- 组件级覆盖 ---
@@ -1919,9 +1964,9 @@ html[data-theme="dark"] {
 /* 背景两团光晕：暗色下提亮、点阵反过来 */
 html[data-theme="dark"] body::before {
   background:
-    radial-gradient(44rem 28rem at 10% -8%, rgba(92, 142, 201, .13), transparent 62%),
-    radial-gradient(38rem 26rem at 94% 2%, rgba(139, 150, 221, .11), transparent 60%),
-    radial-gradient(50rem 32rem at 72% 106%, rgba(92, 142, 201, .09), transparent 62%);
+    radial-gradient(44rem 28rem at 10% -8%, rgba(96, 165, 250, .13), transparent 62%),
+    radial-gradient(38rem 26rem at 94% 2%, rgba(129, 140, 248, .11), transparent 60%),
+    radial-gradient(50rem 32rem at 72% 106%, rgba(96, 165, 250, .09), transparent 62%);
 }
 html[data-theme="dark"] body::after {
   background-image: radial-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px);
@@ -1932,20 +1977,20 @@ html[data-theme="dark"] .sidebar {
   background: linear-gradient(180deg, rgba(28, 36, 47, .82) 0%, rgba(20, 27, 36, .76) 100%);
 }
 html[data-theme="dark"] .sidebar::before {
-  background: radial-gradient(50% 50% at 50% 50%, rgba(92, 142, 201, .16), transparent 72%);
+  background: radial-gradient(50% 50% at 50% 50%, rgba(96, 165, 250, .16), transparent 72%);
 }
 html[data-theme="dark"] .topbar { background: #161d27; }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   html[data-theme="dark"] .topbar { background: rgba(22, 29, 39, .78); }
 }
-html[data-theme="dark"] .nav-item:hover { background: rgba(92, 142, 201, .12); }
+html[data-theme="dark"] .nav-item:hover { background: rgba(96, 165, 250, .12); }
 html[data-theme="dark"] .nav-item.is-active {
-  background: linear-gradient(90deg, rgba(92, 142, 201, .22), rgba(92, 142, 201, .06));
+  background: linear-gradient(90deg, rgba(96, 165, 250, .22), rgba(96, 165, 250, .06));
 }
 html[data-theme="dark"] .nav-glider {
-  background: linear-gradient(90deg, rgba(92, 142, 201, .22), rgba(92, 142, 201, .06));
+  background: linear-gradient(90deg, rgba(96, 165, 250, .22), rgba(96, 165, 250, .06));
 }
-html[data-theme="dark"] .nav-item__tag { background: rgba(92, 142, 201, .18); }
+html[data-theme="dark"] .nav-item__tag { background: rgba(96, 165, 250, .18); }
 html[data-theme="dark"] .sidebar__user { background: rgba(255, 255, 255, .05); }
 html[data-theme="dark"] .sidebar__mark,
 html[data-theme="dark"] .sidebar__avatar,
@@ -1958,20 +2003,20 @@ html[data-theme="dark"] .material-card__ico,
 html[data-theme="dark"] .empty__ico {
   background: linear-gradient(150deg, var(--brand-50), rgba(255, 255, 255, .04));
 }
-html[data-theme="dark"] .stat__ico--ok { border-color: rgba(79, 190, 138, .34); }
-html[data-theme="dark"] .stat__ico--warn { border-color: rgba(221, 168, 92, .34); }
-html[data-theme="dark"] .stat__ico--info { border-color: rgba(106, 168, 212, .34); }
+html[data-theme="dark"] .stat__ico--ok { border-color: rgba(52, 211, 153, .34); }
+html[data-theme="dark"] .stat__ico--warn { border-color: rgba(251, 191, 36, .34); }
+html[data-theme="dark"] .stat__ico--info { border-color: rgba(56, 189, 248, .34); }
 
 /* 语义描边：浅色下的淡彩描边在暗底上要换成半透明语义色 */
 html[data-theme="dark"] .btn--danger { border-color: rgba(232, 120, 124, .34); }
-html[data-theme="dark"] .btn--ok { border-color: rgba(79, 190, 138, .34); }
-html[data-theme="dark"] .note { border-color: rgba(106, 168, 212, .30); }
-html[data-theme="dark"] .note--warn { border-color: rgba(221, 168, 92, .30); }
+html[data-theme="dark"] .btn--ok { border-color: rgba(52, 211, 153, .34); }
+html[data-theme="dark"] .note { border-color: rgba(56, 189, 248, .30); }
+html[data-theme="dark"] .note--warn { border-color: rgba(251, 191, 36, .30); }
 html[data-theme="dark"] .note--danger { border-color: rgba(232, 120, 124, .30); }
 html[data-theme="dark"] .login-err { border-color: rgba(232, 120, 124, .32); }
 html[data-theme="dark"] .mk-card--match {
-  background: linear-gradient(180deg, rgba(79, 190, 138, .10), rgba(255, 255, 255, 0) 42%);
-  box-shadow: 0 0 0 3px rgba(79, 190, 138, .10), var(--sh-1);
+  background: linear-gradient(180deg, rgba(52, 211, 153, .10), rgba(255, 255, 255, 0) 42%);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, .10), var(--sh-1);
 }
 
 /* 骨架屏的 shimmer 高光点 */
@@ -1982,20 +2027,20 @@ html[data-theme="dark"] .skeleton {
 
 /* Toast 与勾选圆点是"反相元素"：暗色下必须反过来才看得见 */
 html[data-theme="dark"] .toast { background: rgba(228, 234, 243, .96); color: #101828; }
-html[data-theme="dark"] .toast--ok { background: rgba(79, 190, 138, .96); color: #0b1a12; }
+html[data-theme="dark"] .toast--ok { background: rgba(52, 211, 153, .96); color: #0b1a12; }
 html[data-theme="dark"] .toast--err { background: rgba(232, 120, 124, .96); color: #24090b; }
-html[data-theme="dark"] .toast--warn { background: rgba(221, 168, 92, .96); color: #241a08; }
+html[data-theme="dark"] .toast--warn { background: rgba(251, 191, 36, .96); color: #241a08; }
 html[data-theme="dark"] .check-item__ico { color: #101828; }
 
 /* 登录页左栏的淡色渐变面板与网格线 */
 html[data-theme="dark"] .auth__art {
   background:
-    radial-gradient(120% 90% at 0% 0%, rgba(92, 142, 201, .16) 0%, rgba(255, 255, 255, 0) 58%),
-    radial-gradient(110% 110% at 100% 100%, rgba(139, 150, 221, .13) 0%, rgba(255, 255, 255, 0) 62%),
+    radial-gradient(120% 90% at 0% 0%, rgba(96, 165, 250, .16) 0%, rgba(255, 255, 255, 0) 58%),
+    radial-gradient(110% 110% at 100% 100%, rgba(129, 140, 248, .13) 0%, rgba(255, 255, 255, 0) 62%),
     linear-gradient(160deg, #131a24 0%, #0e131a 100%);
 }
 html[data-theme="dark"] .auth__art::after {
-  background: radial-gradient(circle, rgba(92, 142, 201, .16), transparent 68%);
+  background: radial-gradient(circle, rgba(96, 165, 250, .16), transparent 68%);
 }
 html[data-theme="dark"] .auth__grid-lines {
   background-image: linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
@@ -2102,11 +2147,11 @@ html[data-theme="dark"] .tile-note { color: var(--ink-700); }
 .card__head h3 { letter-spacing: .01em; }
 .card--hover:hover {
   border-color: var(--brand-300);
-  box-shadow: 0 12px 26px -12px rgba(58, 114, 196, .34), var(--sh-3);
+  box-shadow: 0 12px 26px -12px rgba(37, 99, 235, .34), var(--sh-3);
 }
 .mk-card:hover, .res-card:hover, .hub-card:hover, .hw-card:hover {
   border-color: var(--brand-300);
-  box-shadow: 0 10px 24px -12px rgba(58, 114, 196, .30), var(--sh-3);
+  box-shadow: 0 10px 24px -12px rgba(37, 99, 235, .30), var(--sh-3);
 }
 /* 统计卡：图标块是这一层的"锚点"，让它更实一点 */
 .stat__ico {
@@ -2116,13 +2161,13 @@ html[data-theme="dark"] .tile-note { color: var(--ink-700); }
 }
 .stat:hover {
   border-color: var(--brand-300);
-  box-shadow: 0 10px 22px -12px rgba(58, 114, 196, .38), var(--sh-2);
+  box-shadow: 0 10px 22px -12px rgba(37, 99, 235, .38), var(--sh-2);
 }
 .stat__label { letter-spacing: .02em; }
 /* 方框分布：hover 时描边转到品牌色，一眼能看出"可以点/可以关注" */
 .tile:hover {
   border-color: var(--brand-400);
-  box-shadow: 0 8px 18px -10px rgba(58, 114, 196, .45);
+  box-shadow: 0 8px 18px -10px rgba(37, 99, 235, .45);
 }
 /* 章节分隔线：从左往右渐隐，带出阅读方向 */
 .sect__line { background: linear-gradient(90deg, var(--border-strong), rgba(211, 220, 238, 0)); }
@@ -2136,18 +2181,18 @@ html[data-theme="dark"] .tile-note { color: var(--ink-700); }
 .btn:focus-visible {
   outline: none;
   border-color: var(--brand-500);
-  box-shadow: 0 0 0 3px rgba(58, 114, 196, .22), var(--sh-1);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .22), var(--sh-1);
 }
 .btn--primary { letter-spacing: .01em; }
 .btn--primary:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(58, 114, 196, .32), 0 4px 14px rgba(58, 114, 196, .32);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .32), 0 4px 14px rgba(37, 99, 235, .32);
 }
 .btn[disabled], .btn.is-loading { opacity: .5; filter: saturate(.65); }
 .btn--ghost:hover { color: var(--brand-700); background: var(--brand-50); }
 
 .input:focus, .select:focus, .textarea:focus {
-  box-shadow: 0 0 0 3px rgba(58, 114, 196, .16);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .16);
 }
 .input:hover, .select:hover, .textarea:hover { border-color: var(--brand-200); }
 
@@ -2160,7 +2205,7 @@ html[data-theme="dark"] .tile-note { color: var(--ink-700); }
 .table tbody tr:nth-child(even) { background: rgba(246, 249, 253, .62); }
 html[data-theme="dark"] .table tbody tr:nth-child(even) { background: rgba(255, 255, 255, .022); }
 .table tbody tr:hover {
-  background: linear-gradient(90deg, rgba(58, 114, 196, .07), rgba(58, 114, 196, .02));
+  background: linear-gradient(90deg, rgba(37, 99, 235, .07), rgba(37, 99, 235, .02));
   box-shadow: inset 2px 0 0 var(--brand-400);
 }
 /* 标签类：给一点过渡，hover 时微微抬色 */
@@ -2171,7 +2216,7 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) { background: rgba(255, 
 }
 .nav-item { transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out); }
 /* 顶栏：一条极淡的品牌投影，滚动时内容从它下面穿过去，层次立刻成立 */
-.topbar { box-shadow: 0 1px 0 rgba(58, 114, 196, .07), 0 8px 20px -16px rgba(16, 24, 40, .35); }
+.topbar { box-shadow: 0 1px 0 rgba(37, 99, 235, .07), 0 8px 20px -16px rgba(16, 24, 40, .35); }
 /* 滚动条 hover 转品牌色 */
 ::-webkit-scrollbar-thumb:hover { background: var(--brand-200); background-clip: content-box; }
 
@@ -2196,10 +2241,10 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) { background: rgba(255, 
 /* ---------------------------------------------------- 5. 操作路径 */
 /* 页头里的主按钮是这条路径的"下一步"，给它最重的一层阴影 */
 .page-head__actions .btn--primary {
-  box-shadow: 0 2px 10px rgba(58, 114, 196, .30), var(--sh-inset);
+  box-shadow: 0 2px 10px rgba(37, 99, 235, .30), var(--sh-inset);
 }
 .page-head__actions .btn--primary:hover {
-  box-shadow: 0 6px 18px rgba(58, 114, 196, .38), var(--sh-inset);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, .38), var(--sh-inset);
 }
 /* 侧边栏当前项：字重提一档，和"路过"的项区分开 */
 .nav-item.is-active { font-weight: 650; }
@@ -2233,7 +2278,7 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) { background: rgba(255, 
   stroke: var(--brand-500);
   stroke-width: 2;
   stroke-linejoin: round;
-  filter: drop-shadow(0 4px 10px rgba(58, 114, 196, .22));
+  filter: drop-shadow(0 4px 10px rgba(37, 99, 235, .22));
   transform-box: fill-box;
   transform-origin: center;
   animation: radar-in var(--dur-4, .5s) var(--ease-out) both;
