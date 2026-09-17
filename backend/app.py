@@ -1060,10 +1060,12 @@ def api_match_mine(user: dict = Depends(require_student)):
     return ok({"matches": matcher.my_matches(int(user["id"]))})
 
 
-# ---------------------------------------------------------------- 课题组维护
+# ---------------------------------------------------------------- 团队维护
+# 「团队」= 老师长期带的队伍，既包括科研课题组，也包括横向项目、竞赛团队、实习组。
+# 表名仍是 research_groups（历史命名），语义已按类型放宽。
 @app.get(f"{API}/teacher/groups")
 def api_teacher_groups(user: dict = Depends(require_teacher)):
-    return ok({"groups": matcher.my_groups(int(user["id"]))})
+    return ok({"groups": matcher.my_groups(int(user["id"])), "kinds": matcher.GROUP_KINDS})
 
 
 @app.post(f"{API}/teacher/groups")
@@ -1071,9 +1073,9 @@ def api_teacher_group_create(payload: dict = Body(default={}),
                              user: dict = Depends(require_teacher)):
     group_id = matcher.create_group(
         int(user["id"]), _str(payload, "name"), payload.get("directions"),
-        _str(payload, "requirement"), _int(payload, "capacity"),
+        _str(payload, "requirement"), _int(payload, "capacity"), _str(payload, "kind"),
     )
-    return ok({"group_id": group_id, "message": "课题组已创建"})
+    return ok({"group_id": group_id, "message": "团队已创建"})
 
 
 @app.post(f"{API}/teacher/groups/{{group_id}}")
@@ -1083,6 +1085,7 @@ def api_teacher_group_update(group_id: int, payload: dict = Body(default={}),
         int(user["id"]), group_id,
         name=payload.get("name"), directions=payload.get("directions"),
         requirement=payload.get("requirement"), capacity=payload.get("capacity"),
+        kind=payload.get("kind"),
     )
     return ok({"group": group, "message": "已保存"})
 
@@ -1090,7 +1093,7 @@ def api_teacher_group_update(group_id: int, payload: dict = Body(default={}),
 @app.delete(f"{API}/teacher/groups/{{group_id}}")
 def api_teacher_group_delete(group_id: int, user: dict = Depends(require_teacher)):
     removed = matcher.delete_group(int(user["id"]), group_id)
-    return ok({"removed_records": removed, "message": "课题组已删除"})
+    return ok({"removed_records": removed, "message": "团队已删除"})
 
 
 # ================================================================ 自检
@@ -1247,36 +1250,39 @@ def api_selfcheck(user: dict = Depends(current_user)):
                 return f"暂无可推荐（{exc}）"
             groups = data.get("groups") or []
             seats = sum(len(g.get("candidates") or []) for g in groups)
-            return f"常设课题组 {len(groups)} 个，候选学生 {seats} 人次"
+            return f"常设团队 {len(groups)} 个，候选学生 {seats} 人次"
         run("师生匹配", _match_teacher)
 
         def _group_crud() -> str:
-            """课题组增删改：建一个临时组，改完再删掉，不留痕迹。"""
+            """团队增删改：建一个临时队，改完再删掉，不留痕迹（顺带验证类型字段）。"""
             gid = matcher.create_group(
-                uid, "__自检临时课题组__", "自检、临时",
-                "由 /api/selfcheck 创建，正常情况下一瞬间就被删掉", 1,
+                uid, "__自检临时团队__", "自检、临时",
+                "由 /api/selfcheck 创建，正常情况下一瞬间就被删掉", 1, "竞赛团队",
             )
             try:
-                matcher.update_group(uid, gid, capacity=2, requirement="自检已改")
+                matcher.update_group(uid, gid, capacity=2, requirement="自检已改",
+                                     kind="横向项目")
                 rows = [g for g in matcher.my_groups(uid) if int(g["id"]) == gid]
                 if not rows:
-                    raise ValueError("更新后查不到该课题组")
+                    raise ValueError("更新后查不到该团队")
                 if int(rows[0].get("capacity") or 0) != 2:
                     raise ValueError("名额上限没改成功")
+                if rows[0].get("kind") != "横向项目":
+                    raise ValueError("团队类型没改成功")
             finally:
                 matcher.delete_group(uid, gid)
             if db.query_one("SELECT id FROM research_groups WHERE id = ?", (gid,)):
-                raise ValueError("课题组没被删掉")
-            return "创建 → 改名额与要求 → 删除，三步都生效"
+                raise ValueError("团队没被删掉")
+            return "创建（竞赛团队）→ 改名额、要求与类型 → 删除，三步都生效"
 
-        run("课题组维护", _group_crud)
+        run("团队维护", _group_crud)
     else:
         def _match_student() -> str:
             data = matcher.recommend_for_student(uid)
             out = data.get("matches") or []
             head = out[0] if out else None
             tail = f"，首选《{head['name']}》({head['score']})" if head else ""
-            return f"推荐 {len(out)} 个课题组{tail}"
+            return f"推荐 {len(out)} 个团队{tail}"
         run("师生匹配", _match_student)
 
     # --- 能力⑥ Copilot ---

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>课题组匹配 · 寻径教育 PathFinder</title>
+<title>团队匹配 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/css/style.css">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
@@ -32,14 +32,14 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   const view = PF.shell({
     active: "match",
     me: me,
-    title: isTeacher ? "师生匹配" : "课题组匹配",
+    title: isTeacher ? "师生匹配" : "团队匹配",
     desc: isTeacher
       ? "匹配分 = 方向契合 60 分 + 层次适配 20 分 + 兴趣新鲜度 10 分 + 名额余量 10 分。规则固定、理由可复核；双方都确认才算匹配成功，并自动生成一条跟进任务。"
       : "系统按方向契合度、层次适配、兴趣新鲜度与名额余量给你排了序。你表态后老师那边也会给出意向，双方都确认才算匹配成功。",
     wide: true,
     actions: '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>" +
       (isTeacher
-        ? '<button class="btn btn--primary" id="btn-new-group">' + PF.icon("plus", 15) + "新建课题组</button>"
+        ? '<button class="btn btn--primary" id="btn-new-group">' + PF.icon("plus", 15) + "新建团队</button>"
         : ""),
   });
 
@@ -49,10 +49,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   const tabs = PF.tabs(host, isTeacher
     ? [
         { key: "pick", label: "推荐候选", icon: "users", render: function (b) { return renderPick(b, false); } },
-        { key: "groups", label: "课题组管理", icon: "layers", render: renderGroups },
+        { key: "groups", label: "团队管理", icon: "layers", render: renderGroups },
       ]
     : [
-        { key: "rec", label: "推荐课题组", icon: "target", render: renderRec },
+        { key: "rec", label: "推荐团队", icon: "target", render: renderRec },
         { key: "mine", label: "我的匹配记录", icon: "check", render: renderMine },
       ], { base: "#/", initial: isTeacher ? "pick" : "rec" });
 
@@ -121,9 +121,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     } catch (e) {
       box.innerHTML = PF.empty({
         icon: "layers",
-        title: "还没有课题组可推荐",
-        desc: e.message + "。课题组的方向是打分的基准，先建一个组，学生那边也会立刻收到推荐。",
-        action: '<button class="btn btn--primary" id="btn-nogroup">' + PF.icon("plus", 15) + "新建课题组</button>",
+        title: "还没有团队可推荐",
+        desc: e.message + "。团队方向是打分的基准，先建一个，学生那边也会立刻收到推荐。",
+        action: '<button class="btn btn--primary" id="btn-nogroup">' + PF.icon("plus", 15) + "新建团队</button>",
       });
       const b = PF.$("#btn-nogroup", box);
       if (b) b.addEventListener("click", function () { newGroupModal(); });
@@ -133,9 +133,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     const groups = PF.arr(d.groups);
     if (!groups.length) {
       box.innerHTML = PF.empty({
-        icon: "layers", title: "还没有课题组",
-        desc: "先建一个课题组，再来这里看推荐候选。",
-        action: '<button class="btn btn--primary" id="btn-nogroup2">' + PF.icon("plus", 15) + "新建课题组</button>",
+        icon: "layers", title: "还没有团队",
+        desc: "先建一个团队（课题组 / 横向项目 / 竞赛队都行），再来这里看推荐候选。",
+        action: '<button class="btn btn--primary" id="btn-nogroup2">' + PF.icon("plus", 15) + "新建团队</button>",
       });
       const b = PF.$("#btn-nogroup2", box);
       if (b) b.addEventListener("click", function () { newGroupModal(); });
@@ -161,10 +161,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
     const stats =
       '<div class="grid grid-4">' +
-        statCard("layers", "我的课题组", PF.num(groups.length, 0) + ' <span class="t-sm">个</span>',
+        statCard("layers", "我的团队", PF.num(groups.length, 0) + ' <span class="t-sm">个</span>',
           d.class_id ? "候选范围：行政班 " + d.class_id : "候选范围：全部学生", "") +
         statCard("users", "候选学生", PF.num(Object.keys(seen).length, 0) + ' <span class="t-sm">人</span>',
-          "跨全部课题组去重", "info") +
+          "跨全部团队去重", "info") +
         statCard("bell", "学生已表态 · 待我确认", PF.num(studentWaiting, 0) + ' <span class="t-sm">条</span>',
           "学生点了愿意加入", studentWaiting > 0 ? "warn" : "") +
         statCard("check", "已确认匹配", PF.num(matchedPairs, 0) + ' <span class="t-sm">对</span>',
@@ -174,7 +174,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     box.innerHTML = stats +
       '<div class="split mt-5">' +
         '<aside class="split__aside"><div class="card">' +
-          '<div class="card__head"><h3>' + PF.icon("layers", 15) + " 课题组</h3>" +
+          '<div class="card__head"><h3>' + PF.icon("layers", 15) + " 团队</h3>" +
             '<div class="card__head-actions"><span class="t-xs t-dim">共 ' + groups.length + " 个</span></div></div>" +
           '<div class="card__body card__body--tight"><div class="pick-list">' +
             groups.map(function (g) {
@@ -243,7 +243,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       return '<div class="card"><div class="card__body">' + PF.empty({
         icon: "users",
         title: "这个组还没有可推荐的学生",
-        desc: "打分范围是本班的在读学生；换个课题组看看，或先确认学生画像已经生成。",
+        desc: "打分范围是本班的在读学生；换个团队看看，或先确认学生画像已经生成。",
       }) + "</div></div>";
     }
 
@@ -291,11 +291,17 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
   function groupForm(g) {
     const dirs = PF.arr(g && g.directions).join("、");
+    const kind = String((g && g.kind) || "").trim() || "科研课题组";
     return '<div class="stack-sm">' +
-      '<label class="t-sm t-strong">课题组名称</label>' +
-      '<input class="input" id="g-name" maxlength="60" placeholder="如：多模态内容理解课题组" value="' +
+      '<label class="t-sm t-strong">团队名称</label>' +
+      '<input class="input" id="g-name" maxlength="60" placeholder="如：多模态内容理解课题组 / 竞赛队 / 校企合作项目组" value="' +
         PF.esc(g ? g.name : "") + '">' +
-      '<label class="t-sm t-strong mt-2">研究方向（多个用顿号或逗号分隔）</label>' +
+      '<label class="t-sm t-strong mt-2">团队类型</label>' +
+      '<select class="select" id="g-kind">' +
+        PF.GROUP_KINDS.map((k) => '<option value="' + PF.esc(k) + '"' +
+          (k === kind ? " selected" : "") + ">" + PF.esc(k) + "</option>").join("") +
+      "</select>" +
+      '<label class="t-sm t-strong mt-2">方向（多个用顿号或逗号分隔）</label>' +
       '<input class="input" id="g-dirs" placeholder="如：多模态、CV、LLM" value="' + PF.esc(dirs) + '">' +
       '<label class="t-sm t-strong mt-2">招募要求</label>' +
       '<textarea class="input" id="g-req" rows="3" placeholder="如：熟悉 PyTorch 基础，能读英文论文；每周可投入 6 小时以上">' +
@@ -303,13 +309,15 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       '<label class="t-sm t-strong mt-2">名额上限（0 表示不限）</label>' +
       '<input class="input" type="number" id="g-cap" min="0" max="50" value="' +
         (g ? PF.num(g.capacity, 0) : 3) + '">' +
-      PF.caveat("方向写得越具体，推荐排序越准 —— 方向契合度占匹配分的 60%，学生兴趣方向与课题组方向有交集才拿得到分。") +
+      PF.caveat("类型只用于分类查看（科研 / 横向 / 竞赛 / 实习），不参与打分；" +
+        "方向才是打分的基准 —— 方向契合度占匹配分的 60%，学生兴趣方向与团队方向有交集才拿得到分。") +
       "</div>";
   }
 
   function groupFormValues() {
     return {
       name: PF.$("#g-name").value.trim(),
+      kind: PF.$("#g-kind").value,
       directions: PF.$("#g-dirs").value.trim(),
       requirement: PF.$("#g-req").value.trim(),
       capacity: Number(PF.$("#g-cap").value) || 0,
@@ -318,18 +326,18 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
   function newGroupModal() {
     PF.modal({
-      title: "新建课题组",
+      title: "新建团队",
       body: groupForm(null),
       actions: [
         { label: "取消" },
         { label: "创建", type: "primary", onClick: async function () {
             const values = groupFormValues();
-            if (!values.name) { PF.toast("请填写课题组名称", "warn"); return true; }
+            if (!values.name) { PF.toast("请填写团队名称", "warn"); return true; }
             if (!values.directions) { PF.toast("请至少填写一个研究方向", "warn"); return true; }
             try {
               const r = await PF.post("/api/teacher/groups", values);
               curGroup = Number((r && r.group_id) || 0) || curGroup;
-              PF.toast("课题组已创建", "ok");
+              PF.toast("团队已创建", "ok");
               tabs.reload();
             } catch (e) { return true; }
           } },
@@ -340,13 +348,13 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   function editGroupModal(group) {
     if (!group) return;
     PF.modal({
-      title: "编辑课题组：" + PF.trunc(group.name, 18),
+      title: "编辑团队：" + PF.trunc(group.name, 18),
       body: groupForm(group),
       actions: [
         { label: "取消" },
         { label: "保存", type: "primary", onClick: async function () {
             const values = groupFormValues();
-            if (!values.name) { PF.toast("请填写课题组名称", "warn"); return true; }
+            if (!values.name) { PF.toast("请填写团队名称", "warn"); return true; }
             if (!values.directions) { PF.toast("请至少填写一个研究方向", "warn"); return true; }
             try {
               await PF.post("/api/teacher/groups/" + group.group_id, values);
@@ -359,7 +367,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   }
 
   async function renderGroups(box) {
-    box.innerHTML = PF.loading("正在读取课题组");
+    box.innerHTML = PF.loading("正在读取团队");
     let groups = [];
     try {
       const d = await PF.get("/api/teacher/groups");
@@ -383,18 +391,19 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
     box.innerHTML =
       '<div class="card"><div class="card__head">' +
-        "<h3>" + PF.icon("layers", 15) + " 我的常设课题组</h3>" +
+        "<h3>" + PF.icon("layers", 15) + " 我的团队</h3>" +
         '<div class="card__head-actions">' +
           '<button class="btn btn--sm btn--primary" id="g-new">' + PF.icon("plus", 12) + "新建</button>" +
         "</div></div>" +
         '<div class="card__body">' +
-          PF.caveat("这里的「常设课题组」是长期招生、支撑推荐打分的主体；「资源管理」里的「课题组」类型公告是一次性的招募通知，两者相互独立。") +
+          PF.caveat("「我的团队」是长期招生、支撑推荐打分的主体，科研课题组、横向项目、竞赛团队、实习组都建在这里；" +
+            "「资源管理」里那一类招募公告是一次性的报名通知，两者相互独立。") +
           (groups.length
             ? '<div class="grid grid-2 mt-4">' + groups.map(groupCard).join("") + "</div>"
             : '<div class="mt-4">' + PF.empty({
-                icon: "layers", title: "还没有课题组",
-                desc: "先建一个，学生那边就能收到推荐。方向与名额上限会直接决定推荐排序。",
-                action: '<button class="btn btn--primary" id="g-new2">' + PF.icon("plus", 15) + "新建课题组</button>",
+                icon: "layers", title: "还没有团队",
+                desc: "先建一个，学生那边就能收到推荐。方向与名额上限会直接决定推荐排序，类型只影响分类展示。",
+                action: '<button class="btn btn--primary" id="g-new2">' + PF.icon("plus", 15) + "新建团队</button>",
               }) + "</div>") +
         "</div></div>" +
 
@@ -406,7 +415,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             { key: "name", label: "学生", render: function (r) {
                 return "<b>" + PF.esc(r.name || "") + "</b> " + PF.trackBadge(r.track) +
                   " " + PF.levelTag(r.grade_level); } },
-            { key: "group", label: "课题组" },
+            { key: "group", label: "团队" },
             { key: "score", label: "匹配分", cls: "nowrap", render: function (r) { return PF.num(r.score, 1); } },
             { key: "username", label: "账号", cls: "nowrap t-mono" },
           ], matched, { empty: {
@@ -425,7 +434,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       b.addEventListener("click", async function () {
         const g = groups.filter(function (x) { return x.group_id === Number(b.dataset.dg); })[0];
         const yes = await PF.confirm({
-          title: "删除课题组",
+          title: "删除团队",
           text: "「" + (g ? g.name : "") + "」以及它的全部匹配记录都会被删除，不可恢复。",
           detail: "如果只是想暂停招生，把名额上限改成 0 之外的值也一样能控制；删除是不可逆的。",
           okText: "删除", danger: true,
@@ -450,7 +459,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     const top = cands.length ? cands[0] : null;
     return '<div class="mk-card">' +
       '<div class="mk-card__head" style="border-bottom:none;padding-bottom:0">' +
-        '<div class="flex-1"><div class="mk-name">' + PF.esc(g.name || "") + "</div>" +
+        '<div class="flex-1"><div class="mk-name">' + PF.esc(g.name || "") + " " + PF.kindBadge(g.kind) + "</div>" +
           '<div class="mk-sub">' + (Number(g.capacity) ? PF.num(g.capacity, 0) + " 个名额上限" : "不设名额上限") + "</div></div>" +
         seatsBadge(g) +
       "</div>" +
@@ -478,7 +487,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   let SD = null;
 
   async function renderRec(box) {
-    box.innerHTML = PF.loading("正在计算推荐课题组");
+    box.innerHTML = PF.loading("正在计算推荐团队");
     let d;
     try {
       SD = await PF.get("/api/match/recommend");
@@ -497,7 +506,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
     const stats =
       '<div class="grid grid-4">' +
-        statCard("target", "推荐课题组", PF.num(list.length, 0) + ' <span class="t-sm">个</span>',
+        statCard("target", "推荐团队", PF.num(list.length, 0) + ' <span class="t-sm">个</span>',
           "按匹配分从高到低，只列前 5 个", "") +
         statCard("check", "已确认匹配", PF.num(d.confirmed, 0) + ' <span class="t-sm">个</span>',
           "双方都确认才计入", Number(d.confirmed) > 0 ? "ok" : "") +
@@ -511,8 +520,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       '<div class="grid grid-3-2 mt-5" style="gap:16px">' +        '<div>' + (list.length
           ? '<div class="mk-list">' + list.map(studentCard).join("") + "</div>"
           : PF.empty({
-              icon: "target", title: "暂时没有推荐的课题组",
-              desc: "推荐需要课题组方向与你的兴趣方向有交集。先把「我的画像」里的兴趣方向补全，再回来看。",
+              icon: "target", title: "暂时没有推荐的团队",
+              desc: "推荐需要团队方向与你的兴趣方向有交集。先把「我的画像」里的兴趣方向补全，再回来看。",
               action: '<a class="btn btn--primary" href="/student">' + PF.icon("compass", 15) + "去完善画像</a>",
             })) + "</div>" +
 
@@ -532,7 +541,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           '<div class="card"><div class="card__head"><h3>' + PF.icon("info", 15) + " 匹配分怎么来的</h3></div>" +
             '<div class="card__body">' +
               '<ol class="obj-list">' +
-                "<li>方向契合 60 分：你的兴趣方向与课题组方向的交集占比。</li>" +
+                "<li>方向契合 60 分：你的兴趣方向与团队方向的交集占比。</li>" +
                 "<li>层次适配 20 分：组里要求「有科研基础」而你层次偏下时会扣分，入门友好的组会加分。</li>" +
                 "<li>兴趣新鲜度 10 分：你没涉猎过的研究类方向会适当加分，鼓励探索。</li>" +
                 "<li>名额余量 10 分：已满的组会被压到很低，避免推一个进不去的组。</li>" +
@@ -584,7 +593,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     return '<div class="mk-card' + (matched ? " mk-card--match" : "") + '">' +
       '<div class="mk-card__head">' +
         '<div class="flex-1">' +
-          '<div class="mk-name">' + PF.esc(c.name || "课题组") + "</div>" +
+          '<div class="mk-name">' + PF.esc(c.name || "团队") + " " + PF.kindBadge(c.kind) + "</div>" +
           '<div class="mk-sub">指导教师：' + PF.esc(c.teacher_name || "—") + "</div>" +
         "</div>" +
         scorePill(c.score) +
@@ -631,7 +640,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
     const stats =
       '<div class="grid grid-4">' +
-        statCard("activity", "我表过态的课题组", PF.num(list.length, 0) + ' <span class="t-sm">个</span>',
+        statCard("activity", "我表过态的团队", PF.num(list.length, 0) + ' <span class="t-sm">个</span>',
           "含已确认、待确认与已婉拒", "") +
         statCard("check", "已确认匹配", PF.num(matchedN, 0) + ' <span class="t-sm">个</span>',
           "双方都确认", matchedN > 0 ? "ok" : "") +
@@ -647,7 +656,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         '<div class="card__head-actions"><span class="t-xs t-dim">鼠标悬停可看当时的匹配理由</span></div></div>' +
         '<div class="card__body card__body--flush">' +
           PF.table([
-            { key: "group_name", label: "课题组", render: function (r) {
+            { key: "group_name", label: "团队", render: function (r) {
                 return "<b>" + PF.esc(r.group_name || "") + "</b>"; } },
             { key: "teacher_name", label: "指导教师", cls: "nowrap" },
             { key: "directions", label: "方向", render: function (r) { return dirChips(r.directions); } },
@@ -668,8 +677,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             rowAttr: function (r) { return 'title="' + PF.esc(r.reason || "") + '"'; },
             empty: {
               icon: "target", title: "还没有任何匹配记录",
-              desc: "去「推荐课题组」看看系统给你排的组，表态后这里会出现记录。",
-              action: '<button class="btn btn--primary" id="btn-go-rec">' + PF.icon("target", 15) + "看推荐课题组</button>",
+              desc: "去「推荐团队」看看系统给你排的队，表态后这里会出现记录。",
+              action: '<button class="btn btn--primary" id="btn-go-rec">' + PF.icon("target", 15) + "看推荐团队</button>",
             },
           }) +
         "</div></div>" +

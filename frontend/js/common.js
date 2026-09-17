@@ -442,6 +442,26 @@
       text + '">' + safe + "</span>";
   };
 
+  /* ---------------------------------------------------------- 团队类型
+     老师带的不只是科研课题组，还有横向项目、竞赛团队、实习团队，
+     所以「我的团队」用一组类型做分类展示。类型**不参与匹配打分**，
+     打分只看方向与名额，避免给非科研团队引入额外门槛。 */
+  PF.GROUP_KINDS = ["科研课题组", "横向项目", "竞赛团队", "实习实践", "其他"];
+
+  const KIND_TONE = {
+    "科研课题组": "badge--brand",
+    "横向项目": "badge--info",
+    "竞赛团队": "badge--warn",
+    "实习实践": "badge--ok",
+    "其他": "badge--outline",
+  };
+
+  /** 团队类型徽标：空值按「科研课题组」兜底（历史数据没有类型字段） */
+  PF.kindBadge = function (kind) {
+    const k = String(kind || "").trim() || "科研课题组";
+    return '<span class="badge ' + (KIND_TONE[k] || "badge--outline") + '">' + PF.esc(k) + "</span>";
+  };
+
   /** 状态徽标：把任意中文状态映射到配色 */
   PF.statusBadge = function (text) {
     const t = String(text || "");
@@ -934,7 +954,7 @@
       { group: "我的成长", items: [
         { key: "student", href: "/student", label: "我的画像", icon: "compass" },
         { key: "ask", href: "/ask", label: "分层答疑", icon: "message" },
-        { key: "match", href: "/match", label: "课题组匹配", icon: "users" },
+        { key: "match", href: "/match", label: "团队匹配", icon: "users" },
       ]},
       { group: "学习事务", items: [
         { key: "homework", href: "/homework", label: "我的作业", icon: "file" },

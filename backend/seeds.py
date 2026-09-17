@@ -397,15 +397,29 @@ ResNet 用恒等残差连接解决深层网络退化问题，使上百层网络�
 ]
 
 # ================================================================ 课题组 / 资源
+# (教师 username, 团队名, 类型, 方向, 招募要求, 名额上限)
+# 老师带的不只是科研课题组 —— 横向项目、竞赛团队、实习组同样要在驾驶舱里管，
+# 所以每条种子都带类型，前端按类型给徽章与筛选。
 GROUPS = [
-    ("teacher", "多模态内容理解课题组", ["多模态", "CV", "LLM"],
+    ("teacher", "多模态内容理解课题组", "科研课题组", ["多模态", "CV", "LLM"],
      "熟悉 PyTorch 基础，能读英文论文；每周可投入 6 小时以上；先做复现再谈创新。", 3),
-    ("teacher", "智能教育数据挖掘课题组", ["数据挖掘", "知识图谱", "推荐系统"],
+    ("teacher", "智能教育数据挖掘课题组", "科研课题组", ["数据挖掘", "知识图谱", "推荐系统"],
      "掌握基本的数据处理与可视化，对教学场景的数据分析有兴趣。", 4),
-    ("teacher2", "自然语言处理与智能问答课题组", ["NLP", "LLM", "知识图谱"],
+    ("teacher2", "自然语言处理与智能问答课题组", "科研课题组", ["NLP", "LLM", "知识图谱"],
      "有文本处理经验，了解 Transformer 基本结构；愿意承担数据标注与评测工作。", 3),
-    ("teacher3", "推荐系统与用户增长课题组", ["推荐系统", "数据挖掘"],
+    ("teacher3", "推荐系统与用户增长课题组", "科研课题组", ["推荐系统", "数据挖掘"],
      "理解基本的推荐算法，对 A/B 实验与指标分析有耐心。", 2),
+
+    # 三类非科研团队：让「类型」这个维度在演示数据里就能看出差别
+    ("teacher", "教辅问答机器人研发组（校企合作）", "横向项目",
+     ["检索增强", "知识库", "后端开发"],
+     "能写 Python 后端、愿意与企业侧对需求；有交付节点意识，学期末要能上线试用。", 2),
+    ("teacher", "计算机设计大赛·AI 应用赛道队", "竞赛团队",
+     ["人工智能", "算法", "系统实现"],
+     "面向 10 月校内选拔，能接受每周一次集中打磨；有作品集或可跑通的 Demo 优先。", 5),
+    ("teacher2", "NLP 算法实习预备组（内推）", "实习实践",
+     ["NLP", "PyTorch", "工程实践"],
+     "面向大三以上，先把 PyTorch 与基本 NLP 任务练熟，再走内推渠道面试。", 2),
 ]
 
 # (教师 username, 类型, 标题, 说明, 标签, 名额, 截止日期)
@@ -619,7 +633,7 @@ def seed_profiles() -> int:
 
 def seed_groups() -> int:
     made = 0
-    for teacher_username, name, directions, requirement, capacity in GROUPS:
+    for teacher_username, name, kind, directions, requirement, capacity in GROUPS:
         teacher_id = _user_id(teacher_username)
         if not teacher_id:
             continue
@@ -630,9 +644,9 @@ def seed_groups() -> int:
         if exists:
             continue
         db.execute(
-            "INSERT INTO research_groups (teacher_id, name, directions, requirement, capacity) "
-            "VALUES (?,?,?,?,?)",
-            (teacher_id, name, db.jdump(directions), requirement, capacity),
+            "INSERT INTO research_groups (teacher_id, name, kind, directions, requirement, capacity) "
+            "VALUES (?,?,?,?,?,?)",
+            (teacher_id, name, kind, db.jdump(directions), requirement, capacity),
         )
         made += 1
     return made

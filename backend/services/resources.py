@@ -109,7 +109,8 @@ def teacher_view(teacher_id: int) -> dict:
 
 
 def my_groups(teacher_id: int) -> list[dict]:
-    """我的常设课题组（``research_groups``，与「课题组」类资源相互独立）。"""
+    """我的常设团队（``research_groups``，含科研课题组/横向项目/竞赛队/实习组，
+    与「资源管理」里那类一次性招募公告相互独立）。"""
     rows = db.query(
         "SELECT * FROM research_groups WHERE teacher_id = ? ORDER BY id", (teacher_id,)
     )

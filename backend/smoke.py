@@ -329,8 +329,8 @@ def test_teacher(c: Client) -> None:
         try:
             d = c.api("GET", "/api/match/recommend")
         except AssertionError as exc:
-            # 没有课题组是合法的业务状态，不算失败
-            return f"无课题组（业务上正常）：{exc}"
+            # 没有团队是合法的业务状态，不算失败
+            return f"无团队（业务上正常）：{exc}"
         groups = d["groups"]
         need(groups, "groups 为空")
         cands = groups[0]["candidates"]
@@ -338,41 +338,49 @@ def test_teacher(c: Client) -> None:
             c.api("POST", "/api/match/decide", {
                 "student_id": cands[0]["student_id"], "group_id": groups[0]["group_id"], "action": "accepted",
             })
-        return f"{len(groups)} 个课题组，首选候选 {cands[0]['name'] if cands else '—'}（{cands[0]['score'] if cands else 0}）"
+        return f"{len(groups)} 个团队，首选候选 {cands[0]['name'] if cands else '—'}（{cands[0]['score'] if cands else 0}）"
     c.check("师生匹配（教师侧）", match)
 
-    # --- 课题组增删改 ---
+    # --- 团队增删改（含类型字段）---
     def group_crud():
-        name = "冒烟临时组-" + str(int(time.time()))
+        name = "冒烟临时团队-" + str(int(time.time()))
         gid = c.api("POST", "/api/teacher/groups", {
             "name": name, "directions": "冒烟、临时",
             "requirement": "由 smoke.py 创建，测试完即删", "capacity": 1,
+            "kind": "竞赛团队",
         })["group_id"]
         try:
             renamed = name + "（已改）"
             c.api("POST", f"/api/teacher/groups/{gid}", {
                 "name": renamed, "directions": "冒烟、临时、改过",
-                "requirement": "改过了", "capacity": 2,
+                "requirement": "改过了", "capacity": 2, "kind": "横向项目",
             })
             rows = [g for g in c.api("GET", "/api/teacher/groups")["groups"] if int(g["id"]) == gid]
-            need(rows, "新建的课题组没出现在列表里")
+            need(rows, "新建的团队没出现在列表里")
             need(rows[0]["name"] == renamed, "名称没改成功")
-            need(len(rows[0]["directions"]) == 3, "研究方向没改成功")
+            need(len(rows[0]["directions"]) == 3, "方向没改成功")
             need(int(rows[0]["capacity"]) == 2, "名额上限没改成功")
+            need(rows[0]["kind"] == "横向项目", f"团队类型没改成功：{rows[0].get('kind')}")
+
+            # 字典外的类型应被兜底成「其他」，而不是原样入库
+            c.api("POST", f"/api/teacher/groups/{gid}", {"kind": "不存在的类型"})
+            rows = [g for g in c.api("GET", "/api/teacher/groups")["groups"] if int(g["id"]) == gid]
+            need(rows[0]["kind"] == "其他", f"字典外的类型应兜底为「其他」，实际 {rows[0].get('kind')}")
 
             status, _ = c.raw("POST", "/api/teacher/groups",
                               {"name": rows[0]["name"], "directions": "冒烟"})
-            need(status == 400, f"同名课题组应被拒（400），实际 {status}")
+            need(status == 400, f"同名团队应被拒（400），实际 {status}")
             status, _ = c.raw("POST", "/api/teacher/groups/99999999", {"capacity": 1})
-            need(status == 404, f"不存在的课题组应返回 404，实际 {status}")
+            need(status == 404, f"不存在的团队应返回 404，实际 {status}")
             status, _ = c.raw("POST", f"/api/teacher/groups/{gid}", {"name": "", "capacity": 1})
             need(status == 400, f"空名称应被拒（400），实际 {status}")
         finally:
             c.api("DELETE", f"/api/teacher/groups/{gid}")
         rows = [g for g in c.api("GET", "/api/teacher/groups")["groups"] if int(g["id"]) == gid]
-        need(not rows, "课题组没被删掉")
-        return f"新建 #{gid} → 改名/改方向/改名额 → 重名与空名被拒 → 删除，全部符合预期"
-    c.check("课题组增删改（教师）", group_crud)
+        need(not rows, "团队没被删掉")
+        return (f"新建 #{gid}（竞赛团队）→ 改名/改方向/改名额/改类型 → 字典外类型兜底为「其他」"
+                f" → 重名与空名被拒 → 删除，全部符合预期")
+    c.check("团队增删改（教师）", group_crud)
 
     # --- Copilot 三条分支 ---
     def copilot():

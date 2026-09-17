@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """dashboard.py —— 教师班级驾驶舱的数据聚合。
 
-把一个班的所有学生画像汇总成：分布 + 建议 + 课题组 + 名单（可按层筛选）。
+把一个班的所有学生画像汇总成：分布 + 建议 + 团队 + 名单（可按层筛选）。
 **口径合规**：分布只用于"推荐内容深度与任务难度"，返回文案里不含分班表述。
 """
 from __future__ import annotations
@@ -346,7 +346,7 @@ def account_profile(user: dict) -> dict:
             "stats": [
                 {"label": "主班学生", "value": db.scalar(
                     "SELECT COUNT(*) FROM users WHERE role='student' AND class_id=?", (cid,), 0)},
-                {"label": "常设课题组", "value": db.scalar(
+                {"label": "我的团队", "value": db.scalar(
                     "SELECT COUNT(*) FROM research_groups WHERE teacher_id=?", (uid,), 0)},
                 {"label": "发布资源", "value": db.scalar(
                     "SELECT COUNT(*) FROM teacher_resources WHERE teacher_id=?", (uid,), 0)},
@@ -378,7 +378,7 @@ def account_profile(user: dict) -> dict:
                 "SELECT COUNT(*) FROM tasks WHERE student_id=? AND status<>'done'", (uid,), 0)},
             {"label": "已上传材料", "value": db.scalar(
                 "SELECT COUNT(*) FROM materials WHERE owner_id=?", (uid,), 0)},
-            {"label": "课题组申请", "value": db.scalar(
+            {"label": "团队申请", "value": db.scalar(
                 "SELECT COUNT(*) FROM resource_applications WHERE student_id=?", (uid,), 0)},
         ],
     })

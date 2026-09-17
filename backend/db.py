@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS research_groups (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     teacher_id  INTEGER NOT NULL,
     name        TEXT NOT NULL DEFAULT '',
+    kind        TEXT NOT NULL DEFAULT '科研课题组',
     directions  TEXT NOT NULL DEFAULT '[]',
     requirement TEXT NOT NULL DEFAULT '',
     capacity    INTEGER NOT NULL DEFAULT 3
@@ -336,6 +337,9 @@ _COLUMN_UPGRADES: dict[str, list[tuple[str, str]]] = {
         ("late", "INTEGER NOT NULL DEFAULT 0"),
     ],
     "chat_messages": [("scene", "TEXT NOT NULL DEFAULT 'tutor'")],
+    # 团队类型：老师带的不只是科研课题组，还有横向项目、竞赛队、实习组。
+    # 老库补列时靠 DEFAULT 回填为「科研课题组」（历史数据全是科研组）。
+    "research_groups": [("kind", "TEXT NOT NULL DEFAULT '科研课题组'")],
 }
 
 
@@ -365,6 +369,16 @@ def init_db() -> None:
             conn.execute(
                 "UPDATE users SET class_name = class_id "
                 "WHERE role='student' AND (class_name IS NULL OR class_name='') AND class_id <> ''"
+            )
+        except sqlite3.Error:
+            pass
+
+        # 团队类型回填：更早的库没有 kind 列，补列后若是空串一律按「科研课题组」归位，
+        # 否则前端会显示出一个没有类型的空徽章。字典与 matcher.GROUP_KINDS 保持一致。
+        try:
+            conn.execute(
+                "UPDATE research_groups SET kind = '科研课题组' "
+                "WHERE kind IS NULL OR TRIM(kind) = ''"
             )
         except sqlite3.Error:
             pass

@@ -411,16 +411,19 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         "</div>" +
 
         '<div class="stack">' +
-          '<div class="card"><div class="card__head"><h3>我的常设课题组</h3>' +
+          '<div class="card"><div class="card__head"><h3>我的团队</h3>' +
             '<div class="card__head-actions"><a class="btn btn--sm" href="/match">' +
               PF.icon("users", 12) + "去师生匹配</a></div></div>" +
             '<div class="card__body ' + (groups.length ? "card__body--flush" : "") + '">' +
               (groups.length
                 ? PF.table([
-                    { key: "name", label: "课题组", render: function (g) {
+                    { key: "name", label: "团队", render: function (g) {
                         return '<div class="t-strong">' + PF.esc(g.name || "—") + "</div>" +
                           (PF.arr(g.directions).length
                             ? '<div class="t-xs t-dim">' + PF.esc(PF.arr(g.directions).join(" / ")) + "</div>" : "");
+                      } },
+                    { key: "kind", label: "类型", cls: "w-md", render: function (g) {
+                        return PF.kindBadge(g.kind);
                       } },
                     { key: "member_count", label: "已确认", render: function (g) {
                         return '<span class="badge badge--ok">' + PF.num(g.member_count, 0) + " 人</span>";
@@ -428,12 +431,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                   ], groups)
                 : PF.empty({
                     icon: "users",
-                    title: "没有常设课题组",
-                    desc: "常设课题组用于「师生匹配」（双向确认）。这里的「课题组」类资源是面向学生招人的公告，两者相互独立。",
+                    title: "没有常设团队",
+                    desc: "团队用于「师生匹配」（双向确认），科研课题组、横向项目、竞赛队都建在这里。本页的「课题组」类资源则是面向学生招人的一次性公告，两者相互独立。",
                   })) +
             "</div>" +
             '<div class="card__foot"><span class="t-xs t-dim">' +
-              "发布课题组类资源不会自动创建常设课题组；如需双向匹配，请在「师生匹配」里维护。" +
+              "发布课题组类资源不会自动创建团队；如需双向匹配，请在「师生匹配」的「团队管理」里维护。" +
             "</span></div>" +
           "</div>" +
           '<div class="card"><div class="card__head"><h3>发布之后会发生什么</h3></div>' +

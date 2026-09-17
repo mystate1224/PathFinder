@@ -70,7 +70,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     active: "teacher",
     me: me,
     title: "教师驾驶舱",
-    desc: "班级学情总览、学生画像库与常设课题组。所有分层结果只用于决定推荐内容的深度与任务难度。",
+    desc: "班级学情总览、学生画像库与我的团队 —— 科研课题组、横向项目、竞赛团队、实习组都在这里管。所有分层结果只用于决定推荐内容的深度与任务难度。",
     wide: true,
     actions:
       (CLASSES.length > 1
@@ -177,7 +177,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         .join("、");
       const ratio = total ? (its[0].count || 0) / total : 0;
       const word = ratio >= 0.35 ? "兴趣明显集中在" : "兴趣相对集中在";
-      return "本班同学" + word + " " + top + "，建议围绕这些方向组织课题组、布置拓展任务。";
+      return "本班同学" + word + " " + top + "，建议围绕这些方向组织团队、布置拓展任务。";
     })();
 
     let note;
@@ -256,7 +256,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                     { cross: tl, subUnit: " 层", footHint: "学业型 / 事业型",
                       interests: interestDist,
                       tips: {
-                        "学业型": "本班以学业型为主，建议多给科研方面的帮助——文献精读、小实验复现、学术汇报，并尽早对接常设课题组。",
+                        "学业型": "本班以学业型为主，建议多给科研方面的帮助——文献精读、小实验复现、学术汇报，并尽早对接合适的团队。",
                         "事业型": "本班以事业型为主，建议多给工程实践方面的帮助——真实场景项目、可交付小作品、简历与面试辅导。"
                       },
                       tieTip: "建议科研与就业两类资源并重，两条路线的任务都备一份。" }) +
@@ -287,24 +287,24 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                   ? '<div class="row" style="gap:6px">' + interests.map((x) =>
                       '<span class="chip chip--brand">' + PF.esc(x) + "</span>").join("") + "</div>"
                   : '<span class="t-sm t-dim">暂无</span>') +
-                '<p class="t-xs mt-4">取自学生画像的 interests 字段，用于匹配课题组与推荐资源。</p>' +
+                '<p class="t-xs mt-4">取自学生画像的 interests 字段，用于匹配团队与推荐资源。</p>' +
               "</div></div>" +
 
-            '<div class="card"><div class="card__head"><h3>我的常设课题组</h3>' +
+            '<div class="card"><div class="card__head"><h3>我的团队</h3>' +
               '<div class="card__head-actions"><a class="btn btn--sm" href="/match">' +
                 PF.icon("users", 13) + "去匹配</a></div></div>" +
               '<div class="card__body card__body--flush">' +
                 (PF.arr(d.groups).length
                   ? '<div class="list">' + d.groups.map((g) =>
                       '<div class="list__item"><div class="list__main">' +
-                        '<div class="list__title">' + PF.esc(g.name || "未命名课题组") + "</div>" +
+                        '<div class="list__title">' + PF.esc(g.name || "未命名团队") + " " + PF.kindBadge(g.kind) + "</div>" +
                         '<div class="list__meta">' + PF.esc(PF.arr(g.directions).join("、") || "未设方向") +
                         " · 容量 " + PF.esc(g.capacity || "不限") + " 人</div>" +
                       "</div><div class=\"list__side\">" +
                         '<span class="badge badge--ok">已确认 ' + (g.member_count || 0) + " 人</span>" +
                       "</div></div>").join("") + "</div>"
-                  : PF.empty({ icon: "users", title: "还没有常设课题组",
-                      desc: "课题组是师生匹配的载体，创建后即可向学生推荐。",
+                  : PF.empty({ icon: "users", title: "还没有团队",
+                      desc: "团队是师生匹配的载体，创建后即可向学生推荐。课题组、横向项目、竞赛队都可以。",
                       action: '<a class="btn btn--primary btn--sm" href="/match">去创建</a>' })) +
               "</div></div>" +
           "</div>" +
@@ -570,58 +570,98 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     });
   }
 
-  /* ============================================================ 标签三：课题组 */
+  /* ============================================================ 标签三：我的团队 */
+  /* ---------------------------------------------------------- 我的团队
+     老师带的队伍不止科研课题组：横向项目、竞赛团队、实习组同样要在这里管，
+     所以页签叫「我的团队」，用「类型」做分类查看。类型不参与匹配打分。 */
   function renderGroups(box) {
-    box.innerHTML = PF.loading("正在加载课题组");
+    box.innerHTML = PF.loading("正在加载我的团队");
     Promise.all([
       PF.get("/api/teacher/overview"),
       PF.try(() => PF.get("/api/match/recommend"), { groups: [] }),
     ]).then(([ov, rec]) => {
       const mine = PF.arr(ov.groups);
       const rg = PF.arr(rec.groups);
+      const kindOf = (g) => String(g.kind || "").trim() || "科研课题组";
+
+      function teamList(rows) {
+        return '<div class="list">' + rows.map((g) =>
+          '<div class="list__item"><div class="list__main">' +
+            '<div class="list__title">' + PF.esc(g.name || "未命名") + " " + PF.kindBadge(kindOf(g)) + "</div>" +
+            '<div class="list__meta">' +
+              PF.arr(g.directions).map((d) => '<span class="chip">' + PF.esc(d) + "</span>").join("") +
+              "<span>容量 " + PF.esc(g.capacity || "不限") + "</span></div>" +
+            (g.requirement ? '<div class="list__desc">' + PF.esc(g.requirement) + "</div>" : "") +
+          "</div>" +
+          '<div class="list__side"><span class="badge badge--ok">已确认 ' +
+            (g.member_count || 0) + " 人</span></div>" +
+          "</div>").join("") + "</div>";
+      }
+
+      const kinds = PF.GROUP_KINDS.filter((k) => mine.some((g) => kindOf(g) === k));
+      const filterRow = kinds.length > 1
+        ? '<div class="card__body card__body--tight"><div class="row" style="gap:8px">' +
+            PF.icon("filter", 15) + '<span class="t-sm t-strong">按类型看</span>' +
+            '<select class="select select--sm" id="k-filter" style="width:170px">' +
+              '<option value="">全部类型</option>' +
+              kinds.map((k) => '<option value="' + PF.esc(k) + '">' + PF.esc(k) + "（" +
+                mine.filter((g) => kindOf(g) === k).length + "）</option>").join("") +
+            "</select>" +
+            '<div class="spacer"></div>' +
+            '<span class="t-xs">共 <strong id="k-cnt">' + mine.length + "</strong> 个</span>" +
+          "</div></div>"
+        : "";
+
       box.innerHTML =
         '<div class="note note--brand mb-5">' + PF.icon("info", 15) +
-          "<div><strong>两个概念要分清：</strong>「常设课题组」是你长期招收学生的团队（上面这张列表）；" +
-          "「课题组类资源」是发布在资源广场、可供学生申请的名额（在资源管理页维护）。" +
-          "师生匹配页把两者合到一起用。</div></div>" +
+          "<div><strong>「我的团队」是你长期带的学生队伍：</strong>科研课题组、横向项目、竞赛团队、实习组都放在这里，" +
+          "它同时是师生匹配的打分主体。「资源管理」里的招募公告是面向学生的一次性报名通知，两者相互独立；" +
+          "类型只用于分类查看，不参与匹配打分。</div></div>" +
 
         '<div class="grid grid-2" style="gap:16px">' +
-          '<div class="card"><div class="card__head"><h3>我的常设课题组</h3>' +
+          '<div class="card"><div class="card__head"><h3>' + PF.icon("briefcase", 15) + " 我的团队</h3>" +
             '<div class="card__head-actions"><a class="btn btn--sm btn--primary" href="/match">' +
-              PF.icon("plus", 13) + "新建课题组</a></div></div>" +
-            '<div class="card__body card__body--flush">' +
-              (mine.length ? '<div class="list">' + mine.map((g) =>
-                '<div class="list__item"><div class="list__main">' +
-                  '<div class="list__title">' + PF.esc(g.name || "未命名") + "</div>" +
-                  '<div class="list__meta">' + PF.arr(g.directions).map((d) => '<span class="chip">' + PF.esc(d) + "</span>").join("") +
-                    "<span>容量 " + PF.esc(g.capacity || "不限") + "</span></div>" +
-                  (g.requirement ? '<div class="list__desc">' + PF.esc(g.requirement) + "</div>" : "") +
-                "</div><div class=\"list__side\">" +
-                  '<span class="badge badge--ok">已确认 ' + (g.member_count || 0) + " 人</span>" +
-                "</div></div>").join("") + "</div>"
-              : PF.empty({ icon: "users", title: "还没有课题组",
-                  desc: "课题组用于承载师生双向匹配：学生看到方向与名额、你看到候选学生。",
-                  action: '<a class="btn btn--primary" href="/match">现在创建</a>' })) +
+              PF.icon("plus", 13) + "新建团队</a></div></div>" +
+            filterRow +
+            '<div class="card__body card__body--flush" id="k-wrap">' +
+              (mine.length ? teamList(mine)
+                : PF.empty({ icon: "briefcase", title: "还没有团队",
+                    desc: "团队是师生双向匹配的主体：学生看到方向与名额，你看到候选学生。" +
+                      "科研课题组、横向项目、竞赛队、实习组都可以建在这里。",
+                    action: '<a class="btn btn--primary" href="/match">现在创建</a>' })) +
             "</div></div>" +
 
-          '<div class="card"><div class="card__head"><h3>匹配算法给出的候选</h3>' +
+          '<div class="card"><div class="card__head"><h3>' + PF.icon("target", 15) + " 匹配算法给出的候选</h3>" +
             '<div class="card__head-actions"><a class="btn btn--sm" href="/match">' +
               "在匹配页处理" + PF.icon("chevronRight", 13) + "</a></div></div>" +
             '<div class="card__body card__body--flush">' +
               (rg.length ? '<div class="list">' + rg.map((g) =>
                 '<div class="list__item"><div class="list__main">' +
-                  '<div class="list__title">' + PF.esc(g.name || "未命名") + "</div>" +
+                  '<div class="list__title">' + PF.esc(g.name || "未命名") + " " + PF.kindBadge(g.kind) + "</div>" +
                   '<div class="list__meta"><span>候选 ' + PF.arr(g.candidates).length + " 人</span>" +
-                    "<span>剩余名额 " + PF.esc(g.seats_left === undefined ? "—" : g.seats_left) + "</span></div>" +
+                    "<span>剩余名额 " + PF.esc(g.seats_left === undefined ? "—" : g.seats_left) +
+                    "</span></div>" +
                   (PF.arr(g.candidates).length ? '<div class="list__desc">' +
                     "首选：" + PF.esc(PF.arr(g.candidates)[0].name) + "（匹配度 " +
                     PF.num(PF.arr(g.candidates)[0].score, 0) + "）<br>" +
-                    '<span class="t-xs">' + PF.esc(PF.arr(g.candidates)[0].reason || "") + "</span></div>" : "") +
+                    '<span class="t-xs">' + PF.esc(PF.arr(g.candidates)[0].reason || "") +
+                    "</span></div>" : "") +
                 "</div></div>").join("") + "</div>"
               : PF.empty({ icon: "info", title: "暂无可推荐的学生",
-                  desc: "需要先建好课题组，且班级内有带画像的学生。" })) +
+                  desc: "需要先建好团队，且班级内有带画像的学生。" })) +
             "</div></div>" +
         "</div>";
+
+      const fk = PF.$("#k-filter", box);
+      if (fk) {
+        fk.addEventListener("change", () => {
+          const rows = fk.value ? mine.filter((g) => kindOf(g) === fk.value) : mine;
+          PF.$("#k-wrap", box).innerHTML = rows.length ? teamList(rows)
+            : PF.empty({ icon: "briefcase", title: "这个类型下还没有团队",
+                desc: "换个类型看看，或去匹配页新建一个。" });
+          PF.$("#k-cnt", box).textContent = rows.length;
+        });
+      }
     }).catch((e) => { box.innerHTML = PF.empty({ icon: "alert", title: "加载失败", desc: e.message }); });
   }
 
@@ -653,7 +693,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   const tabs = PF.tabs(host, [
     { key: "class", label: "班级学情", icon: "grid", render: renderClass },
     { key: "roster", label: "学生画像库", icon: "users", render: renderRoster },
-    { key: "groups", label: "课题组", icon: "briefcase", render: renderGroups },
+    { key: "groups", label: "我的团队", icon: "briefcase", render: renderGroups },
   ], { base: "#", onChange: () => window.scrollTo({ top: 0, behavior: "smooth" }) });
   PF.state.tabs = tabs;
 

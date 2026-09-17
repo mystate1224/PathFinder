@@ -3,16 +3,22 @@
 
 ## 匹配逻辑（可解释、可复核）
 
-对「学生 × 课题组」逐对打分：
+对「学生 × 团队」逐对打分：
 
 ```
 score = 方向契合(0~60) + 层次适配(0~20) + 兴趣新鲜度(0~10) + 名额余量(0~10)
 ```
 
-* **方向契合**：学生兴趣方向 ∩ 课题组方向，按交集占比给分（权重最高）；
+* **方向契合**：学生兴趣方向 ∩ 团队方向，按交集占比给分（权重最高）；
 * **层次适配**：A 层可进要求「有科研基础」的组；C 层优先给「入门友好」的组；
 * **兴趣新鲜度**：学生尚未实践过的方向加分，鼓励探索；
 * **名额余量**：已满的组直接降到 0，避免推一个进不去的组。
+
+## 团队类型（kind）
+
+老师带的不只是科研课题组：横向项目、竞赛团队、实习组同样要在这里管。
+``kind`` 只做分类展示（驾驶舱的徽章与筛选），**不参与上面的打分**——
+给非科研团队额外加权会让推荐理由变得不可解释。
 
 ## 双向确认
 
@@ -31,6 +37,10 @@ from services.errors import ServiceError
 
 RESEARCH_KEYWORDS = ["科研", "论文", "实验", "算法", "研究", "综述", "推导", "创新"]
 ENTRY_KEYWORDS = ["入门", "基础", "零基础", "培养", "学习", "指导"]
+
+# 团队类型字典：与前端 PF.GROUP_KINDS 保持一致，改这里记得同步改前端。
+GROUP_KINDS = ["科研课题组", "横向项目", "竞赛团队", "实习实践", "其他"]
+DEFAULT_KIND = "科研课题组"
 
 
 class MatchError(ServiceError):
@@ -53,6 +63,7 @@ def _group_rows(teacher_id: int = 0, group_id: int = 0) -> list[dict]:
         )
     for row in rows:
         row["directions"] = db.jload(row.get("directions"), [])
+        row["kind"] = str(row.get("kind") or "").strip() or DEFAULT_KIND
         row["accepted_count"] = db.scalar(
             "SELECT COUNT(*) FROM match_records WHERE group_id = ? "
             "AND teacher_action = 'accepted' AND student_action = 'accepted'",
@@ -64,7 +75,7 @@ def _group_rows(teacher_id: int = 0, group_id: int = 0) -> list[dict]:
 
 
 def score_pair(student: dict, profile: dict, group: dict) -> tuple[float, str]:
-    """给学生与课题组打分，并给出可复核的中文理由。"""
+    """给学生与团队打分，并给出可复核的中文理由。"""
     interests = [str(i) for i in (profile.get("interests") or [])]
     group_dirs = [str(d) for d in (group.get("directions") or [])]
     level = str(profile.get("grade_level") or "B")
@@ -97,9 +108,9 @@ def score_pair(student: dict, profile: dict, group: dict) -> tuple[float, str]:
 
     bits = []
     if hit:
-        bits.append(f"兴趣方向与课题组方向重合 {'、'.join(hit)}")
+        bits.append(f"兴趣方向与团队方向重合 {'、'.join(hit)}")
     elif group_dirs:
-        bits.append(f"课题组方向为 {'、'.join(group_dirs)}，与学生当前兴趣暂无交集（可作为拓展方向）")
+        bits.append(f"团队方向为 {'、'.join(group_dirs)}，与学生当前兴趣暂无交集（可作为拓展方向）")
     bits.append(f"学业层次 {level} 层{'，与该组要求匹配' if not (wants_experience and level == 'C') else '，该组偏重科研基础，建议先补基础再申请'}")
     if fresh:
         bits.append(f"可探索的新方向：{'、'.join(fresh[:2])}")
@@ -110,7 +121,7 @@ def score_pair(student: dict, profile: dict, group: dict) -> tuple[float, str]:
 
 
 def recommend_for_student(student_id: int, limit: int = 5) -> dict:
-    """给学生推荐课题组（写入 / 更新 match_records 的展示分，不改动双方意向）。"""
+    """给学生推荐团队（写入 / 更新 match_records 的展示分，不改动双方意向）。"""
     student = db.user_by_id(student_id)
     if not student:
         raise MatchError("学生不存在")
@@ -133,6 +144,7 @@ def recommend_for_student(student_id: int, limit: int = 5) -> dict:
         out.append({
             "group_id": group["id"],
             "name": group.get("name"),
+            "kind": group.get("kind"),
             "teacher_id": group.get("teacher_id"),
             "teacher_name": group.get("teacher_name") or "",
             "directions": group.get("directions"),
@@ -162,10 +174,10 @@ def recommend_for_student(student_id: int, limit: int = 5) -> dict:
 
 
 def recommend_for_teacher(teacher_id: int, group_id: int = 0, limit: int = 12) -> dict:
-    """给教师的课题组推荐学生。"""
+    """给教师的团队推荐学生。"""
     groups = _group_rows(teacher_id, group_id)
     if not groups:
-        raise MatchError("你还没有常设课题组，请先创建")
+        raise MatchError("你还没有常设团队，请先创建")
 
     class_id = str((db.user_by_id(teacher_id) or {}).get("class_id") or "")
     sql = (
@@ -214,6 +226,7 @@ def recommend_for_teacher(teacher_id: int, group_id: int = 0, limit: int = 12) -
         out_groups.append({
             "group_id": group["id"],
             "name": group.get("name"),
+            "kind": group.get("kind"),
             "directions": group.get("directions"),
             "requirement": group.get("requirement"),
             "capacity": group.get("capacity"),
@@ -233,7 +246,7 @@ def decide(actor: str, student_id: int, group_id: int, action: str) -> dict:
 
     group = db.query_one("SELECT * FROM research_groups WHERE id = ?", (group_id,))
     if not group:
-        raise MatchError("课题组不存在")
+        raise MatchError("团队不存在")
 
     student = db.user_by_id(student_id)
     if not student or student.get("role") != "student":
@@ -255,7 +268,7 @@ def decide(actor: str, student_id: int, group_id: int, action: str) -> dict:
             (group_id, student_id), 0,
         )
         if int(accepted or 0) >= int(group["capacity"]):
-            raise MatchError("该课题组名额已满")
+            raise MatchError("该团队名额已满")
 
     if record:
         db.execute(f"UPDATE match_records SET {field} = ?, score = ?, reason = ? WHERE id = ?",
@@ -289,8 +302,8 @@ def decide(actor: str, student_id: int, group_id: int, action: str) -> dict:
             "VALUES (?,?,?,?,?, 'todo', 0, '', ?)",
             (
                 student_id, int(group.get("teacher_id") or 0), "match",
-                f"进入课题组「{group.get('name')}」",
-                "双方已确认匹配。请联系指导教师确认第一次组会时间与入门任务。",
+                f"进入团队「{group.get('name')}」",
+                "双方已确认匹配。请联系指导教师确认第一次组会（或项目启动会）时间与入门任务。",
                 db.now(),
             ),
         )
@@ -313,7 +326,7 @@ def decide(actor: str, student_id: int, group_id: int, action: str) -> dict:
 
 def my_matches(student_id: int) -> list[dict]:
     rows = db.query(
-        "SELECT m.*, g.name AS group_name, g.directions, g.requirement, u.name AS teacher_name "
+        "SELECT m.*, g.name AS group_name, g.kind, g.directions, g.requirement, u.name AS teacher_name "
         "FROM match_records m "
         "JOIN research_groups g ON g.id = m.group_id "
         "JOIN users u ON u.id = g.teacher_id "
@@ -322,15 +335,24 @@ def my_matches(student_id: int) -> list[dict]:
     )
     for row in rows:
         row["directions"] = db.jload(row.get("directions"), [])
+        row["kind"] = str(row.get("kind") or "").strip() or DEFAULT_KIND
         row["matched"] = (row.get("teacher_action") == "accepted"
                           and row.get("student_action") == "accepted")
         row["engine"] = "rule"
     return rows
 
 
-# ================================================================ 课题组维护
-# 课题组原先只由 seeds.py 播种，任何新教师都建不了组，推荐链路对他就是死的。
+# ================================================================ 团队维护
+# 团队原先只由 seeds.py 播种，任何新教师都建不了组，推荐链路对他就是死的。
 # 这里补上教师自己的增删改，让「建组 → 推荐 → 双向确认 → 跟进任务」闭环。
+
+
+def _norm_kind(value) -> str:
+    """类型入参容错：空值按默认类型，字典外的值一律落到「其他」。"""
+    kind = str(value or "").strip()
+    if not kind:
+        return DEFAULT_KIND
+    return kind if kind in GROUP_KINDS else "其他"
 
 def _norm_dirs(value) -> list[str]:
     """方向入参容错：既接受数组，也接受「多模态、CV / LLM」这类分隔串。"""
@@ -355,16 +377,16 @@ def _norm_capacity(value) -> int:
 
 
 def my_groups(teacher_id: int) -> list[dict]:
-    """教师自己的课题组（无组时返回空列表，不抛异常，便于页面渲染空态）。"""
+    """教师自己的团队（无组时返回空列表，不抛异常，便于页面渲染空态）。"""
     return _group_rows(teacher_id)
 
 
 def _own_group(teacher_id: int, group_id: int) -> dict:
     group = db.query_one("SELECT * FROM research_groups WHERE id = ?", (int(group_id or 0),))
     if not group:
-        raise MatchError("课题组不存在", 404)
+        raise MatchError("团队不存在", 404)
     if int(group.get("teacher_id") or 0) != int(teacher_id):
-        raise MatchError("只能管理自己的课题组", 403)
+        raise MatchError("只能管理自己的团队", 403)
     return group
 
 
@@ -372,53 +394,55 @@ def _group_detail(group_id: int) -> dict:
     group = db.query_one("SELECT * FROM research_groups WHERE id = ?", (group_id,)) or {}
     if group:
         group["directions"] = db.jload(group.get("directions"), [])
+        group["kind"] = str(group.get("kind") or "").strip() or DEFAULT_KIND
     return group
 
 
 def create_group(teacher_id: int, name: str, directions=None,
-                 requirement: str = "", capacity=0) -> int:
+                 requirement: str = "", capacity=0, kind: str = "") -> int:
     teacher = db.user_by_id(teacher_id)
     if not teacher or teacher.get("role") != "teacher":
         raise MatchError("教师账号不存在", 404)
 
     name = str(name or "").strip()
     if not name:
-        raise MatchError("请填写课题组名称")
+        raise MatchError("请填写团队名称")
     if len(name) > 60:
-        raise MatchError("课题组名称最多 60 个字")
+        raise MatchError("团队名称最多 60 个字")
     if db.query_one("SELECT id FROM research_groups WHERE teacher_id = ? AND name = ?",
                     (teacher_id, name)):
-        raise MatchError("你已经有一个同名课题组了")
+        raise MatchError("你已经有一个同名团队了")
 
     dirs = _norm_dirs(directions)
     if not dirs:
-        raise MatchError("请至少填写一个研究方向（多个用顿号或逗号分隔）")
+        raise MatchError("请至少填写一个方向（多个用顿号或逗号分隔）")
 
     return int(db.execute(
-        "INSERT INTO research_groups (teacher_id, name, directions, requirement, capacity) "
-        "VALUES (?,?,?,?,?)",
-        (teacher_id, name, db.jdump(dirs), str(requirement or "").strip(), _norm_capacity(capacity)),
+        "INSERT INTO research_groups (teacher_id, name, kind, directions, requirement, capacity) "
+        "VALUES (?,?,?,?,?,?)",
+        (teacher_id, name, _norm_kind(kind), db.jdump(dirs),
+         str(requirement or "").strip(), _norm_capacity(capacity)),
     ))
 
 
 def update_group(teacher_id: int, group_id: int, name=None, directions=None,
-                 requirement=None, capacity=None) -> dict:
+                 requirement=None, capacity=None, kind=None) -> dict:
     """局部更新：只改显式传入的字段，``None`` 表示保持原值。"""
     _own_group(teacher_id, group_id)
 
     if name is not None:
         name = str(name).strip()
         if not name:
-            raise MatchError("课题组名称不能为空")
+            raise MatchError("团队名称不能为空")
         if db.query_one(
             "SELECT id FROM research_groups WHERE teacher_id = ? AND name = ? AND id <> ?",
             (teacher_id, name, group_id),
         ):
-            raise MatchError("你已经有一个同名课题组了")
+            raise MatchError("你已经有一个同名团队了")
 
     dirs = None if directions is None else _norm_dirs(directions)
     if dirs is not None and not dirs:
-        raise MatchError("请至少填写一个研究方向（多个用顿号或逗号分隔）")
+        raise MatchError("请至少填写一个方向（多个用顿号或逗号分隔）")
 
     fields: list[str] = []
     args: list = []
@@ -430,6 +454,8 @@ def update_group(teacher_id: int, group_id: int, name=None, directions=None,
         fields.append("requirement = ?"); args.append(str(requirement).strip())
     if capacity is not None:
         fields.append("capacity = ?"); args.append(_norm_capacity(capacity))
+    if kind is not None:
+        fields.append("kind = ?"); args.append(_norm_kind(kind))
 
     if fields:
         args.append(group_id)
@@ -438,7 +464,7 @@ def update_group(teacher_id: int, group_id: int, name=None, directions=None,
 
 
 def delete_group(teacher_id: int, group_id: int) -> int:
-    """删除课题组，连带清掉它的匹配记录，返回被清掉的记录数。"""
+    """删除团队，连带清掉它的匹配记录，返回被清掉的记录数。"""
     group = _own_group(teacher_id, group_id)
     removed = db.scalar("SELECT COUNT(*) FROM match_records WHERE group_id = ?",
                         (group["id"],), 0)
