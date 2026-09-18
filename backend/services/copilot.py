@@ -17,18 +17,20 @@ from typing import Sequence
 
 import db
 import llm
-from services import dashboard, retriever, teaching, tutor
+from services import dashboard, interaction as ia, retriever, teaching, tutor
 
 SKILLS: list[dict] = [
     {"value": "student", "label": "查学生", "hint": "例：看看张三的画像 / stu03 的成绩如何"},
     {"value": "lesson", "label": "备课", "hint": "例：帮我备一节注意力机制（拓展型）"},
     {"value": "explain", "label": "讲知识点", "hint": "例：讲一下反向传播，要能直接上课用"},
+    {"value": "grading", "label": "批改标准", "hint": "例：这份作业怎么给分？给一份评分标准"},
 ]
 
 # 意图词典：命中即路由。顺序有讲究——先判更具体的意图。
 _INTENT_RULES: list[tuple[str, list[str]]] = [
     ("lesson", ["备课", "教案", "教学设计", "ppt", "大纲", "讲义", "课件", "幻灯片",
                 "这节课怎么上", "上课怎么讲", "怎么讲这节课"]),
+    ("grading", ["评分", "打分", "怎么给分", "批改", "评语", "评分标准", "扣分", "分档"]),
     ("explain", ["讲一下", "讲讲", "讲解", "解释", "什么是", "是什么", "原理", "知识点", "怎么理解"]),
     ("student", ["学生", "画像", "成绩", "分层", "学情", "情况", "怎么样", "表现"]),
 ]
@@ -41,12 +43,13 @@ _INTENT_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
         r"|出.{0,3}(期末|期中|练习|试题|卷)|设计.{0,6}(教学|课堂|课程)"
         r"|(教案|讲义|大纲|课件|幻灯片)", re.I)),
     ("student", re.compile(r"(哪个|哪位|这些|我们班|班上).{0,4}学生|哪些学生|学情|整体情况")),
+    ("grading", re.compile(r"(评分|打分|给分|批改).{0,8}(标准|细则|档|怎么|如何)|写.{0,4}评语|扣分")),
 ]
 
 
 def detect_intent(question: str, skill: str = "") -> str:
     """规则词典路由。``skill`` 由前端显式指定时优先。"""
-    if skill in ("student", "lesson", "explain"):
+    if skill in ("student", "lesson", "explain", "grading"):
         return skill
     text = (question or "").strip()
     if not text:
@@ -215,6 +218,44 @@ def _branch_explain(teacher: dict, question: str) -> dict:
     return {"answer": answer, "data": {"refs": refs, "hits": len(hits)}, "engine": engine}
 
 
+# ================================================================ 分支四：批改标准
+def _branch_grading(teacher: dict, question: str) -> dict:
+    """给一份可改的评分标准草案 + 常见扣分点。
+
+    规则版也必须有真实内容：三档描述 + 三条扣分点是教师真正会用的东西。
+    """
+    hits = retriever.hybrid_search(question, top_k=3)
+    context = retriever.context_block(hits)
+    refs = [h.get("ref") for h in hits if h.get("ref")]
+    rubric = {
+        "A": "结构完整、推导清晰、结论正确，能说明关键步骤的依据。",
+        "B": "主要步骤正确，推导或表述有小瑕疵，结论基本正确。",
+        "C": "缺少关键推导或结论错误，需要按反馈补做。",
+    }
+    rule = "\n".join([
+        "评分标准（草案，可直接改）：",
+        "A 档：" + rubric["A"],
+        "B 档：" + rubric["B"],
+        "C 档：" + rubric["C"],
+        "常见扣分点：① 未说明假设条件；② 跳步且未给依据；③ 结论与过程不一致。",
+        "资料来源：" + ("、".join(f"[{r}]" for r in refs) or "（本次未命中教师上传的资料）"),
+    ])
+    messages = [
+        {"role": "system", "content": (
+            "你是高校教学顾问，正在帮教师制定作业评分标准。\n"
+            "要求：1. 给出 A/B/C 三档的可操作描述；2. 列出 3 条常见扣分点；"
+            "3. 给一条评语模板；4. 只依据给定资料，不要编造；5. 中文，350 字以内。\n\n"
+            f"【参考资料】\n{context or '（本次未检索到相关教师资料）'}"
+        )},
+        {"role": "user", "content": question},
+    ]
+    answer, engine = llm.chat(messages, mock=lambda: rule, temperature=0.3)
+    return {"answer": answer,
+            "data": {"refs": refs, "rubric": rubric,
+                     "deductions": ["未说明假设条件", "跳步且未给依据", "结论与过程不一致"]},
+            "engine": engine}
+
+
 # ================================================================ 对外
 def ask(teacher: dict, question: str, skill: str = "") -> dict:
     """教师 Copilot 入口。返回 ``{intent, answer, data, engine, skills}``。"""
@@ -229,10 +270,13 @@ def ask(teacher: dict, question: str, skill: str = "") -> dict:
         result = _branch_student(teacher, question)
     elif intent == "lesson":
         result = _branch_lesson(teacher, question)
+    elif intent == "grading":
+        result = _branch_grading(teacher, question)
     else:
         result = _branch_explain(teacher, question)
 
     engine = str(result.get("engine") or engine)
+    typed = ia.classify(question, "teacher")
     user_id = int(teacher.get("id") or 0)
     db.log_chat(user_id, "user", question, scene="copilot")
     db.log_chat(user_id, "assistant", result.get("answer") or "", scene="copilot", engine=engine)
@@ -244,6 +288,14 @@ def ask(teacher: dict, question: str, skill: str = "") -> dict:
         "data": result.get("data") or {},
         "engine": engine,
         "skills": SKILLS,
+        # ---- 交互协议（能力③）：与教师 Copilot 共用同一套四段式协议
+        "typed": typed,
+        "protocol": ia.protocol_view(
+            "consolidate", False, "", "A",   # 教师视角默认给满信息，不设脚手架降级
+        ),
+        "followups": ia.followups_of(typed["type"]),
+        "actions": ia.actions_of("teacher", intent,
+                                 (result.get("data") or {}).get("refs")),
     }
 
 

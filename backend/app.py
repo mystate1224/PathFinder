@@ -32,11 +32,16 @@ import llm  # noqa: E402
 from services import (  # noqa: E402
     copilot,
     dashboard,
+    demo,
     extract,
     homework,
+    interaction,
+    kprules,
+    manual,
     matcher,
     mylibrary,
     office,
+    parsekit,
     planner,
     rag,
     resources,
@@ -467,6 +472,47 @@ def api_tutor_clear(user: dict = Depends(require_student)):
     return ok(message="对话已清空")
 
 
+# ================================================================ 说明手册（三项能力口径）
+@app.get(f"{API}/manual")
+def api_manual(user: dict = Depends(current_user)):
+    """能力①②③ 的说明手册 + 接口清单 + 两个智能体简介卡。
+
+    内容由 ``services/manual.py`` 从代码里的规则表读出来，改规则即改手册，
+    不会出现文档与实现对不上的情况。
+    """
+    data = manual.build()
+    data["agents"] = manual.agents()
+    return ok(data)
+
+
+# ================================================================ 演示例子与测试用例
+@app.get(f"{API}/demo/samples")
+def api_demo_samples(user: dict = Depends(current_user)):
+    return ok(demo.list_samples())
+
+
+@app.post(f"{API}/demo/samples/{{sid}}/run")
+def api_demo_run_sample(sid: str, user: dict = Depends(current_user)):
+    result = demo.run_sample(sid)
+    if result.get("error"):
+        return fail(result["error"], 404)
+    return ok(result)
+
+
+@app.get(f"{API}/demo/cases")
+def api_demo_cases(user: dict = Depends(current_user)):
+    return ok({"cases": demo.list_cases(), "overview": demo.overview()})
+
+
+@app.post(f"{API}/demo/cases/{{cid}}/run")
+def api_demo_run_case(cid: str, payload: dict = Body(default={}),
+                      user: dict = Depends(current_user)):
+    result = demo.run_case(cid, live=bool(payload.get("live")))
+    if result.get("error"):
+        return fail(result["error"], 404)
+    return ok(result)
+
+
 # ================================================================ 资料库（能力①②）
 @app.get(f"{API}/materials/overview")
 def api_materials_overview(user: dict = Depends(current_user)):
@@ -533,6 +579,18 @@ async def api_materials_upload(
                 kind, name, "", image_b64=extract.to_base64(data)
             )
         item["engine"] = engine
+
+        # 能力①：解析契约 —— 去杂报告 / 版面分块 / 素材登记 / 语义切片
+        parsed_doc = parsekit.parse_document(name, kind, text)
+        item["parse"] = parsekit.preview_report(parsed_doc)
+        # 能力②：场景化知识点抽取 —— 返回所用规则集与命中锚点，界面直接可见
+        kp_result = kprules.extract(text, kind=kind, category=category,
+                                    blocks=parsed_doc["blocks"], limit=8)
+        item["kp_rule"] = {
+            "rule_set": kp_result["rule_set"],
+            "stats": kp_result["stats"],
+            "items": kp_result["items"][:6],
+        }
         item["summary"] = parsed.get("summary") or ""
         item["knowledge_points"] = len(parsed.get("knowledge_points") or [])
         item["directions"] = parsed.get("directions") or []

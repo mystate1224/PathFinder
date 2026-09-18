@@ -26,7 +26,7 @@ from typing import Sequence
 
 import db
 import llm
-from services import retriever, stratify
+from services import interaction as ia, retriever, stratify
 
 # 六格矩阵：风格名 + 回答策略 + 下一步建议
 MATRIX: dict[tuple[str, str], dict] = {
@@ -168,6 +168,30 @@ def rule_answer(
     return body
 
 
+def related_kps(question: str, course: str = "", limit: int = 3) -> list[dict]:
+    """本次问题涉及的知识点：用问题的实词去匹配已入库的知识点名。
+
+    比「把问题当材料再抽一次」便宜得多，也不会凭空造知识点。
+    """
+    rows = db.query("SELECT name, difficulty, course FROM knowledge_points ORDER BY id DESC LIMIT 200")
+    tokens = [t for t in re.split(r"[\s，,。？?、：:；;（）()【】\[\]]+", question or "")
+              if len(t) >= 2]
+    out: list[dict] = []
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        if course and str(row.get("course") or "") and str(row.get("course") or "") != course:
+            continue
+        hit = name in (question or "") or any(t in name or name in t for t in tokens)
+        if hit:
+            out.append({"name": name, "difficulty": row.get("difficulty") or "B",
+                        "course": row.get("course") or ""})
+        if len(out) >= limit:
+            break
+    return out
+
+
 # ================================================================ 对外
 def ask(
     user: dict,
@@ -217,6 +241,11 @@ def ask(
 
     style = cell_of(track, level)["style"]
     layer = layer_label(track, level)
+
+    # ---- 交互协议（能力③）：答什么疑 / 怎么交互 / 得到什么
+    intent = ia.classify(question, "student")
+    kps = related_kps(question, effective_course)
+    clarify = ia.needs_clarify(question, hits)
     db.log_chat(user_id, "user", question, scene="tutor", layer=layer)
     db.log_chat(user_id, "assistant", answer_text, refs=refs, scene="tutor",
                 layer=layer, engine=engine)
@@ -242,6 +271,14 @@ def ask(
             "grade_level": level,
             "interests": interests,
         },
+        "intent": intent,
+        "protocol": ia.protocol_view(
+            "clarify" if clarify["need_clarify"] else "answer",
+            bool(clarify["need_clarify"]), str(clarify.get("clarify_question") or ""), level,
+        ),
+        "followups": ia.followups_of(intent["type"], kps),
+        "actions": ia.actions_of("student", intent["type"], refs),
+        "kps": kps,
     }
 
 

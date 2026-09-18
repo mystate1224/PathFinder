@@ -442,6 +442,460 @@
       text + '">' + safe + "</span>";
   };
 
+  /* ---------------------------------------------------------- 能力说明手册
+     三项能力的口径**不写在页面里**，而是从 /api/manual 读。
+     那份数据由 services/manual.py 从代码中的规则表生成 —— 改规则即改手册，
+     不会出现「文档写着一套、代码跑着另一套」。 */
+  function manualChapter(ch) {
+    return (PF.arr(ch.sections) || []).map(function (s) {
+      let html = '<h4 class="mn-h4">' + PF.esc(s.title || "") + "</h4>";
+      if (s.type === "text") {
+        html += '<p class="mn-p">' + PF.esc(s.body || "") + "</p>";
+      } else if (s.type === "list") {
+        html += '<ul class="mn-ul">' + PF.arr(s.items).map(function (x) {
+          return "<li>" + PF.esc(x) + "</li>";
+        }).join("") + "</ul>";
+      } else if (s.type === "table") {
+        html += '<div class="mn-tbl" style="--mn-cols:' + (PF.arr(s.columns).length || 2) + '">' +
+          '<div class="mn-tr mn-tr--head">' + PF.arr(s.columns).map(function (c) {
+            return '<div class="mn-td">' + PF.esc(c) + "</div>";
+          }).join("") + "</div>" +
+          PF.arr(s.rows).map(function (row) {
+            return '<div class="mn-tr">' + PF.arr(row).map(function (c) {
+              return '<div class="mn-td">' + PF.esc(String(c)) + "</div>";
+            }).join("") + "</div>";
+          }).join("") + "</div>";
+      }
+      return html;
+    }).join("");
+  }
+
+  PF.manual = async function (chapterId) {
+    let data;
+    try {
+      data = await PF.get("/api/manual", { quiet: true });
+    } catch (e) {
+      PF.toast("手册加载失败：" + e.message, "err");
+      return null;
+    }
+    const chapters = PF.arr(data.chapters);
+    const m = PF.modal({
+      title: "能力说明手册 " + PF.esc(data.version || ""),
+      width: "wide",
+      body: '<div class="manual"><div class="manual__nav" id="mn-nav"></div>' +
+            '<div class="manual__body" id="mn-body"></div></div>',
+      actions: [{ label: "关闭", type: "primary" }],
+    });
+    const nav = PF.$("#mn-nav", m.body);
+    const body = PF.$("#mn-body", m.body);
+
+    function apiTable() {
+      return '<p class="mn-sum">' + PF.esc(data.api_note ||
+        "这一页是给要接手代码的人看的，使用者可以忽略。") + "</p>" +
+        '<h4 class="mn-h4">接口在哪、用来做什么</h4>' +
+        '<div class="mn-tbl" style="--mn-cols:3"><div class="mn-tr mn-tr--head">' +
+        '<div class="mn-td">模块</div><div class="mn-td">符号</div><div class="mn-td">用途</div></div>' +
+        PF.arr(data.api).map(function (a) {
+          return '<div class="mn-tr"><div class="mn-td t-mono">' + PF.esc(a.module) + "</div>" +
+            '<div class="mn-td t-mono">' + PF.esc(a.symbol) + "</div>" +
+            '<div class="mn-td">' + PF.esc(a.purpose) + "</div></div>";
+        }).join("") + "</div>";
+    }
+
+    function pick(id) {
+      PF.$$("button", nav).forEach(function (b) {
+        b.classList.toggle("is-on", b.dataset.ch === id);
+      });
+      if (id === "api") { body.innerHTML = apiTable(); return; }
+      const ch = chapters.filter(function (c) { return c.id === id; })[0];
+      if (!ch) { body.innerHTML = PF.empty({ title: "章节不存在" }); return; }
+      body.innerHTML = '<p class="mn-sum">' + PF.esc(ch.summary || "") + "</p>" + manualChapter(ch);
+    }
+
+    nav.innerHTML = chapters.map(function (c) {
+      return '<button class="btn btn--sm mn-navbtn" data-ch="' + PF.esc(c.id) + '">' +
+        PF.esc(c.title) + "</button>";
+    }).join("") + '<button class="btn btn--sm mn-navbtn" data-ch="api">给开发者的接口清单</button>';
+
+    PF.$$("[data-ch]", nav).forEach(function (b) {
+      b.addEventListener("click", function () { pick(b.dataset.ch); });
+    });
+    pick(chapterId || (chapters[0] && chapters[0].id) || "api");
+    if (!PF.reduced()) PF.reveal(body);
+    return m;
+  };
+
+  /** 智能体简介卡（放在智能体页面右侧，紧凑、不抢正文排版）。 */
+  PF.agentCard = function (cfg) {
+    const c = cfg || {};
+    return '<div class="agent-card">' +
+      '<div class="agent-card__name">' + PF.esc(c.name || "智能体") + "</div>" +
+      '<div class="agent-card__one">' + PF.esc(c.one_line || "") + "</div>" +
+      '<div class="agent-card__row"><span class="agent-card__k">能答</span>' +
+        '<span class="agent-card__v">' + PF.arr(c.answers).slice(0, 7).map(function (x) {
+          return '<span class="chiplet">' + PF.esc(x) + "</span>";
+        }).join("") + "</span></div>" +
+      '<div class="agent-card__row"><span class="agent-card__k">怎么答</span>' +
+        '<span class="agent-card__v">' + PF.esc(c.how || "") + "</span></div>" +
+      '<div class="agent-card__row"><span class="agent-card__k">依据</span>' +
+        '<span class="agent-card__v">' + PF.esc(c.ground || "") + "</span></div>" +
+      '<div class="agent-card__foot">' +
+        '<button class="btn btn--sm btn--primary" id="' + PF.esc(c.btnId || "btn-manual") + '">' +
+          PF.icon("book", 12) + "查看说明手册</button>" +
+      "</div>" +
+      '<div class="agent-card__note">' + PF.esc(c.caveat || "") + "</div>" +
+    "</div>";
+  };
+
+  /** 答疑协议附加块：答疑类型 / 协议阶段 / 澄清 / 追问建议 / 下一步动作。 */
+  PF.qaBlock = function (d) {
+    if (!d) return "";
+    const intent = d.intent || {};
+    const proto = d.protocol || {};
+    let html = '<div class="qa-extra">';
+    if (intent.label) {
+      html += '<span class="badge badge--brand">答疑类型 · ' + PF.esc(intent.label) + "</span>";
+    }
+    if (proto.stage_label) {
+      html += '<span class="badge">协议 · ' + PF.esc(proto.stage_label) + "</span>";
+    }
+    html += "</div>";
+    if (proto.need_clarify && proto.clarify_question) {
+      html += '<div class="qa-clarify">' + PF.icon("info", 13) +
+        "<div><b>先确认一下：</b>" + PF.esc(proto.clarify_question) + "</div></div>";
+    }
+    const fu = PF.arr(d.followups);
+    if (fu.length) {
+      html += '<div class="qa-k">可以继续问</div><div class="qa-chips">' +
+        fu.map(function (q) {
+          return '<button class="btn btn--sm q-chip" data-fu="' + PF.esc(q) + '">' +
+            PF.esc(PF.trunc(q, 26)) + "</button>";
+        }).join("") + "</div>";
+    }
+    const acts = PF.arr(d.actions);
+    if (acts.length) {
+      html += '<div class="qa-k">下一步</div><div class="qa-chips">' +
+        acts.map(function (a) {
+          return '<span class="qa-act" title="' + PF.esc(a.hint || "") + '">' +
+            PF.icon("target", 12) + PF.esc(a.label) + "</span>";
+        }).join("") + "</div>";
+    }
+    return html;
+  };
+
+  /** 把容器撑到视口底部，让左右两栏各自滚动（页面整体不再滚）。返回解绑函数。 */
+  PF.fitHeight = function (el, pad) {
+    if (!el) return function () {};
+    const p = typeof pad === "number" ? pad : 20;
+    function fit() {
+      const top = el.getBoundingClientRect().top;
+      const h = Math.max(320, window.innerHeight - top - p);
+      el.style.height = Math.round(h) + "px";
+    }
+    fit();
+    window.addEventListener("resize", fit);
+    return function () { window.removeEventListener("resize", fit); };
+  };
+
+  /** 可拖拽宽度的历史侧栏。cfg: {shell, dock, grip, open} */
+  PF.bindDock = function (cfg) {
+    const shell = cfg && cfg.shell, grip = cfg && cfg.grip;
+    const noop = { toggle: function () {}, isOpen: function () { return false; } };
+    if (!shell || !grip) return noop;
+    const MIN = 180, MAX = 460, DEFAULT = 280;
+    let open = !!(cfg && cfg.open);
+    function set(w) {
+      shell.style.setProperty("--qa-dock", Math.max(0, Math.round(w)) + "px");
+    }
+    function toggle(force) {
+      open = (typeof force === "boolean") ? force : !open;
+      set(open ? DEFAULT : 0);
+      grip.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    toggle(open);
+    grip.title = "拖动调整宽度，双击折叠 / 展开";
+    grip.addEventListener("dblclick", function () { toggle(); });
+    grip.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      const dock = shell.querySelector(".qa-dock");
+      const startX = e.clientX;
+      const startW = dock ? dock.getBoundingClientRect().width : 0;
+      function move(ev) {
+        const w = Math.min(MAX, Math.max(MIN, startW + ev.clientX - startX));
+        set(w);
+        open = true;
+        grip.setAttribute("aria-expanded", "true");
+      }
+      function up() {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      }
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+    return { toggle: toggle, isOpen: function () { return open; } };
+  };
+
+  /* ---------------------------------------------------------- 数字滚动
+     只用在"统计数字"这类一眼扫过的信息上。600ms 内结束，ease-out-cubic，
+     尊重 prefers-reduced-motion；配合 .num-roll 的等宽数字，递增时不会左右跳。 */
+  PF.countUp = function (el, to, opts) {
+    if (!el) return;
+    const o = opts || {};
+    const target = Number(to) || 0;
+    const decimals = Math.max(0, Math.min(3, o.decimals || 0));
+    const duration = Math.max(180, Math.min(900, o.duration || 620));
+    el.classList.add("num-roll");
+    if (PF.reduced()) { el.textContent = PF.num(target, decimals); return; }
+    const start = performance.now();
+    function frame(now) {
+      const p = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = PF.num(target * eased, decimals);
+      if (p < 1) requestAnimationFrame(frame);
+      else el.textContent = PF.num(target, decimals);
+    }
+    requestAnimationFrame(frame);
+  };
+
+  /** 把容器里**新出现**的统计数字（.stat__num）首位数字改成递增。
+      自动挂载，页面不需要为此改一行代码。 */
+  PF.countUpIn = function (scope) {
+    const root = scope || document;
+    PF.$$(".stat__num", root).forEach(function (el) {
+      if (el.getAttribute("data-counted")) return;
+      const html = el.innerHTML;
+      const m = html.match(/^\s*([-+]?\d[\d,]*(?:\.\d+)?)/);
+      if (!m) return;
+      const to = parseFloat(m[1].replace(/,/g, ""));
+      if (!isFinite(to) || to === 0) return;
+      el.setAttribute("data-counted", "1");
+      const rest = html.slice(m[0].length);
+      el.innerHTML = '<span class="num-roll">' + PF.esc(m[1]) + "</span>" + rest;
+      PF.countUp(el.firstElementChild, to, { decimals: 0 });
+    });
+  };
+
+  /* 统计卡是各页面自己渲染的，与其改十几个调用点，不如一次性观察 DOM：
+     新插入的 .stat__num 才会被接管，且只处理一次（data-counted 标记）。
+     变更用 rAF 合并，避免聊天流式输出时高频触发。 */
+  (function autoCountUp() {
+    let queued = false;
+    function run() { queued = false; PF.countUpIn(document); }
+    new MutationObserver(function () {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(run);
+    }).observe(document.body, { childList: true, subtree: true });
+    requestAnimationFrame(run);
+  })();
+
+  /* ---------------------------------------------------------- 演示例子与测试用例
+     例子（samples）= 跑给观众看的完整链路；用例（cases）= 期望写死、可切 live 真跑。
+     两份数据都由后端 /api/demo/* 提供，前端只负责呈现与触发。 */
+  function demoNoise(res) {
+    const rules = ((res.parse || {}).noise || {}).rules || [];
+    const hits = rules.filter(function (r) { return r.hits > 0; });
+    if (!hits.length) return '<div class="t-xs t-dim">本次没有命中去杂规则。</div>';
+    return '<div class="t-xs">命中去杂规则：' + hits.map(function (r) {
+      return PF.esc(r.name) + " ×" + r.hits;
+    }).join("；") + "</div>";
+  }
+
+  function demoKpTable(items) {
+    const rows = PF.arr(items);
+    if (!rows.length) return '<div class="t-xs t-dim">未抽到知识点。</div>';
+    return '<div class="mn-tbl" style="--mn-cols:4"><div class="mn-tr mn-tr--head">' +
+      '<div class="mn-td">知识点</div><div class="mn-td">类型</div>' +
+      '<div class="mn-td">认知层级</div><div class="mn-td">锚点</div></div>' +
+      rows.map(function (i) {
+        return '<div class="mn-tr"><div class="mn-td">' + PF.esc(i.name) + "</div>" +
+          '<div class="mn-td">' + PF.esc(i.kp_type) + "</div>" +
+          '<div class="mn-td">' + PF.esc(i.bloom) + "</div>" +
+          '<div class="mn-td">' + PF.esc(i.anchor) + "</div></div>";
+      }).join("") + "</div>";
+  }
+
+  PF.demo = async function (ability, opts) {
+    const o = opts || {};
+    let cases = [], samples = [], ov = {};
+    try {
+      const r = await PF.get("/api/demo/cases", { quiet: true });
+      cases = PF.arr(r && r.cases);
+      ov = (r && r.overview) || {};
+      samples = PF.arr(await PF.get("/api/demo/samples", { quiet: true }));
+    } catch (e) {
+      PF.toast("演示数据加载失败：" + e.message, "err");
+      return null;
+    }
+
+    const m = PF.modal({
+      title: "演示例子与测试用例",
+      width: "wide",
+      body: '<div class="manual"><div class="manual__nav" id="dm-nav"></div>' +
+            '<div class="manual__body" id="dm-body"></div></div>',
+      actions: [{ label: "关闭", type: "primary" }],
+    });
+    const nav = PF.$("#dm-nav", m.body), body = PF.$("#dm-body", m.body);
+    const TABS = [
+      { id: "parse", label: "① 图文解析示例" },
+      { id: "kp", label: "② 知识点抽取示例" },
+      { id: "qa", label: "③ 交互式答疑示例" },
+      { id: "cases", label: "测试用例" },
+    ];
+
+    function runSample(s, box) {
+      box.innerHTML = PF.loading("正在运行示例");
+      PF.post("/api/demo/samples/" + s.id + "/run", {}).then(function (res) {
+        if (res.error) { box.innerHTML = PF.empty({ title: "运行失败", desc: res.error }); return; }
+        // 内置示例的预置解析结果不能标成"AI 生成"或"规则生成"，会误导；
+        // 单独一个徽标说清楚它是仓库自带的预置结果。
+        const engineHtml = res.engine === "fixture"
+          ? '<span class="badge badge--brand">内置示例 · 预置解析</span>'
+          : PF.engineBadge(res.engine);
+        let html = '<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">' + engineHtml + "</div>";
+        if (res.type === "image") {
+          const p = res.parsed || {};
+          html += '<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+            '<span class="badge badge--brand">' + PF.esc(p.title || "—") + "</span>" +
+            (p.directions || []).map(function (d) { return '<span class="chip">' + PF.esc(d) + "</span>"; }).join("") +
+            (res.expected_rule_set ? '<span class="chip">' + PF.esc(res.expected_rule_set) + "</span>" : "") +
+            "</div>" +
+            (p.summary ? '<p class="mn-p">' + PF.esc(p.summary) + "</p>" : "") +
+            (p.knowledge_points ? demoKpTable((p.knowledge_points || []).map(function (k) {
+              return { name: k.name, kp_type: k.difficulty ? "难度 " + k.difficulty : "—",
+                       bloom: "—", anchor: res.source === "vision" ? "视觉读图" : "预置" };
+            })) : "") +
+            (PF.arr(res.detected_noise).length
+              ? '<h4 class="mn-h4">应被清掉的噪声</h4><div class="t-xs">' +
+                PF.arr(res.detected_noise).map(function (n) { return "· " + PF.esc(n); }).join("<br>") + "</div>"
+              : "") +
+            (res.vision_note ? '<div class="qa-clarify">' + PF.icon("info", 13) + "<div>" +
+              PF.esc(res.vision_note) + "</div></div>" : "");
+        } else {
+          const doc = (res.parse || {}).doc || {};
+          html += '<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+            '<span class="badge badge--info">原文 ' + PF.num(doc.chars_before, 0) + " → 清洗后 " +
+              PF.num(doc.chars_after, 0) + " 字</span>" +
+            '<span class="badge">' + PF.num(doc.blocks, 0) + " 块 / " + PF.num(doc.chunks, 0) + " 片</span>" +
+            '<span class="badge">' + PF.num(doc.assets, 0) + " 项素材</span></div>" +
+            demoNoise(res.parse || {}) +
+            '<h4 class="mn-h4">知识点（' + PF.esc(((res.kp || {}).rule_set || {}).name || "—") + "）</h4>" +
+            demoKpTable((res.kp || {}).items);
+        }
+        box.innerHTML = html;
+      }).catch(function (e) {
+        box.innerHTML = PF.empty({ title: "运行失败", desc: e.message });
+      });
+    }
+
+    function renderSamples(list, box) {
+      if (!list.length) { box.innerHTML = PF.empty({ title: "该能力暂无示例" }); return; }
+      box.innerHTML = list.map(function (s) {
+        return '<div class="demo-row">' +
+          '<div class="demo-row__main">' +
+            '<div class="t-sm t-strong">' + PF.esc(s.title) +
+              ' <span class="chip">' + (s.type === "image" ? "图片" : "文本") + "</span>" +
+              (s.available ? "" : ' <span class="badge badge--danger">文件缺失</span>') + "</div>" +
+            '<div class="t-xs t-dim mt-2">' + PF.esc(s.points || "") + "</div>" +
+            '<div class="demo-res" data-res></div>' +
+          "</div>" +
+          '<div class="demo-row__act"><button class="btn btn--sm btn--primary" data-run="' + PF.esc(s.id) + '"' +
+            (s.available ? "" : " disabled") + ">运行示例</button></div>" +
+        "</div>";
+      }).join("");
+      PF.$$("[data-run]", box).forEach(function (b) {
+        b.addEventListener("click", function () {
+          const s = list.filter(function (x) { return x.id === b.dataset.run; })[0];
+          const box2 = b.closest(".demo-row").querySelector("[data-res]");
+          runSample(s, box2);
+        });
+      });
+    }
+
+    function renderCases(list, box) {
+      if (!list.length) { box.innerHTML = PF.empty({ title: "暂无用例" }); return; }
+      box.innerHTML =
+        '<p class="mn-sum">期望结果写死在代码里（稳定、断网可复现）；每个用例都带真实实现的入口，' +
+        "点「真实跑一遍」就会执行并与期望比对，给出 PASS / FAIL 和差异明细。</p>" +
+        list.map(function (c) {
+          return '<div class="demo-row">' +
+            '<div class="demo-row__main">' +
+              '<div class="t-sm t-strong">' + PF.esc(c.title) +
+                ' <span class="chip">' + PF.esc(c.ability) + "</span></div>" +
+              '<div class="t-xs t-mono mt-2">' + PF.esc(c.runner) + "</div>" +
+              (c.note ? '<div class="t-xs t-dim mt-2">' + PF.esc(c.note) + "</div>" : "") +
+              '<div class="demo-res" data-res></div>' +
+            "</div>" +
+            '<div class="demo-row__act stack-sm">' +
+              '<button class="btn btn--sm" data-fixture="' + PF.esc(c.id) + '">按约定（Fixture）</button>' +
+              '<button class="btn btn--sm btn--primary" data-live="' + PF.esc(c.id) + '">真实跑一遍（Live）</button>' +
+              (c.ability === "qa" ? '<button class="btn btn--sm" data-ask="' + PF.esc(c.input.question || "") +
+                '">填入对话框</button>' : "") +
+            "</div>" +
+          "</div>";
+        }).join("");
+
+      function run(cid, live, box2) {
+        box2.innerHTML = PF.loading(live ? "真实执行中" : "读取约定");
+        PF.post("/api/demo/cases/" + cid + "/run", { live: live }).then(function (r) {
+          const ok = r.status === "PASS" || r.status === "约定";
+          let html = '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+            '<span class="badge ' + (ok ? "badge--ok" : "badge--danger") + '">' + PF.esc(r.status) + "</span>" +
+            '<span class="chip">' + (r.mode === "live" ? "Live 真实执行" : "Fixture 写死期望") + "</span></div>";
+          if (r.checks) {
+            html += '<div class="mn-tbl mt-3" style="--mn-cols:3"><div class="mn-tr mn-tr--head">' +
+              '<div class="mn-td">检查项</div><div class="mn-td">期望</div><div class="mn-td">实际</div></div>' +
+              r.checks.map(function (k) {
+                return '<div class="mn-tr"><div class="mn-td">' + (k.pass ? "✓ " : "✗ ") + PF.esc(k.name) + "</div>" +
+                  '<div class="mn-td">' + PF.esc(String(k.name.split("=").pop() || "").trim()) + "</div>" +
+                  '<div class="mn-td">' + PF.esc(String(k.actual)) + "</div></div>";
+              }).join("") + "</div>";
+          }
+          box2.innerHTML = html;
+        }).catch(function (e) {
+          box2.innerHTML = PF.empty({ title: "执行失败", desc: e.message });
+        });
+      }
+
+      PF.$$("[data-fixture]", box).forEach(function (b) {
+        b.addEventListener("click", function () {
+          run(b.dataset.fixture, false, b.closest(".demo-row").querySelector("[data-res]"));
+        });
+      });
+      PF.$$("[data-live]", box).forEach(function (b) {
+        b.addEventListener("click", function () {
+          run(b.dataset.live, true, b.closest(".demo-row").querySelector("[data-res]"));
+        });
+      });
+      PF.$$("[data-ask]", box).forEach(function (b) {
+        b.addEventListener("click", function () {
+          if (typeof o.onAsk === "function") { o.onAsk(b.dataset.ask); m.close(); return; }
+          const input = PF.$("#c-input");
+          if (input) { input.value = b.dataset.ask; const send = PF.$("#btn-send"); if (send) send.click(); m.close(); }
+        });
+      });
+    }
+
+    function pick(id) {
+      PF.$$("button", nav).forEach(function (b) { b.classList.toggle("is-on", b.dataset.t === id); });
+      if (id === "cases") { renderCases(cases, body); return; }
+      renderSamples(samples.filter(function (s) { return s.ability === id; }), body);
+    }
+
+    nav.innerHTML = TABS.map(function (t) {
+      const n = t.id === "cases" ? cases.length : samples.filter(function (s) { return s.ability === t.id; }).length;
+      return '<button class="btn btn--sm mn-navbtn" data-t="' + t.id + '">' + PF.esc(t.label) +
+        " <span class='t-xs t-dim'>" + n + "</span></button>";
+    }).join("");
+    PF.$$("[data-t]", nav).forEach(function (b) {
+      b.addEventListener("click", function () { pick(b.dataset.t); });
+    });
+    pick(TABS.some(function (t) { return t.id === ability; }) ? ability : "cases");
+    if (!PF.reduced()) PF.reveal(body);
+    return m;
+  };
+
   /* ---------------------------------------------------------- 团队类型
      老师带的不只是科研课题组，还有横向项目、竞赛团队、实习团队，
      所以「我的团队」用一组类型做分类展示。类型**不参与匹配打分**，

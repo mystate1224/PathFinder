@@ -32,8 +32,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     desc: "上传课件、笔记、作业图片，系统自动解析文本、抽取知识点，并建立关键词 + 语义双路索引，供答疑与备课引用。",
     wide: true,
     actions:
+      '<button class="btn" id="btn-demo">' + PF.icon("sparkles", 15) + "演示例子</button>" +
       '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>",
   });
+  PF.$("#btn-demo").addEventListener("click", function () { PF.demo("parse"); });
 
   view.innerHTML = '<div id="tabs-host"></div>';
   const host = PF.$("#tabs-host", view);
@@ -242,6 +244,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             "</div>" +
             (PF.arr(f.directions).length ? '<div class="row" style="gap:6px">' +
               PF.arr(f.directions).map(function (x) { return '<span class="chip chip--brand">' + PF.esc(x) + "</span>"; }).join("") + "</div>" : "") +
+            parseBlock(f) +
+            kpRuleBlock(f) +
             (kps.length ? '<div class="table-wrap"><table class="table"><thead><tr>' +
               "<th>抽取到的知识点</th><th>难度</th><th>关键词</th></tr></thead><tbody>" +
               kps.slice(0, 12).map(function (k) {
@@ -254,6 +258,63 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             (f.note ? '<div class="t-xs">' + PF.esc(f.note) + "</div>" : "") +
           "</div></div>";
       }).join("") + "</div>";
+
+    PF.$$("[data-manual]", box).forEach(function (b) {
+      b.addEventListener("click", function () { PF.manual(b.dataset.manual || "parse"); });
+    });
+  }
+
+  /* 能力①：解析报告 —— 去杂命中情况 + 结构化结果，让"解析了什么"可见 */
+  function parseBlock(f) {
+    const p = f.parse || {}, doc = p.doc || {}, noise = p.noise || {};
+    if (!doc.chars_before) return "";
+    const rules = PF.arr(noise.rules).filter(function (r) { return r.hits > 0; });
+    return '<div class="card card--flat"><div class="card__head">' +
+      "<h3>解析报告 · 去杂与结构化</h3>" +
+      '<div class="card__head-actions"><span class="chip">去杂 ' +
+        PF.num((noise.ratio || 0) * 100, 1) + "%</span>" +
+        '<button class="btn btn--sm" data-manual="parse">规则说明</button></div></div>' +
+      '<div class="card__body stack-sm">' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+          '<span class="badge badge--info">原文 ' + PF.num(doc.chars_before, 0) +
+            " 字 → 清洗后 " + PF.num(doc.chars_after, 0) + " 字</span>" +
+          '<span class="badge">' + PF.num(doc.blocks, 0) + " 个版面块</span>" +
+          '<span class="badge">' + PF.num(doc.chunks, 0) + " 个语义切片</span>" +
+          '<span class="badge">' + PF.num(doc.assets, 0) + " 项素材（表 / 代码 / 公式 / 图）</span>" +
+        "</div>" +
+        (rules.length
+          ? '<div class="t-xs t-dim">命中去杂规则：' + rules.map(function (r) {
+              return PF.esc(r.name) + " ×" + r.hits;
+            }).join("；") + "</div>"
+          : '<div class="t-xs t-dim">本次没有命中去杂规则，原文很干净。</div>') +
+        (PF.arr(p.outline).length
+          ? '<div class="t-xs">大纲：' + PF.arr(p.outline).slice(0, 8).map(function (o) {
+              return PF.esc(o.text);
+            }).join(" / ") + "</div>"
+          : "") +
+      "</div></div>";
+  }
+
+  /* 能力②：本次用了哪套抽取规则、命中了哪些锚点 */
+  function kpRuleBlock(f) {
+    const k = f.kp_rule || {}, rs = k.rule_set || {}, items = PF.arr(k.items);
+    if (!rs.id) return "";
+    return '<div class="card card--flat"><div class="card__head">' +
+      "<h3>知识点抽取 · 本次所用规则集</h3>" +
+      '<div class="card__head-actions"><span class="chip chip--brand">' + PF.esc(rs.name) + "</span>" +
+        '<button class="btn btn--sm" data-manual="kp">规则说明</button></div></div>' +
+      '<div class="card__body stack-sm">' +
+        '<div class="t-xs t-dim">适用：' + PF.esc(rs.applies_to || "") + "　·　" + PF.esc(rs.desc || "") + "</div>" +
+        (items.length
+          ? '<div class="table-wrap"><table class="table"><thead><tr>' +
+            "<th>知识点</th><th>类型</th><th>认知层级</th><th>难度</th><th>锚点</th>" +
+            "</tr></thead><tbody>" + items.map(function (it) {
+              return "<tr><td>" + PF.esc(it.name) + "</td><td>" + PF.esc(it.kp_type) +
+                "</td><td>" + PF.esc(it.bloom) + "</td><td>" + PF.levelTag(it.difficulty) +
+                "</td><td>" + PF.esc(it.anchor) + "</td></tr>";
+            }).join("") + "</tbody></table></div>"
+          : '<div class="t-xs t-dim">本次未抽到知识点。</div>') +
+      "</div></div>";
   }
 
   /* ============================================================ 标签二：我的资料 */

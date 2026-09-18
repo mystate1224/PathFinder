@@ -13,8 +13,8 @@
 if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
 document.documentElement.setAttribute("data-theme",t)})();</script>
 <style>
-  .cp-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--s-5); align-items: start; }
-  @media (max-width: 1080px) { .cp-wrap { grid-template-columns: minmax(0, 1fr); } }
+  .qa-foot-row { display: flex; gap: 8px; align-items: flex-end; }
+  .qa-foot-row .input { flex: 1 1 auto; min-width: 0; }
 </style>
 </head>
 <body>
@@ -32,15 +32,22 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     active: "tutor",
     me: me,
     title: "教师 Copilot",
-    desc: "用一句自然语言把日常动作做完：查某个学生的画像、备一节课、讲清一个知识点。意图由规则词典路由，结果如实标注是「AI 生成」还是「规则生成」。",
+    desc: "用一句话把日常动作做完：查学生、备课、讲知识点、定评分标准。结果会如实标注是「AI 生成」还是「规则生成」。",
     wide: true,
-    actions: '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
+    actions:
+      '<button class="btn" id="btn-demo">' + PF.icon("sparkles", 15) + "演示例子</button>" +
+      '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
+      '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
+  });
+  PF.$("#btn-demo").addEventListener("click", function () {
+    PF.demo("qa", { onAsk: function (q) { PF.$("#c-input").value = q; send(); } });
   });
 
   const SKILLS_FALLBACK = [
-    { value: "student", label: "查学生", hint: "例：看看张三的画像 / stu03 的成绩如何" },
-    { value: "lesson", label: "备课", hint: "例：帮我备一节注意力机制（拓展型）" },
-    { value: "explain", label: "讲知识点", hint: "例：讲一下反向传播，要能直接上课用" },
+    { value: "student", label: "查学生", hint: "看看 stu03 的成绩如何" },
+    { value: "lesson", label: "备课", hint: "帮我备一节注意力机制（拓展型）" },
+    { value: "explain", label: "讲知识点", hint: "讲一下反向传播，要能直接上课用" },
+    { value: "grading", label: "批改标准", hint: "这份作业怎么给分？给一份评分标准" },
   ];
   let SKILLS = SKILLS_FALLBACK;
 
@@ -48,85 +55,87 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     "帮我备一节注意力机制的课，拓展型",
     "讲一下反向传播，要能直接上课用",
     "看看 stu03 的成绩如何",
-    "班里成绩分布怎么样",
+    "这份作业怎么给分？给我一份评分标准",
   ];
 
   view.innerHTML =
-    '<div class="cp-wrap">' +
-      '<div class="stack">' +
-        '<div class="card">' +
-          '<div class="card__head"><h3>' + PF.icon("sparkles", 15) + " 对话" +
-            ' <span class="t-xs" style="font-weight:400">（最近 2 轮会带上，便于追问）</span></h3>' +
-            '<div class="card__head-actions"><span class="badge badge--brand" id="b-intent">等待提问</span></div>' +
+    '<div class="qa-shell" id="qa-shell">' +
+      '<div class="qa-dock">' +
+        '<div class="qa-dock__head">' + PF.icon("clock", 14) + "<span>以前问过的</span></div>" +
+        '<div class="qa-dock__list" id="qa-history"></div>' +
+      "</div>" +
+      '<div class="qa-grip" id="qa-grip" role="separator" aria-orientation="vertical" tabindex="0"></div>' +
+      '<div class="qa-main">' +
+        '<div class="qa-main__scroll" id="chat">' + PF.loading("正在读取对话") + "</div>" +
+        '<div class="qa-main__foot">' +
+          '<div class="row" style="gap:8px;margin-bottom:8px">' +
+            '<span class="t-xs t-dim" id="c-skill-hint">直接说你想做什么就行</span>' +
+            '<div class="spacer"></div>' +
+            '<span class="t-xs t-dim">Ctrl / ⌘ + Enter 发送</span>' +
           "</div>" +
-          '<div class="card__body"><div class="chat" id="chat">' + PF.loading("正在读取历史") + "</div></div>" +
-          '<div class="card__foot"><div class="composer stack">' +
-            '<div class="row" style="gap:6px;flex-wrap:wrap" id="ex-row"></div>' +
-            '<div class="row" style="align-items:flex-end;gap:8px;margin-top:8px">' +
-              '<textarea class="input flex-1" id="c-input" rows="2" ' +
-                'placeholder="直接说你想做什么，例如：帮我备一节朴素贝叶斯的课（巩固型）"></textarea>' +
-              '<button class="btn btn--primary" id="btn-send">' + PF.icon("send", 15) + "发送</button>" +
-            "</div>" +
-            '<div class="row"><span class="t-xs t-dim">Ctrl / ⌘ + Enter 发送</span>' +
-              '<div class="spacer"></div>' +
-              '<span class="t-xs t-dim" id="c-skill-hint"></span></div>' +
-          "</div></div>" +
+          '<div class="qa-foot-row">' +
+            '<textarea class="input" id="c-input" rows="2" ' +
+              'placeholder="直接说你想做什么，例如：帮我备一节朴素贝叶斯的课（巩固型）"></textarea>' +
+            '<button class="btn btn--primary" id="btn-send">' + PF.icon("send", 15) + "发送</button>" +
+          "</div>" +
         "</div>" +
       "</div>" +
-
-      '<div class="stack">' +
-        '<div class="card"><div class="card__head"><h3>能力范围</h3></div>' +
+      '<div class="qa-side">' +
+        '<div id="agent-card"></div>' +
+        '<div class="card mt-4"><div class="card__head"><h3>它能做什么</h3></div>' +
           '<div class="card__body stack-sm" id="skills"></div>' +
           '<div class="card__foot">' + PF.caveat(
-            "当前形态是「规则词典路由 + 单次模型调用」，三个分支是固定动作，不是可自主调用工具的 Agent。这样做的取舍是稳定性优先。" ) +
+            "它按固定流程工作：判断你想做什么 → 取数据或查资料 → 给出可直接用的结果。不会自己去做你没让它做的事。" ) +
           "</div>" +
         "</div>" +
-        '<div class="card"><div class="card__head"><h3>它能拿到什么数据</h3></div>' +
-          '<div class="card__body stack-sm">' +
-            '<div class="t-sm" style="line-height:1.8">' +
-              "查学生：本班学生的画像、能力短板、掌握度偏低的知识点与待办任务<br>" +
-              "备课：先检索你上传的课件，再出教案（可直接去「备课助手」导出 docx / pptx）<br>" +
-              "讲知识点：检索课件原文，按「一句话结论 / 三个层次 / 学生常问的问题」组织" +
-            "</div>" +
-            '<div class="t-xs t-dim">所有结果都不会出现分班或给学生贴标签的表述。</div>' +
-          "</div>" +
+        '<div class="card mt-4"><div class="card__head"><h3>可以这样说</h3></div>' +
+          '<div class="card__body stack-sm" id="ex-row"></div>' +
         "</div>" +
       "</div>" +
     "</div>";
 
-  /* ---------------------------------------------------------- 侧栏技能 */
-  function paintSkills() {
-    PF.$("#skills").innerHTML = PF.arr(SKILLS).map(function (s, i) {
-      return '<button class="btn btn--sm skill-chip" data-skill="' + PF.esc(s.value) + '">' +
-        "<span>" + PF.icon("target", 12) + " " + PF.esc(s.label) + "</span>" +
-        '<span class="t-xs t-dim" style="font-weight:400">' + PF.esc(s.hint || "") + "</span></button>";
-    }).join("");
-    PF.$$("[data-skill]", view).forEach(function (b) {
-      b.addEventListener("click", function () {
-        const s = PF.arr(SKILLS).filter(function (x) { return x.value === b.dataset.skill; })[0] || {};
-        PF.$("#c-input").value = (s.hint || "").replace(/^例：/, "");
-        PF.$("#c-skill-hint").textContent = "已锁定意图：" + (s.label || "");
-        LOCKED = b.dataset.skill;
-        PF.$("#c-input").focus();
+  /* ---------------------------------------------------------- 布局 */
+  const shell = PF.$("#qa-shell");
+  PF.fitHeight(shell, 24);
+  const dock = PF.bindDock({ shell: shell, grip: PF.$("#qa-grip"), open: false });
+  PF.$("#btn-hist").addEventListener("click", function () { dock.toggle(); });
+
+  /* ---------------------------------------------------------- 数据：一轮对话 */
+  let ROUNDS = [];
+  let CURRENT = -1;
+  let LOCKED = "";
+
+  function groupRounds(msgs) {
+    const out = [];
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.role !== "user") continue;
+      const ans = msgs[i + 1] && msgs[i + 1].role === "assistant" ? msgs[i + 1] : null;
+      out.push({
+        q: m.content || "", at: m.created_at || "",
+        a: ans ? ans.content : "", refs: [], data: null,
+        intent: "", intent_label: "", engine: (ans && ans.engine) || "", qa: null,
       });
+    }
+    return out;
+  }
+
+  function paintDock() {
+    const box = PF.$("#qa-history");
+    if (!ROUNDS.length) {
+      box.innerHTML = '<div class="t-xs t-dim">还没有对话记录。</div>';
+      return;
+    }
+    box.innerHTML = ROUNDS.map(function (r, i) {
+      return '<button class="qa-dock__item' + (i === CURRENT ? " is-on" : "") + '" data-r="' + i + '">' +
+        '<div class="qa-dock__q">' + PF.esc(PF.trunc(r.q || "（空）", 40)) + "</div>" +
+        '<div class="qa-dock__t">' + PF.esc(PF.when(r.at)) + "</div></button>";
+    }).join("");
+    PF.$$("[data-r]", box).forEach(function (b) {
+      b.addEventListener("click", function () { paintRound(Number(b.dataset.r)); });
     });
   }
 
-  PF.$("#ex-row").innerHTML = EXAMPLES.map(function (q) {
-    return '<button class="btn btn--sm" data-ex="' + PF.esc(q) + '">' + PF.esc(q) + "</button>";
-  }).join("");
-  PF.$$("[data-ex]", view).forEach(function (b) {
-    b.addEventListener("click", function () {
-      PF.$("#c-input").value = b.dataset.ex;
-      LOCKED = "";
-      PF.$("#c-skill-hint").textContent = "";
-      send();
-    });
-  });
-
-  let LOCKED = "";
-
-  /* ---------------------------------------------------------- 消息渲染 */
   function renderMsg(m) {
     const isUser = m.role === "user";
     const data = m.data || {};
@@ -144,6 +153,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         (!isUser && m.intent === "student" ? studentBlock(data) : "") +
         (!isUser && m.intent === "lesson" ? lessonBlock(data) : "") +
         (!isUser && m.intent === "explain" ? explainBlock(data) : "") +
+        (!isUser && m.intent === "grading" ? gradingBlock(data) : "") +
+        PF.qaBlock(m.qa) +
       "</div></div>";
   }
 
@@ -196,78 +207,149 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       refs.slice(0, 4).map(function (r) { return PF.esc(r); }).join("　") + "</div></div>";
   }
 
-  /* ---------------------------------------------------------- 历史与发送 */
-  async function loadHistory() {
+  function gradingBlock(data) {
+    const rub = data.rubric || {};
+    if (!rub.A) return "";
+    return '<div class="mt-3 stack-sm">' +
+      ["A", "B", "C"].map(function (k) {
+        return '<div class="t-xs"><b>' + k + " 档：</b>" + PF.esc(rub[k] || "") + "</div>";
+      }).join("") +
+      (PF.arr(data.deductions).length
+        ? '<div class="t-xs t-dim">常见扣分点：' +
+          PF.arr(data.deductions).map(function (x) { return PF.esc(x); }).join("；") + "</div>"
+        : "") +
+      '<div class="row"><a class="btn btn--sm" href="/grade">' +
+        PF.icon("book", 12) + "去批改中心</a></div></div>";
+  }
+
+  function paintRound(i) {
+    CURRENT = i;
     const chat = PF.$("#chat");
-    let d;
-    try {
-      d = await PF.get("/api/teacher/copilot/history?limit=20");
-    } catch (e) {
-      chat.innerHTML = PF.empty({ icon: "alert", title: "历史加载失败", desc: e.message });
-      return;
-    }
-    const msgs = PF.arr(d.messages);
-    if (!msgs.length) {
+    if (i < 0 || !ROUNDS[i]) {
       chat.innerHTML =
         '<div class="msg msg--ai"><div class="msg__avatar">AI</div>' +
-          '<div class="msg__bubble">我是这门课的教师 Copilot。' +
-          "可以直接给我一句话：\n\n" +
-          "· 查学生 —— 「看看 stu03 的成绩如何」「班里成绩分布怎么样」\n" +
-          "· 备课 —— 「帮我备一节注意力机制的课，拓展型」「出一份期末练习卷」\n" +
-          "· 讲知识点 —— 「讲一下反向传播，要能直接上课用」\n\n" +
-          "答案只引用你上传的课件原文，没有依据会直接说明。</div></div>";
+          '<div class="msg__bubble">我是这门课的教师 Copilot。可以直接给我一句话：\n\n' +
+          "· 查学生 —— 「看看 stu03 的成绩如何」\n" +
+          "· 备课 —— 「帮我备一节注意力机制的课，拓展型」\n" +
+          "· 讲知识点 —— 「讲一下反向传播，要能直接上课用」\n" +
+          "· 批改标准 —— 「这份作业怎么给分？」\n\n" +
+          "答案只引用你上传的课件原文，没有依据会直接说明。" +
+          "以前问过的，点左侧「历史对话」就能翻。</div></div>";
+      paintDock();
       return;
     }
-    chat.innerHTML = msgs.map(function (m) {
-      return renderMsg({ role: m.role, content: m.content, engine: m.engine, created_at: m.created_at });
+    const r = ROUNDS[i];
+    chat.innerHTML =
+      renderMsg({ role: "user", content: r.q, created_at: r.at }) +
+      (r.a ? renderMsg({ role: "assistant", content: r.a, intent: r.intent, intent_label: r.intent_label,
+                         engine: r.engine, created_at: r.at, data: r.data, qa: r.qa }) : "");
+    bindFollowups(chat);
+    paintDock();
+    const el = PF.$("#chat");
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function bindFollowups(scope) {
+    PF.$$("[data-fu]", scope).forEach(function (b) {
+      b.addEventListener("click", function () {
+        PF.$("#c-input").value = b.dataset.fu;
+        send();
+      });
+    });
+  }
+
+  /* ---------------------------------------------------------- 侧栏：能力与示例 */
+  function paintSkills() {
+    PF.$("#skills").innerHTML = PF.arr(SKILLS).map(function (s) {
+      return '<button class="btn btn--sm skill-chip" data-skill="' + PF.esc(s.value) + '">' +
+        "<span>" + PF.icon("target", 12) + " " + PF.esc(s.label) + "</span>" +
+        '<span class="t-xs t-dim" style="font-weight:400">' + PF.esc(s.hint || "") + "</span></button>";
     }).join("");
-    scrollBottom();
+    PF.$$("[data-skill]", PF.$("#skills")).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const s = PF.arr(SKILLS).filter(function (x) { return x.value === b.dataset.skill; })[0] || {};
+        PF.$("#c-input").value = s.hint || "";
+        PF.$("#c-skill-hint").textContent = "已锁定：" + (s.label || "");
+        LOCKED = b.dataset.skill;
+        PF.$("#c-input").focus();
+      });
+    });
   }
 
-  function scrollBottom() {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-  }
+  PF.$("#ex-row").innerHTML = EXAMPLES.map(function (q) {
+    return '<button class="btn btn--sm q-chip" data-ex="' + PF.esc(q) + '">' + PF.esc(PF.trunc(q, 30)) + "</button>";
+  }).join("");
+  PF.$$("[data-ex]", PF.$("#ex-row")).forEach(function (b) {
+    b.addEventListener("click", function () {
+      PF.$("#c-input").value = b.dataset.ex;
+      LOCKED = "";
+      PF.$("#c-skill-hint").textContent = "直接说你想做什么就行";
+      send();
+    });
+  });
 
+  /* ---------------------------------------------------------- 智能体简介卡 */
+  (async function loadAgentCard() {
+    const m = await PF.try(function () { return PF.get("/api/manual", { quiet: true }); }, null);
+    const a = (m && m.agents && m.agents.teacher) || {
+      name: "教师助手",
+      one_line: "一句话让它干活：查学生、备课、讲知识点、定评分标准。",
+      answers: ["查学生", "备课", "讲知识点", "批改标准", "班级学情"],
+      how: "判断你想做什么 → 取数据或查资料 → 给出可直接用的结果",
+      ground: "查事实用班里的真实数据，讲内容用你上传的资料，两者分开展示",
+      caveat: "它按固定流程工作，不会自己去做你没让它做的事。",
+    };
+    PF.$("#agent-card").innerHTML = PF.agentCard(Object.assign({ btnId: "btn-manual" }, a));
+    PF.$("#btn-manual").addEventListener("click", function () { PF.manual("qa"); });
+  })();
+
+  /* ---------------------------------------------------------- 发送 */
   async function send() {
     const input = PF.$("#c-input");
     const q = input.value.trim();
     if (!q) { PF.toast("请先输入你想做什么", "warn"); return; }
     const btn = PF.$("#btn-send");
-    const chat = PF.$("#chat");
-    if (chat.querySelector(".empty")) chat.innerHTML = "";
 
-    const u = document.createElement("div");
-    u.innerHTML = renderMsg({ role: "user", content: q, created_at: new Date().toISOString() });
-    chat.appendChild(u.firstElementChild);
-
-    const pending = document.createElement("div");
-    pending.className = "msg msg--ai";
-    pending.innerHTML = '<div class="msg__avatar">AI</div><div class="msg__bubble">' +
-      '<div class="msg__meta"><span class="t-xs t-strong">Copilot</span>' +
-      '<span class="t-xs t-dim">正在判定意图并组织结果…</span></div><span class="spin"></span></div>';
-    chat.appendChild(pending);
-
+    ROUNDS.push({ q: q, a: "", refs: [], data: null, intent: "", intent_label: "",
+                  engine: "", at: new Date().toISOString(), qa: null });
+    CURRENT = ROUNDS.length - 1;
+    PF.$("#chat").innerHTML =
+      renderMsg({ role: "user", content: q, created_at: ROUNDS[CURRENT].at }) +
+      '<div class="msg msg--ai"><div class="msg__avatar">AI</div><div class="msg__bubble">' +
+        '<div class="msg__meta"><span class="t-xs t-strong">Copilot</span>' +
+        '<span class="t-xs t-dim">正在判定你想做什么并组织结果…</span></div><span class="spin"></span></div></div>';
     input.value = "";
     PF.busy(btn, true, "处理中");
-    scrollBottom();
+    paintDock();
 
     try {
       const d = await PF.post("/api/teacher/copilot/ask", { question: q, skill: LOCKED });
       if (PF.arr(d.skills).length) { SKILLS = d.skills; paintSkills(); }
-      pending.innerHTML = renderMsg({
-        role: "assistant", content: d.answer, intent: d.intent, intent_label: d.intent_label,
-        engine: d.engine, created_at: new Date().toISOString(), data: d.data,
-      });
-      PF.$("#b-intent").textContent = d.intent_label || d.intent || "—";
-      scrollBottom();
+      ROUNDS[CURRENT] = {
+        q: q, a: d.answer, refs: (d.data || {}).refs || [], data: d.data || {},
+        intent: d.intent, intent_label: d.intent_label, engine: d.engine,
+        at: new Date().toISOString(), qa: d,
+      };
+      paintRound(CURRENT);
     } catch (e) {
-      pending.innerHTML = '<div class="msg__avatar">AI</div><div class="msg__bubble">' +
-        PF.esc("处理失败：" + e.message) + "</div>";
+      ROUNDS[CURRENT].a = "处理失败：" + e.message;
+      paintRound(CURRENT);
     } finally {
       PF.busy(btn, false);
-      PF.$("#c-skill-hint").textContent = "";
+      PF.$("#c-skill-hint").textContent = "直接说你想做什么就行";
       LOCKED = "";
     }
+  }
+
+  async function loadHistory() {
+    try {
+      const d = await PF.get("/api/teacher/copilot/history?limit=60");
+      ROUNDS = groupRounds(PF.arr(d.messages));
+      CURRENT = ROUNDS.length ? ROUNDS.length - 1 : -1;
+    } catch (e) {
+      ROUNDS = []; CURRENT = -1;
+    }
+    paintRound(CURRENT);
   }
 
   PF.$("#btn-send").addEventListener("click", send);
@@ -277,16 +359,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
   PF.$("#btn-clear").addEventListener("click", async function () {
     const yes = await PF.confirm({
-      title: "清空对话",
-      text: "会删除全部 Copilot 对话历史，不可恢复。",
-      okText: "清空", danger: true,
+      title: "清空对话", text: "会删除全部 Copilot 对话历史，不可恢复。", okText: "清空", danger: true,
     });
     if (!yes) return;
-    try {
-      await PF.post("/api/teacher/copilot/clear");
-    } catch (e) { /* 已提示 */ }
-    PF.$("#b-intent").textContent = "等待提问";
-    await loadHistory();
+    try { await PF.post("/api/teacher/copilot/clear"); } catch (e) { /* 已提示 */ }
+    ROUNDS = []; CURRENT = -1;
+    paintRound(-1);
     PF.toast("对话已清空", "ok");
   });
 

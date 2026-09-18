@@ -13,8 +13,9 @@
 if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
 document.documentElement.setAttribute("data-theme",t)})();</script>
 <style>
-  .ask-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--s-5); align-items: start; }
-  @media (max-width: 1080px) { .ask-wrap { grid-template-columns: minmax(0, 1fr); } }
+  /* 两栏各自独立滚动；历史放在左侧可拖拽的抽屉里，主区只呈现当前这一轮。 */
+  .qa-foot-row { display: flex; gap: 8px; align-items: flex-end; }
+  .qa-foot-row .input { flex: 1 1 auto; min-width: 0; }
 </style>
 </head>
 <body>
@@ -32,45 +33,50 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     active: "ask",
     me: me,
     title: "分层答疑",
-    desc: "同一个问题，会按你的主标签与学业层次给出不同深度的讲解 —— 决定的是内容深度，不是班级划分。答案优先引用教师上传的课件原文。",
+    desc: "卡住了就问。它会按你现在的进度决定从哪里讲起、讲多深 —— 决定的是内容深度，不是班级划分。答案优先引用教师上传的课件原文。",
     wide: true,
     actions:
+      '<button class="btn" id="btn-demo">' + PF.icon("sparkles", 15) + "演示例子</button>" +
+      '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
       '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
+  });
+  PF.$("#btn-demo").addEventListener("click", function () {
+    PF.demo("qa", { onAsk: function (q) { PF.$("#c-input").value = q; send(); } });
   });
 
   const META = (await PF.try(function () { return PF.get("/api/meta", { quiet: true }); }, {})) || {};
   const COURSES = PF.arr(META.my_courses);
 
   view.innerHTML =
-    '<div class="ask-wrap">' +
-      '<div class="stack">' +
-        '<div class="card"><div class="card__head">' +
-          "<h3>" + PF.icon("message", 15) + " 对话" +
-            ' <span class="t-xs" style="font-weight:400">（历史会自动带上，支持追问）</span></h3>' +
-          '<div class="card__head-actions"><span class="badge badge--brand" id="b-layer">—</span></div>' +
-        "</div>" +
-        '<div class="card__body"><div class="chat" id="chat">' + PF.loading("正在读取历史对话") + "</div></div>" +
-        '<div class="card__foot"><div class="composer stack">' +
-          '<div class="row">' +
-            '<select class="select select--sm" id="c-course" style="width:170px"><option value="">全部课程</option>' +
+    '<div class="qa-shell" id="qa-shell">' +
+      '<div class="qa-dock">' +
+        '<div class="qa-dock__head">' + PF.icon("clock", 14) + "<span>以前问过的</span></div>" +
+        '<div class="qa-dock__list" id="qa-history"></div>' +
+      "</div>" +
+      '<div class="qa-grip" id="qa-grip" role="separator" aria-orientation="vertical" tabindex="0"></div>' +
+      '<div class="qa-main">' +
+        '<div class="qa-main__scroll" id="chat">' + PF.loading("正在读取对话") + "</div>" +
+        '<div class="qa-main__foot">' +
+          '<div class="row" style="gap:8px;margin-bottom:8px">' +
+            '<select class="select select--sm" id="c-course" style="width:160px"><option value="">全部课程</option>' +
               COURSES.map(function (c) { return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>"; }).join("") +
             "</select>" +
-            '<select class="select select--sm" id="c-top" style="width:120px">' +
+            '<select class="select select--sm" id="c-top" style="width:110px">' +
               '<option value="4">引用 4 段</option><option value="6">引用 6 段</option>' +
               '<option value="2">引用 2 段</option></select>' +
             '<div class="spacer"></div>' +
-            '<span class="t-xs">Ctrl / ⌘ + Enter 发送</span>' +
+            '<span class="t-xs t-dim">Ctrl / ⌘ + Enter 发送</span>' +
           "</div>" +
-          '<div class="row" style="align-items:flex-end">' +
+          '<div class="qa-foot-row">' +
             '<textarea class="input" id="c-input" rows="2" ' +
               'placeholder="把问题写具体一点，例如：注意力机制为什么要除以根号 d_k？"></textarea>' +
             '<button class="btn btn--primary" id="btn-send">' + PF.icon("send", 15) + "提问</button>" +
           "</div>" +
-        "</div></div></div>" +
+        "</div>" +
       "</div>" +
-
-      '<div class="stack">' +
-        '<div class="card"><div class="card__head"><h3>本次答疑风格</h3></div>' +
+      '<div class="qa-side">' +
+        '<div id="agent-card"></div>' +
+        '<div class="card mt-4"><div class="card__head"><h3>本次答疑风格</h3></div>' +
           '<div class="card__body stack-sm">' +
             '<dl class="style-grid">' +
               "<dt>主标签</dt><dd id=\"s-track\">—</dd>" +
@@ -80,42 +86,56 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             "</dl>" +
             '<div id="s-caveat"></div>' +
           "</div></div>" +
-
-        '<div class="card"><div class="card__head"><h3>引用依据</h3>' +
+        '<div class="card mt-4"><div class="card__head"><h3>引用依据</h3>' +
           '<div class="card__head-actions"><span class="t-xs" id="ref-cnt">0 条</span></div></div>' +
           '<div class="card__body" id="refs">' +
             '<span class="t-dim t-sm">提问后显示命中的课件原文片段。</span>' +
           "</div></div>" +
-
-        '<div class="card"><div class="card__head"><h3>试试这些问题</h3></div>' +
+        '<div class="card mt-4"><div class="card__head"><h3>试试这些问题</h3></div>' +
           '<div class="card__body stack-sm" id="suggest">' + PF.loading("加载中") + "</div></div>" +
       "</div>" +
     "</div>";
 
-  /* ---------------------------------------------------------- 历史渲染 */
-  async function loadHistory() {
-    const chat = PF.$("#chat");
-    try {
-      const d = await PF.get("/api/tutor/history?limit=40");
-      const msgs = PF.arr(d.messages);
-      if (!msgs.length) {
-        chat.innerHTML =
-          '<div class="msg msg--ai"><div class="msg__avatar">AI</div>' +
-            '<div class="msg__bubble">你好，我是这门课的 AI 助教。' +
-            "提问时我会先看你的画像，再决定从哪里讲起、讲多深；" +
-            "答案只引用教师上传的课件原文，没有依据的地方会直接说明。\n\n" +
-            "可以先问一个你最近卡住的知识点。</div></div>";
-        return;
-      }
-      chat.innerHTML = msgs.map(renderMsg).join("");
-      const lastAi = msgs.filter(function (m) { return m.role === "assistant"; }).pop();
-      if (lastAi) {
-        setStyle(lastAi.layer, lastAi.engine, lastAi.refs);
-      }
-      scrollBottom();
-    } catch (e) {
-      chat.innerHTML = PF.empty({ icon: "alert", title: "历史加载失败", desc: e.message });
+  /* ---------------------------------------------------------- 布局 */
+  const shell = PF.$("#qa-shell");
+  PF.fitHeight(shell, 24);
+  const dock = PF.bindDock({ shell: shell, grip: PF.$("#qa-grip"), open: false });
+  PF.$("#btn-hist").addEventListener("click", function () { dock.toggle(); });
+
+  /* ---------------------------------------------------------- 数据：一轮对话 */
+  let ROUNDS = [];      // [{q, a, refs, layer, engine, at, qa}]
+  let CURRENT = -1;     // 当前展示第几轮，-1 表示还没问过
+
+  function groupRounds(msgs) {
+    const out = [];
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.role !== "user") continue;
+      const ans = msgs[i + 1] && msgs[i + 1].role === "assistant" ? msgs[i + 1] : null;
+      out.push({
+        q: m.content || "", at: m.created_at || "",
+        a: ans ? ans.content : "", refs: PF.arr(ans && ans.refs),
+        layer: (ans && ans.layer) || "", engine: (ans && ans.engine) || "",
+        qa: null,   // 历史轮次不带协议块，只有当前这一轮有
+      });
     }
+    return out;
+  }
+
+  function paintDock() {
+    const box = PF.$("#qa-history");
+    if (!ROUNDS.length) {
+      box.innerHTML = '<div class="t-xs t-dim">还没有对话记录。</div>';
+      return;
+    }
+    box.innerHTML = ROUNDS.map(function (r, i) {
+      return '<button class="qa-dock__item' + (i === CURRENT ? " is-on" : "") + '" data-r="' + i + '">' +
+        '<div class="qa-dock__q">' + PF.esc(PF.trunc(r.q || "（空）", 40)) + "</div>" +
+        '<div class="qa-dock__t">' + PF.esc(PF.when(r.at)) + "</div></button>";
+    }).join("");
+    PF.$$("[data-r]", box).forEach(function (b) {
+      b.addEventListener("click", function () { paintRound(Number(b.dataset.r)); });
+    });
   }
 
   function renderMsg(m) {
@@ -134,14 +154,50 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         PF.esc(m.content || "") +
         (refs.length ? '<div class="t-xs mt-3" style="color:var(--ink-500)">依据：' +
           refs.slice(0, 3).map(function (r) { return "[" + PF.esc(r) + "]"; }).join(" ") + "</div>" : "") +
+        PF.qaBlock(m.qa) +
       "</div></div>";
   }
 
-  function scrollBottom() {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  function paintRound(i) {
+    CURRENT = i;
+    const chat = PF.$("#chat");
+    if (i < 0 || !ROUNDS[i]) {
+      chat.innerHTML =
+        '<div class="msg msg--ai"><div class="msg__avatar">AI</div>' +
+          '<div class="msg__bubble">你好，我是这门课的 AI 助教。' +
+          "提问时我会先看你的画像，再决定从哪里讲起、讲多深；" +
+          "答案只引用教师上传的课件原文，没有依据的地方会直接说明。\n\n" +
+          "可以先问一个你最近卡住的知识点。以前问过的，点左侧「历史对话」就能翻。</div></div>";
+      paintDock();
+      return;
+    }
+    const r = ROUNDS[i];
+    chat.innerHTML =
+      renderMsg({ role: "user", content: r.q, created_at: r.at, refs: [] }) +
+      (r.a ? renderMsg({ role: "assistant", content: r.a, layer: r.layer,
+                         engine: r.engine, created_at: r.at, refs: r.refs, qa: r.qa }) : "");
+    bindFollowups(chat);
+    setStyle(r.layer, r.engine, r.refs);
+    paintDock();
+    scrollBottom();
   }
 
-  /* ---------------------------------------------------------- 风格面板 */
+  function scrollBottom() {
+    const el = PF.$("#chat");
+    el.scrollTop = el.scrollHeight;
+  }
+
+  /* 追问建议：点一下直接接着问 */
+  function bindFollowups(scope) {
+    PF.$$("[data-fu]", scope).forEach(function (b) {
+      b.addEventListener("click", function () {
+        PF.$("#c-input").value = b.dataset.fu;
+        send();
+      });
+    });
+  }
+
+  /* ---------------------------------------------------------- 右侧面板 */
   function setStyle(layer, engine, refs) {
     const parts = String(layer || "").split("·").map(function (s) { return s.trim(); });
     PF.$("#s-track").innerHTML = parts[0] ? PF.trackBadge(parts[0]) : "—";
@@ -149,7 +205,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       ' <span class="t-xs">' + PF.esc(parts[1]) + "</span>" : "—";
     PF.$("#s-style").textContent = parts[2] || "—";
     PF.$("#s-engine").innerHTML = engine ? PF.engineBadge(engine) : "—";
-    PF.$("#b-layer").textContent = layer || "等待提问";
     PF.$("#s-caveat").innerHTML = PF.caveat(META.caveats && META.caveats.layer
       ? META.caveats.layer
       : "分层只用于决定推荐内容深度与任务难度，不用于分班、不产生标签。");
@@ -167,53 +222,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       : '<span class="t-dim t-sm">本次未命中课件原文，答案会明确说明这一点。</span>';
   }
 
-  /* ---------------------------------------------------------- 提问 */
-  async function send() {
-    const input = PF.$("#c-input");
-    const q = input.value.trim();
-    if (!q) { PF.toast("请先输入问题", "warn"); return; }
-    const btn = PF.$("#btn-send");
-    const chat = PF.$("#chat");
-    if (!chat.querySelector(".msg")) chat.innerHTML = "";
-
-    // 乐观渲染用户消息
-    const userEl = document.createElement("div");
-    userEl.innerHTML = renderMsg({ role: "user", content: q, created_at: new Date().toISOString(), refs: [] });
-    chat.appendChild(userEl.firstElementChild);
-
-    const pending = document.createElement("div");
-    pending.className = "msg msg--ai";
-    pending.innerHTML = '<div class="msg__avatar">AI</div><div class="msg__bubble">' +
-      '<div class="msg__meta"><span class="t-xs t-strong">AI 助教</span>' +
-      '<span class="t-xs t-dim">正在按你的画像组织答案并检索课件…</span></div>' +
-      '<span class="spin"></span></div>';
-    chat.appendChild(pending);
-
-    input.value = "";
-    PF.busy(btn, true, "生成中");
-    scrollBottom();
-
-    try {
-      const d = await PF.post("/api/tutor/ask", {
-        question: q,
-        course: PF.$("#c-course").value,
-        top_k: Number(PF.$("#c-top").value),
-      });
-      pending.innerHTML = renderMsg({
-        role: "assistant", content: d.answer, layer: d.layer, engine: d.engine,
-        created_at: new Date().toISOString(), refs: d.refs,
-      });
-      setStyle(d.layer, d.engine, d.refs);
-      if (PF.arr(d.hits).length) paintHits(d.hits);
-      scrollBottom();
-    } catch (e) {
-      pending.innerHTML = '<div class="msg__avatar">AI</div><div class="msg__bubble">' +
-        PF.esc("生成失败：" + e.message) + "</div>";
-    } finally { PF.busy(btn, false); }
-  }
-
   function paintHits(hits) {
     const VIA = { "bm25": "关键词", "vec": "语义", "bm25+vec": "双路" };
+    PF.$("#ref-cnt").textContent = PF.arr(hits).length + " 条";
     PF.$("#refs").innerHTML = PF.arr(hits).map(function (h, i) {
       return '<div class="ref-item"><div class="ref-item__idx">' + (i + 1) + "</div>" +
         '<div class="ref-item__text">' +
@@ -225,7 +236,72 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     }).join("");
   }
 
-  /* ---------------------------------------------------------- 推荐问题 */
+  /* ---------------------------------------------------------- 智能体简介卡 */
+  (async function loadAgentCard() {
+    const m = await PF.try(function () { return PF.get("/api/manual", { quiet: true }); }, null);
+    const a = (m && m.agents && m.agents.student) || {
+      name: "学习助手",
+      one_line: "卡住了就问它。它会按你现在的进度决定从哪里讲起、讲多深。",
+      answers: ["概念辨析", "作业卡点", "方法步骤", "路径规划", "资源获取"],
+      how: "先确认你问的是什么 → 按你的进度讲 → 标出出处 → 给你下一步",
+      ground: "只引用老师上传的资料，没找到会直接说明，不会编",
+      caveat: "讲解深度因人而异，这只是内容深浅，不代表分班。",
+    };
+    PF.$("#agent-card").innerHTML = PF.agentCard(Object.assign({ btnId: "btn-manual" }, a));
+    PF.$("#btn-manual").addEventListener("click", function () { PF.manual("qa"); });
+  })();
+
+  /* ---------------------------------------------------------- 提问 */
+  async function send() {
+    const input = PF.$("#c-input");
+    const q = input.value.trim();
+    if (!q) { PF.toast("请先输入问题", "warn"); return; }
+    const btn = PF.$("#btn-send");
+
+    // 先把问题放到主区，回答到位后再补上
+    ROUNDS.push({ q: q, a: "", refs: [], layer: "", engine: "", at: new Date().toISOString(), qa: null });
+    CURRENT = ROUNDS.length - 1;
+    PF.$("#chat").innerHTML =
+      renderMsg({ role: "user", content: q, created_at: ROUNDS[CURRENT].at, refs: [] }) +
+      '<div class="msg msg--ai"><div class="msg__avatar">AI</div><div class="msg__bubble">' +
+        '<div class="msg__meta"><span class="t-xs t-strong">AI 助教</span>' +
+        '<span class="t-xs t-dim">正在按你的画像组织答案并检索课件…</span></div>' +
+        '<span class="spin"></span></div></div>';
+    input.value = "";
+    PF.busy(btn, true, "生成中");
+    scrollBottom();
+    paintDock();
+
+    try {
+      const d = await PF.post("/api/tutor/ask", {
+        question: q,
+        course: PF.$("#c-course").value,
+        top_k: Number(PF.$("#c-top").value),
+      });
+      ROUNDS[CURRENT] = {
+        q: q, a: d.answer, refs: PF.arr(d.refs), layer: d.layer, engine: d.engine,
+        at: new Date().toISOString(), qa: d,
+      };
+      paintRound(CURRENT);
+      if (PF.arr(d.hits).length) paintHits(d.hits);
+    } catch (e) {
+      ROUNDS[CURRENT].a = "生成失败：" + e.message;
+      paintRound(CURRENT);
+    } finally { PF.busy(btn, false); }
+  }
+
+  /* ---------------------------------------------------------- 历史与推荐问题 */
+  async function loadHistory() {
+    try {
+      const d = await PF.get("/api/tutor/history?limit=60");
+      ROUNDS = groupRounds(PF.arr(d.messages));
+      CURRENT = ROUNDS.length ? ROUNDS.length - 1 : -1;
+    } catch (e) {
+      ROUNDS = []; CURRENT = -1;
+    }
+    paintRound(CURRENT);
+  }
+
   (async function loadSuggest() {
     const box = PF.$("#suggest");
     const preset = new URLSearchParams(location.search).get("q");
@@ -252,10 +328,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       });
     });
 
-    if (preset) {
-      PF.$("#c-input").value = preset;
-      send();
-    }
+    if (preset) { PF.$("#c-input").value = preset; send(); }
   })();
 
   PF.$("#btn-send").addEventListener("click", send);
@@ -270,8 +343,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     if (!yes) return;
     try {
       await PF.post("/api/tutor/clear");
+      ROUNDS = []; CURRENT = -1;
       setStyle("", "", []);
-      await loadHistory();
+      paintRound(-1);
       PF.toast("对话已清空", "ok");
     } catch (e) { /* 已提示 */ }
   });
