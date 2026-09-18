@@ -100,7 +100,7 @@ def _chapter_parse() -> dict[str, Any]:
             for r in parsekit.NOISE_RULES]
     return {
         "id": "parse",
-        "title": "① 上传的资料是怎么被读懂的",
+        "title": "① 资料怎么被读懂",
         "summary": "你把资料传上来，系统会先看清楚它是什么、哪些有用、哪些该扔掉，再整理成方便查找的样子。",
         "sections": [
             {"type": "text", "title": "第一步：看清楚里面有什么",
@@ -124,7 +124,7 @@ def _chapter_parse() -> dict[str, Any]:
 def _chapter_kp() -> dict[str, Any]:
     return {
         "id": "kp",
-        "title": "② 知识点是怎么抽出来的",
+        "title": "② 知识点怎么抽出来",
         "summary": "不同类型的资料，抽法不一样。课件看「讲了哪几个概念」，作业看「考的是哪个点」。",
         "sections": [
             {"type": "text", "title": "一套方法套不住所有资料",
@@ -153,7 +153,7 @@ def _chapter_qa() -> dict[str, Any]:
     teacher_labels = "、".join(t["label"] for t in ia.QUESTION_TYPES["teacher"])
     return {
         "id": "qa",
-        "title": "③ 提问之后会发生什么",
+        "title": "③ 提问后会发生什么",
         "summary": "不是问一句答一句就结束。系统会先判断你问的是哪一类，再决定怎么讲、讲多深，最后给你下一步。",
         "sections": [
             {"type": "table", "title": "可以问什么", "columns": ["谁在问", "适合问这些"],
@@ -182,7 +182,7 @@ def _chapter_rag() -> dict[str, Any]:
     rows = [[s["name"], s["when"], s["desc"]] for s in ragroute.STRATEGIES]
     return {
         "id": "rag",
-        "title": "④ 回答问题前，它是怎么找材料的",
+        "title": "④ 怎么找材料",
         "summary": "找材料不是只有一种办法。系统会先看你问的是哪一类问题，再决定用哪种办法去查——查得对，才答得准。",
         "sections": [
             {"type": "text", "title": "为什么不能只用一种办法",
@@ -209,7 +209,7 @@ def _chapter_agent() -> dict[str, Any]:
     gen_rows = [[k["label"], k["desc"]] for k in agenttools.GEN_KINDS]
     return {
         "id": "agent",
-        "title": "⑤ 它不只是聊天，还能动手做事",
+        "title": "⑤ 不止聊天，还能干活",
         "summary": "除了回答问题，它还能帮你把资料收进来、把材料做出来。做出来的东西每一句都能追到出处。",
         "sections": [
             {"type": "text", "title": "先说清楚：它是对话，也是能干活的助手",
@@ -234,7 +234,7 @@ def _chapter_agent() -> dict[str, Any]:
 def _chapter_session() -> dict[str, Any]:
     return {
         "id": "session",
-        "title": "⑥ 对话怎么管理",
+        "title": "⑥ 对话管理",
         "summary": "一次对话解决一件事。想换个话题就新开一次，想接着上次聊就回到那一次。",
         "sections": [
             {"type": "list", "title": "左边那一栏是这么安排的", "items": [
@@ -259,7 +259,7 @@ def _chapter_synth() -> dict[str, Any]:
     kinds = [r["label"] for r in synth.REASON_RULES if r["id"] != "_default"]
     return {
         "id": "synth",
-        "title": "⑦ 找到材料之后，它是怎么组织成回答的",
+        "title": "⑦ 怎么组织成回答",
         "summary": "查到的资料只是证据，不能直接端给你。中间还有一步：把证据串成一条讲得通的推理。",
         "sections": [
             {"type": "text", "title": "为什么不能直接把原文给你",

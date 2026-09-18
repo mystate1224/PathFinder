@@ -514,9 +514,9 @@
     }
 
     nav.innerHTML = chapters.map(function (c) {
-      return '<button class="btn btn--sm mn-navbtn" data-ch="' + PF.esc(c.id) + '">' +
+      return '<button class="mn-navbtn" data-ch="' + PF.esc(c.id) + '">' +
         PF.esc(c.title) + "</button>";
-    }).join("") + '<button class="btn btn--sm mn-navbtn" data-ch="api">给开发者的接口清单</button>';
+    }).join("") + '<button class="mn-navbtn" data-ch="api">开发者接口清单</button>';
 
     PF.$$("[data-ch]", nav).forEach(function (b) {
       b.addEventListener("click", function () { pick(b.dataset.ch); });
@@ -1280,7 +1280,7 @@
         : (t.id === "rag" || t.id === "synth")
           ? cases.filter(function (c) { return c.ability === t.id; }).length
           : samples.filter(function (s) { return s.ability === t.id; }).length;
-      return '<button class="btn btn--sm mn-navbtn" data-t="' + t.id + '">' + PF.esc(t.label) +
+      return '<button class="mn-navbtn" data-t="' + t.id + '">' + PF.esc(t.label) +
         " <span class='t-xs t-dim'>" + n + "</span></button>";
     }).join("");
     PF.$$("[data-t]", nav).forEach(function (b) {
