@@ -25,20 +25,76 @@ def categories(owner_id: int) -> list[str]:
 def _scope_clause(owner_id: int, teacher_scope: bool, prefix: str = "kp") -> tuple[str, list]:
     """知识点的可见范围（纯数据权限，与"分层教学"无关）。
 
-    * 教师 → 全库：课程知识点的整体覆盖情况是备课与命题的依据。
-    * 学生 → 自己的材料 + **教师上传的共享课件**。
+    统一走 ``rag.search_scope``，与检索层同一条规则：
+
+    * 教师 → 自己 + 全部教师上传的公用课件（课程知识点是备课与命题的依据）；
+    * 学生 → 自己的材料 + **已导入**的教师公用资料。
 
     学生之间互不可见：成绩单、简历是私人材料，而教师上传的课件是课程共享资产，
     两者性质不同，必须区别对待 —— 一刀切"全库"会泄露他人隐私，
-    一刀切"只看自己"则学生永远看不到课程知识点（这是演示时的空库陷阱）。
+    一刀切"只看自己"则学生看不到课程知识点（这是演示时的空库陷阱，见 seeds 的预导入）。
     """
-    if teacher_scope:
-        return "", []
-    clause = (
-        f" AND ({prefix}.owner_id = ? OR {prefix}.owner_id IN "
-        "(SELECT id FROM users WHERE role = 'teacher'))"
+    return rag.search_scope(owner_id, teacher_scope, prefix)
+
+
+# ================================================================ 教师公用资料与导入
+def shared_materials(viewer_id: int) -> list[dict]:
+    """教师上传的公用资料列表（学生视角的「教师共享」区）。
+
+    只给元信息与摘要，不给正文；带 ``imported`` 标记供前端渲染「导入 / 移除」。
+    教师自己调用时返回空 —— 公用池本来就是他们建的，不重复展示。
+    """
+    rows = db.query(
+        "SELECT m.id, m.filename, m.kind, m.category, m.engine, m.created_at, "
+        "       m.parsed, u.name AS owner_name, "
+        "       (SELECT COUNT(*) FROM knowledge_points kp WHERE kp.material_id = m.id) AS knowledge_count, "
+        "       EXISTS(SELECT 1 FROM material_imports mi "
+        "              WHERE mi.material_id = m.id AND mi.user_id = ?) AS imported "
+        "FROM materials m JOIN users u ON u.id = m.owner_id "
+        "WHERE u.role = 'teacher' ORDER BY m.id DESC",
+        (int(viewer_id),),
     )
-    return clause, [owner_id]
+    for row in rows:
+        parsed = db.jload(row.get("parsed"), {}) or {}
+        row["summary"] = str(parsed.get("summary") or "")[:80]
+        row.pop("parsed", None)
+        row["imported"] = bool(row.get("imported"))
+    return rows
+
+
+def import_material(user_id: int, material_id: int) -> tuple[bool, str]:
+    """把教师公用资料导入自己的检索库。返回 (ok, message)。"""
+    row = db.query_one(
+        "SELECT m.id, u.role AS owner_role FROM materials m "
+        "JOIN users u ON u.id = m.owner_id WHERE m.id = ?",
+        (material_id,),
+    )
+    if not row:
+        return False, "资料不存在"
+    if str(row.get("owner_role")) != "teacher":
+        return False, "只能导入教师上传的公用资料"
+    db.execute(
+        "INSERT OR IGNORE INTO material_imports (user_id, material_id, created_at) VALUES (?,?,?)",
+        (int(user_id), int(material_id), db.now()),
+    )
+    return True, "已导入：之后的提问可以引用这份资料"
+
+
+def remove_import(user_id: int, material_id: int) -> bool:
+    """移除导入：只删引用记录，公用资料本体不受影响。"""
+    with db.connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM material_imports WHERE user_id = ? AND material_id = ?",
+            (int(user_id), int(material_id)),
+        )
+        return int(cur.rowcount or 0) > 0
+
+
+def imported_ids(user_id: int) -> list[int]:
+    rows = db.query(
+        "SELECT material_id FROM material_imports WHERE user_id = ?", (int(user_id),)
+    )
+    return [int(r["material_id"]) for r in rows]
 
 
 def overview(owner_id: int, teacher_scope: bool = False) -> dict:
@@ -48,7 +104,7 @@ def overview(owner_id: int, teacher_scope: bool = False) -> dict:
     stats["knowledge_points"] = db.scalar(
         "SELECT COUNT(*) FROM knowledge_points kp WHERE 1=1" + clause, tuple(args), 0
     )
-    stats["knowledge_scope"] = "全库（课程知识点）" if teacher_scope else "我的材料 + 教师共享课件"
+    stats["knowledge_scope"] = "教师公用资料（全量）" if teacher_scope else "我的资料 + 已导入的公用资料"
     return {
         "categories": categories(owner_id),
         "kinds": [{"value": k, "label": v} for k, v in extract.KINDS.items()],
@@ -57,7 +113,8 @@ def overview(owner_id: int, teacher_scope: bool = False) -> dict:
     }
 
 
-def materials(owner_id: int, category: str = "", course: str = "", keyword: str = "") -> dict:
+def materials(owner_id: int, category: str = "", course: str = "",
+              keyword: str = "", teacher_scope: bool = False) -> dict:
     items = extract.list_materials(owner_id, category, course, keyword)
     # 按分类分组，前端可直接渲染分组卡片
     grouped: dict[str, list[dict]] = {}
@@ -68,6 +125,9 @@ def materials(owner_id: int, category: str = "", course: str = "", keyword: str 
         "grouped": [{"category": k, "items": v} for k, v in grouped.items()],
         "categories": categories(owner_id),
         "count": len(items),
+        # 教师上传的公用资料：学生在列表里可见，可选择「导入数据库」进入自己的检索范围。
+        # 教师视角不重复展示（公用池是教师自己建的）。
+        "shared": [] if teacher_scope else shared_materials(owner_id),
     }
 
 

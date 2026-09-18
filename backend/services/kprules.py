@@ -181,14 +181,43 @@ def difficulty_of(text: str, mode: str = "depth_words", bloom: str = "理解") -
 
 
 def _clean_name(raw: str, max_len: int = 30) -> str:
-    name = re.sub(r"^[#\s\d.、,，:：（）()]+", "", (raw or "").strip())
+    """洗知识点名：去掉 markdown 标记（标题符 / 列表符 / 引用符）、序号与残缺括号。"""
+    name = re.sub(r"^[#\s\d.、,，:：：（）()>*+\-—]+", "", (raw or "").strip())
     name = re.split(r"[。！？；;：:\n]", name)[0].strip()
-    return name[:max_len].strip()
+    # 截断前先把没闭合的括号去掉，避免出现「……（机器学习，」这种半截名字
+    name = name[:max_len]
+    # 截断之后可能又出现半截括号，再收一次
+    name = re.sub(r"[（(][^（()）]*$", "", name).strip("、,，;；:： ")
+    return name.strip("、,，;；:： （(")
 
 
 def _first_clause(text: str, max_len: int = 30) -> str:
     head = re.split(r"[。！？；;\n]", (text or "").strip())[0]
     return _clean_name(head, max_len)
+
+
+# 版式词黑名单：这些是"章节版式语言"，不是知识点。
+# 最典型的场景是智能体生成的资料（复习提纲 / 小结 / 教案）入库再抽一遍——
+# 它的 markdown 小标题（涉及知识点、建议下一步……）会被当成知识点抽出来，
+# 于是右侧「试试这些问题」出现「讲讲要点」这种没有意义的说法。加规则只动这张表。
+_STOP_HEADING = re.compile(
+    r"^(?:第?\s*[一二三四五六七八九十\d]+\s*[章节篇部分]?\s*[、.．:：\s]*)?"
+    r"(?:涉及)?(?:知识点|要点|重点|难点|小结|总结|概述|简介|前言|序言|目录|参考文献|附录|致谢|"
+    r"建议下一步|下一步(?:建议)?|练习|习题|思考题|作业|目标|教学目标|环节|导入|讲授|推演|"
+    r"板书|提问设计|依据|引用|参考资料|说明|备注|写在最后|常见问题|自测|自测题|拓展)$"
+)
+
+
+# 顺带一条：生成资料里常见的"待办式"条目（做一道计算题 / 练一遍推导）也不是知识点。
+_TASK_ITEM = re.compile(r"^(?:做|练|练习|完成|试着|尝试|请)?\s*一?(?:道|个|下|遍|组|套)\S{0,8}$")
+
+
+def is_stop_name(name: str) -> bool:
+    """是不是版式词（不该被当成知识点）。"""
+    key = re.sub(r"\s+", "", name or "")
+    if not key:
+        return False
+    return bool(_STOP_HEADING.match(key)) or bool(_TASK_ITEM.match(key))
 
 
 # ================================================================ 抽取
@@ -262,7 +291,7 @@ def extract(
         if not name or len(name) < 2:
             continue
         key = re.sub(r"\s+", "", name)
-        if key in seen:
+        if key in seen or is_stop_name(name):
             continue
         seen.add(key)
 

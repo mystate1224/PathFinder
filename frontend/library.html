@@ -338,7 +338,64 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           '<div class="spacer"></div>' +
           '<span class="t-xs">共 <strong id="m-cnt">' + PF.arr(d.materials).length + "</strong> 份</span>" +
         "</div></div></div>" +
+        (isTeacher ? "" : '<div id="shared-body" class="mb-5"></div>') +
         '<div id="m-body"></div>';
+
+      /* 教师共享区：老师上传的公用资料。默认不进你的检索范围，
+         点「导入数据库」后才参与答疑引用；移除只删引用，不动老师那边。 */
+      function paintShared() {
+        const box2 = PF.$("#shared-body", box);
+        if (!box2) return;
+        const shared = PF.arr(d.shared);
+        box2.innerHTML = '<div class="card"><div class="card__head"><h3>' + PF.icon("users", 15) +
+          " 教师共享资料</h3>" +
+          '<div class="card__head-actions"><span class="t-xs t-dim">导入后才会进入你的答疑检索范围</span></div></div>' +
+          '<div class="card__body card__body--flush">' +
+          (shared.length
+            ? '<div class="list">' + shared.map(function (s) {
+                return '<div class="list__item"><div class="list__main">' +
+                  '<div class="list__title">' + PF.esc(s.filename) + "</div>" +
+                  '<div class="list__meta"><span class="chip">' + PF.esc(s.kind || "其它") + "</span>" +
+                    '<span class="chip">' + PF.esc(s.category || "未分类") + "</span>" +
+                    "<span>" + PF.esc(s.owner_name || "教师") + "</span>" +
+                    "<span>" + PF.num(s.knowledge_count, 0) + " 个知识点</span>" +
+                    "<span>" + PF.esc(PF.when(s.created_at)) + "</span></div>" +
+                  "</div>" +
+                  '<div class="list__side">' +
+                    (s.imported
+                      ? '<button class="btn btn--sm" data-unimp="' + s.id + '">移除导入</button>'
+                      : '<button class="btn btn--sm btn--primary" data-imp="' + s.id + '">导入数据库</button>') +
+                  "</div></div>";
+              }).join("") + "</div>"
+            : PF.empty({ icon: "users", title: "老师还没有上传共享资料", desc: "上传后会出现在这里，可选择导入。" })) +
+          "</div></div>";
+
+        PF.$$("[data-imp]", box2).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            try {
+              await PF.post("/api/materials/" + b.dataset.imp + "/import", {});
+              PF.toast("已导入：答疑可以引用这份资料了", "ok");
+              invalidate();
+              const fresh = await materials(true);
+              d.shared = fresh.shared;
+              paintShared();
+            } catch (e) { /* 已提示 */ }
+          });
+        });
+        PF.$$("[data-unimp]", box2).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            try {
+              await PF.del("/api/materials/" + b.dataset.unimp + "/import");
+              PF.toast("已移除导入：这份资料不再进入你的检索范围", "ok");
+              invalidate();
+              const fresh = await materials(true);
+              d.shared = fresh.shared;
+              paintShared();
+            } catch (e) { /* 已提示 */ }
+          });
+        });
+      }
+      paintShared();
 
       function paint() {
         const qs = new URLSearchParams();
@@ -604,7 +661,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               }).join("") + "</div>"
             : PF.empty({ icon: "search", title: "没有命中任何片段",
                 desc: "试试更短的关键词，或先在「概览」上传相关资料。" })) +
-          '<div class="mt-4">' + PF.caveat("检索范围：你的资料 + 教师共享课件；命中的原文片段会作为答疑与备课的依据。") + "</div>";
+          '<div class="mt-4">' + PF.caveat("检索范围：你自己的资料 + 已导入的教师共享资料；同学之间的私人材料互相不可见。") + "</div>";
       } catch (e) {
         out.innerHTML = PF.empty({ icon: "alert", title: "检索失败", desc: e.message });
       } finally { PF.busy(btn, false); }

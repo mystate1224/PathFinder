@@ -99,6 +99,48 @@ def _fts_quote(term: str) -> str:
     return '"' + term.replace('"', '""') + '"'
 
 
+# ================================================================ 可见范围（用户数据隔离）
+def search_scope(owner_id: int, teacher: bool = False, prefix: str = "",
+                 id_col: str = "material_id") -> tuple[str, list]:
+    """检索 / 知识点查询的**可见范围**子句（纯数据权限，与分层无关）。
+
+    * 学生 → 自己上传的资料 + **已导入**的教师公用资料（``material_imports``）；
+      同学之间互不可见：成绩单、简历是私人材料，绝不能出现在别人的检索结果里。
+    * 教师 → 自己 + 全部教师上传的公用资料（公用池本就是教师共建的）。
+
+    ``prefix`` 用于带表别名的列（如 ``kp.owner_id``）；``id_col`` 是"资料 id 列"的名字 ——
+    分块表 / 知识点表叫 ``material_id``，而 ``materials`` 表主键就叫 ``id``，别写错。
+    返回 ``(clause, args)``，clause 以 `` AND `` 开头，可直接拼在 WHERE 之后。
+    """
+    owner_id = int(owner_id or 0)
+    if not owner_id:  # 0 = 不指定（自检 / 兼容旧调用）→ 不做过滤
+        return "", []
+    # 容错：调用方写 "kp" 还是 "kp." 都接受，别拼出 "kpowner_id" 这种列名。
+    if prefix and not prefix.endswith("."):
+        prefix += "."
+    if teacher:
+        clause = (
+            f" AND ({prefix}owner_id = ? OR {prefix}owner_id IN "
+            "(SELECT id FROM users WHERE role = 'teacher'))"
+        )
+        return clause, [owner_id]
+    clause = (
+        f" AND ({prefix}owner_id = ? OR {prefix}{id_col} IN "
+        "(SELECT material_id FROM material_imports WHERE user_id = ?))"
+    )
+    return clause, [owner_id, owner_id]
+
+
+def visible_material_ids(owner_id: int, teacher: bool = False) -> set[int]:
+    """可见材料 id 集合（向量路内存过滤用）。``owner_id`` 为 0 时返回空集表示不过滤。"""
+    if not owner_id:
+        return set()
+    # materials 表的主键是 id，不是 material_id —— 这里必须显式指定，否则会报 no such column。
+    clause, args = search_scope(owner_id, teacher, id_col="id")
+    rows = db.query("SELECT id FROM materials WHERE 1=1" + clause, tuple(args))
+    return {int(r["id"]) for r in rows}
+
+
 # ================================================================ 入库
 def index_material(
     material_id: int,
@@ -129,19 +171,28 @@ def index_material(
 
 
 def drop_material(material_id: int) -> None:
-    """删除一份材料的全部索引（全文 + 向量）。"""
+    """删除一份材料的全部索引（全文 + 向量 + 导入记录）。"""
     with db.connect() as conn:
         try:
             conn.execute("DELETE FROM kb_fts WHERE material_id = ?", (material_id,))
         except Exception:
             pass
         conn.execute("DELETE FROM kb_vec WHERE material_id = ?", (material_id,))
+        try:
+            conn.execute("DELETE FROM material_imports WHERE material_id = ?", (material_id,))
+        except Exception:
+            pass  # 老库还没升级出该表时忽略
 
 
 # ================================================================ 召回
-def _recall_one(term: str, top_k: int, course: str) -> list[dict]:
-    """单个候选词召回。``len>=3`` 走 FTS5，否则/无结果降级 LIKE。"""
+def _recall_one(term: str, top_k: int, course: str,
+                owner_id: int = 0, teacher: bool = False) -> list[dict]:
+    """单个候选词召回。``len>=3`` 走 FTS5，否则/无结果降级 LIKE。
+
+    ``owner_id`` 非零时按用户隔离：只召回可见范围内的片段。
+    """
     rows: list[dict] = []
+    scope_clause, scope_args = search_scope(owner_id, teacher)
 
     if db.FTS_OK and len(term) >= 3:
         sql = (
@@ -153,6 +204,8 @@ def _recall_one(term: str, top_k: int, course: str) -> list[dict]:
         if course:
             sql += " AND course = ?"
             args.append(course)
+        sql += scope_clause
+        args.extend(scope_args)
         sql += " ORDER BY rank_score LIMIT ?"
         args.append(top_k)
         try:
@@ -170,6 +223,8 @@ def _recall_one(term: str, top_k: int, course: str) -> list[dict]:
         if course:
             sql += " AND course = ?"
             args.append(course)
+        sql += scope_clause
+        args.extend(scope_args)
         sql += " LIMIT ?"
         args.append(top_k)
         try:
@@ -183,12 +238,16 @@ def _recall_one(term: str, top_k: int, course: str) -> list[dict]:
     return rows
 
 
-def search(query: str, top_k: int = 8, course: str = "") -> list[dict]:
-    """关键词路召回。返回带 ``ref``（``文件名#分片号``）的片段列表。"""
+def search(query: str, top_k: int = 8, course: str = "",
+           owner_id: int = 0, teacher: bool = False) -> list[dict]:
+    """关键词路召回。返回带 ``ref``（``文件名#分片号``）的片段列表。
+
+    ``owner_id`` 非零时按用户隔离（学生 = 自己 + 已导入的公用资料）。
+    """
     seen: set[tuple] = set()
     merged: list[dict] = []
     for term in candidate_terms(query):
-        for row in _recall_one(term, top_k, course):
+        for row in _recall_one(term, top_k, course, owner_id, teacher):
             key = (row.get("material_id"), row.get("chunk_index"))
             if key in seen:
                 continue

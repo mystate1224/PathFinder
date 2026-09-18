@@ -13,11 +13,13 @@
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Sequence
 
 import db
 import llm
-from services import dashboard, interaction as ia, retriever, teaching, tutor
+from services import (dashboard, interaction as ia, ragroute, retriever, synth,
+                      teaching, tutor)
 
 SKILLS: list[dict] = [
     {"value": "student", "label": "查学生", "hint": "例：看看张三的画像 / stu03 的成绩如何"},
@@ -166,7 +168,8 @@ def _branch_lesson(teacher: dict, question: str) -> dict:
         (int(teacher.get("id") or 0),),
     )
     course = str(courses[0]["course"]) if courses else ""
-    result = teaching.lesson_plan(topic, course=course, periods=periods, level=level)
+    result = teaching.lesson_plan(topic, course=course, periods=periods, level=level,
+                                  owner_id=int(teacher.get("id") or 0))
     plan = result["plan"]
 
     lines = [
@@ -197,25 +200,23 @@ def _branch_lesson(teacher: dict, question: str) -> dict:
 
 # ================================================================ 分支三：讲知识点
 def _branch_explain(teacher: dict, question: str) -> dict:
-    hits = retriever.hybrid_search(question, top_k=4)
-    context = retriever.context_block(hits)
+    hits = retriever.hybrid_search(question, top_k=4, owner_id=int(teacher.get("id") or 0),
+                                   teacher=True)
     refs = [h.get("ref") for h in hits if h.get("ref")]
 
-    rule = tutor.rule_answer(question, hits, "学业型", "A")  # 教师视角：按最高信息密度组织
-    messages = [
-        {"role": "system", "content": (
-            "你是高校教学顾问，正在帮助教师准备课堂讲解。\n"
-            "要求：1. 只依据给定资料，不要编造；2. 关键结论后用 [资料名] 标注来源；"
-            "3. 分「一句话结论 / 讲清的三个层次 / 课堂上容易被问到的问题」三部分；"
-            "4. 中文，400 字以内。\n\n"
-            f"【参考资料】\n{context or '（本次未检索到相关教师资料）'}"
-        )},
-        {"role": "user", "content": question},
-    ]
-    answer, engine = llm.chat(messages, mock=lambda: rule, temperature=0.3)
+    # 综合生成层：检索只给证据，讲解要"过一遍脑子"再出来
+    #   模型版：结论 / 推理链 / 易混点 / 下一步；规则版：按 REASON_RULES 组织推理
+    answer, engine, synth_view = synth.compose(
+        "teacher", question, hits,
+        track="学业型", level="A",          # 教师视角：按最高信息密度组织
+        intent="explain", style="讲知识点",
+        next_step="课堂上先给结论，再让学生复述一遍中间那一跳。",
+    )
     if engine == "llm" and refs and not any(f"[{r}]" in answer for r in refs[:2]):
         answer += "\n\n资料来源：" + "；".join(f"[{r}]" for r in refs[:3])
-    return {"answer": answer, "data": {"refs": refs, "hits": len(hits)}, "engine": engine}
+    return {"answer": answer,
+            "data": {"refs": refs, "hits": len(hits), "synth": synth_view},
+            "engine": engine}
 
 
 # ================================================================ 分支四：批改标准
@@ -224,7 +225,8 @@ def _branch_grading(teacher: dict, question: str) -> dict:
 
     规则版也必须有真实内容：三档描述 + 三条扣分点是教师真正会用的东西。
     """
-    hits = retriever.hybrid_search(question, top_k=3)
+    hits = retriever.hybrid_search(question, top_k=3, owner_id=int(teacher.get("id") or 0),
+                                   teacher=True)
     context = retriever.context_block(hits)
     refs = [h.get("ref") for h in hits if h.get("ref")]
     rubric = {
@@ -257,12 +259,19 @@ def _branch_grading(teacher: dict, question: str) -> dict:
 
 
 # ================================================================ 对外
-def ask(teacher: dict, question: str, skill: str = "") -> dict:
-    """教师 Copilot 入口。返回 ``{intent, answer, data, engine, skills}``。"""
+def ask(teacher: dict, question: str, skill: str = "",
+        session_id: str = "", strategy: str = "auto") -> dict:
+    """教师 Copilot 入口。返回 ``{intent, answer, data, engine, skills, rag, session_id}``。
+
+    ``session_id``：不传就新开一次对话，传了就续上（支持「回到某一次对话」）。
+    ``strategy``：``auto`` 走 RAG 路由，也可显式指定五种架构之一做演示对比。
+    """
     question = (question or "").strip()
     if not question:
         return {"intent": "explain", "answer": "请先描述你想做什么。",
-                "data": {}, "engine": "rule", "skills": SKILLS}
+                "data": {}, "engine": "rule", "skills": SKILLS,
+                "session_id": session_id or "", "rag": {}}
+    session_id = (session_id or "").strip() or ("s" + uuid.uuid4().hex[:10])
 
     intent = detect_intent(question, skill)
     engine = "rule"
@@ -278,8 +287,19 @@ def ask(teacher: dict, question: str, skill: str = "") -> dict:
     engine = str(result.get("engine") or engine)
     typed = ia.classify(question, "teacher")
     user_id = int(teacher.get("id") or 0)
-    db.log_chat(user_id, "user", question, scene="copilot")
-    db.log_chat(user_id, "assistant", result.get("answer") or "", scene="copilot", engine=engine)
+
+    # ---- RAG 路由：与学生侧共用同一套五种架构；需要查证的分支才真正执行检索
+    rag = ragroute.resolve(question, "teacher", strategy)
+    if intent in ("explain", "student"):
+        executed = ragroute.execute(rag["strategy"], question, teacher, 4, "")
+        rag = {**rag, "extra": executed.get("extra") or {}}
+        data = result.setdefault("data", {})
+        if not data.get("refs") and executed.get("hits"):
+            data["refs"] = [h.get("ref") for h in executed["hits"] if h.get("ref")]
+
+    db.log_chat(user_id, "user", question, scene="copilot", session_id=session_id)
+    db.log_chat(user_id, "assistant", result.get("answer") or "", scene="copilot",
+                engine=engine, session_id=session_id)
 
     return {
         "intent": intent,
@@ -296,21 +316,55 @@ def ask(teacher: dict, question: str, skill: str = "") -> dict:
         "followups": ia.followups_of(typed["type"]),
         "actions": ia.actions_of("teacher", intent,
                                  (result.get("data") or {}).get("refs")),
+        "session_id": session_id,
+        "rag": rag,
+        # ---- 综合生成视图：教师侧同样展示"答案是怎么想出来的"
+        "synth": (result.get("data") or {}).get("synth") or {},
     }
 
 
-def history(teacher_id: int, limit: int = 20) -> list[dict]:
-    rows = db.query(
-        "SELECT * FROM chat_messages WHERE user_id = ? AND scene = 'copilot' ORDER BY id DESC LIMIT ?",
-        (teacher_id, limit),
-    )
+def history(teacher_id: int, limit: int = 20, session_id: str = "") -> list[dict]:
+    """读某一次对话；``session_id`` 为空时读全部（兼容老数据的「早期对话」）。"""
+    sql = "SELECT * FROM chat_messages WHERE user_id = ? AND scene = 'copilot'"
+    args: list = [teacher_id]
+    if session_id:
+        sql += " AND session_id = ?"
+        args.append(session_id)
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    rows = db.query(sql, tuple(args))
     rows.reverse()
+    for row in rows:
+        row["session_id"] = row.get("session_id") or ""
     return rows
 
 
-def clear_history(teacher_id: int) -> None:
-    """只清 Copilot 场景的记录，不影响教师在其他场景（如有）的对话。"""
+def sessions(teacher_id: int, limit: int = 30) -> list[dict]:
+    """会话列表：新开对话 / 回到某一次对话。"""
+    out = []
+    for r in db.chat_sessions(teacher_id, "copilot", limit):
+        sid = r.get("session_id") or ""
+        out.append({
+            "session_id": sid,
+            "title": (db.first_question(teacher_id, "copilot", sid) or "（空会话）") if sid else "早期对话",
+            "turns": int(r.get("turns") or 0),
+            "last_at": r.get("last_at") or "",
+        })
+    return out
+
+
+def new_session() -> str:
+    return "s" + uuid.uuid4().hex[:10]
+
+
+def clear_history(teacher_id: int, session_id: str = "") -> None:
+    """只清 Copilot 场景的记录；传 ``session_id`` 时只清那一次对话。"""
     with db.connect() as conn:
-        conn.execute(
-            "DELETE FROM chat_messages WHERE user_id = ? AND scene = 'copilot'", (teacher_id,)
-        )
+        if session_id:
+            conn.execute(
+                "DELETE FROM chat_messages WHERE user_id = ? AND scene = 'copilot' AND session_id = ?",
+                (teacher_id, session_id))
+        else:
+            conn.execute(
+                "DELETE FROM chat_messages WHERE user_id = ? AND scene = 'copilot'", (teacher_id,)
+            )

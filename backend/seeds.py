@@ -839,6 +839,28 @@ def seed_materials() -> dict:
     return made
 
 
+def seed_imports() -> int:
+    """预导入：给每个学生导入全部教师公用资料。
+
+    数据隔离后的「空库陷阱」保险 —— 演示账号登录即可提问（课件本来就该被引用），
+    而同学之间的私人材料（成绩单 / 简历）依然互不可见。
+    真实新用户则走「我的资料库 → 教师共享 → 导入」的显式流程。
+    """
+    teacher_ids = [int(r["id"]) for r in db.query(
+        "SELECT id FROM users WHERE role = 'teacher'")]
+    student_ids = [int(r["id"]) for r in db.query(
+        "SELECT id FROM users WHERE role = 'student'")]
+    with db.connect() as conn:
+        for sid in student_ids:
+            for tid in teacher_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO material_imports (user_id, material_id, created_at) "
+                    "SELECT ?, id, ? FROM materials WHERE owner_id = ?",
+                    (sid, db.now(), tid),
+                )
+    return db.scalar("SELECT COUNT(*) FROM material_imports", (), 0)
+
+
 # ================================================================ 入口
 def is_seeded() -> bool:
     return int(db.scalar("SELECT COUNT(*) FROM users", (), 0) or 0) > 0
@@ -850,7 +872,7 @@ def reset() -> None:
         "sessions", "student_profiles", "teacher_profiles", "teacher_classes", "materials",
         "knowledge_points", "kb_vec", "research_groups", "match_records", "tasks",
         "chat_messages", "teacher_resources", "resource_applications", "homework",
-        "homework_submissions", "artifacts", "kp_mastery", "users",
+        "homework_submissions", "artifacts", "kp_mastery", "material_imports", "users",
     ]
     with db.connect() as conn:
         for table in tables:
@@ -882,6 +904,7 @@ def seed(force: bool = False) -> dict:
     report["matches"] = seed_matches()
     report["homework"] = seed_homework()
     report["materials"] = seed_materials()
+    report["imports"] = seed_imports()
     report["accounts"] = {
         "teacher": "teacher / 123456",
         "teachers": "teacher2, teacher3 / 123456",

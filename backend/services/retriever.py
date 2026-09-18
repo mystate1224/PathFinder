@@ -44,8 +44,12 @@ def _course_of(material: dict | None, fallback: str = "") -> str:
 
 
 # ================================================================ 语义路
-def vector_search(query: str, top_k: int = 8, course: str = "") -> list[dict]:
-    """向量召回。向量缺失或维度不匹配时静默返回空列表（交由关键词路兜底）。"""
+def vector_search(query: str, top_k: int = 8, course: str = "",
+                  owner_id: int = 0, teacher: bool = False) -> list[dict]:
+    """向量召回。向量缺失或维度不匹配时静默返回空列表（交由关键词路兜底）。
+
+    ``owner_id`` 非零时按用户隔离：只在本可见范围内召回。
+    """
     query_vec, _engine = embedding.embed_one(query)
     if not query_vec:
         return []
@@ -55,15 +59,18 @@ def vector_search(query: str, top_k: int = 8, course: str = "") -> list[dict]:
         return []
 
     materials = _material_map()
+    visible = rag.visible_material_ids(owner_id, teacher)
     scored: list[dict] = []
     for row in rows:
         vector = row.get("vector") or []
         if len(vector) != len(query_vec):
             continue  # 索引时的向量模型与现在不同，跳过而不是算错
+        material_id = int(row.get("material_id") or 0)
+        if visible and material_id not in visible:
+            continue  # 用户隔离：不在可见范围内的材料直接跳过
         score = embedding.cosine(query_vec, vector)
         if score <= 0:
             continue
-        material_id = int(row.get("material_id") or 0)
         material = materials.get(material_id)
         if course and _course_of(material) != course:
             continue
@@ -215,14 +222,20 @@ def _llm_rerank(query: str, items: list[dict], top_k: int) -> list[dict] | None:
 
 
 # ================================================================ 对外
-def hybrid_search(query: str, top_k: int = 5, course: str = "") -> list[dict]:
-    """混合检索唯一入口。返回带 ``fused_score`` 与 ``via``（``bm25``/``vec``/``bm25+vec``）。"""
+def hybrid_search(query: str, top_k: int = 5, course: str = "",
+                  owner_id: int = 0, teacher: bool = False) -> list[dict]:
+    """混合检索唯一入口。返回带 ``fused_score`` 与 ``via``（``bm25``/``vec``/``bm25+vec``）。
+
+    ``owner_id`` 非零时按用户隔离：
+    学生 = 自己上传 + 已导入的教师公用资料；教师 = 自己 + 全部教师公用资料。
+    传 0（旧调用 / 自检）保持全库行为，行为向后兼容。
+    """
     query = (query or "").strip()
     if not query:
         return []
 
-    keyword_hits = rag.search(query, top_k=8, course=course)
-    vector_hits = vector_search(query, top_k=8, course=course)
+    keyword_hits = rag.search(query, top_k=8, course=course, owner_id=owner_id, teacher=teacher)
+    vector_hits = vector_search(query, top_k=8, course=course, owner_id=owner_id, teacher=teacher)
 
     if not keyword_hits and not vector_hits:
         return []

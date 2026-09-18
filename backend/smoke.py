@@ -581,6 +581,211 @@ def test_student(c: Client) -> None:
         f"{p}={c.page(p)[0]}" for p in ["/student", "/ask", "/hub", "/homework", "/match", "/library"]))
 
 
+def test_agent_rag(c: Client) -> None:
+    """能力⑦：五种 RAG 架构路由 + 智能体工具 + 会话管理（新开 / 回到某一次对话）。"""
+    print("\n=== RAG 路由 · 智能体 · 会话 ===")
+    c.logout()
+    c.login("stu01")
+
+    def strategies():
+        d = c.api("GET", "/api/tutor/sessions")
+        need(len(d["strategies"]) == 5, f"策略数量应为 5，实际 {len(d['strategies'])}")
+        need(d["new_session"].startswith("s"), "new_session 格式不对")
+        return "、".join(s["name"] for s in d["strategies"])
+    c.check("五种 RAG 策略清单", strategies)
+
+    # ---- 路由：同一种问题，不同问法应命中不同架构
+    def auto_route():
+        picked = {}
+        for q in ["注意力机制和 Transformer 有什么关系？",
+                  "课件里那张图说明了什么？",
+                  "结合我的情况给我一个复习计划",
+                  "那个到底为什么不work？",
+                  "什么是反向传播？"]:
+            d = c.api("POST", "/api/tutor/ask", {"question": q})
+            picked[q[:6]] = d["rag"]["strategy"]
+        need(picked["注意力机制和"] == "graph", f"关系类应走 graph，实际 {picked['注意力机制和']}")
+        need(picked["课件里那张图"] == "multimodal", "图片类应走 multimodal")
+        need(picked["结合我的情况"] == "agentic", "复合任务应走 agentic")
+        need(picked["那个到底为什"] == "corrective", "口语指代应走 corrective")
+        need(picked["什么是反向传"] == "hybrid", "概念类应走 hybrid")
+        return "、".join(f"{k}→{v}" for k, v in picked.items())
+    c.check("自动路由（五类问题五种架构）", auto_route)
+
+    def forced():
+        d = c.api("POST", "/api/tutor/ask",
+                  {"question": "注意力机制和 Transformer 有什么关系？", "strategy": "graph"})
+        need(d["rag"]["strategy"] == "graph", "手动指定 graph 未生效")
+        need(d["rag"].get("auto") is False, "手动指定时 auto 应为 False")
+        g = d["rag"]["extra"].get("graph") or {}
+        need(g.get("nodes"), "graph 策略应带子图节点")
+        return f"强制 graph：{d['rag']['strategy_name']}，" \
+               f"子图 {len(g['nodes'])} 节点 / {len(g['edges'])} 边"
+    c.check("手动指定策略（演示对比）", forced)
+
+    def corrective_extra():
+        d = c.api("POST", "/api/tutor/ask", {"question": "那个到底咋回事", "strategy": "corrective"})
+        extra = d["rag"].get("extra") or {}
+        need(extra.get("rounds"), "纠错式应带轮次")
+        return f"轮次 {extra.get('rounds')}，质量 {extra.get('quality')}"
+    c.check("纠错式两轮检索", corrective_extra)
+
+    # ---- 综合生成：答案不是检索片段的拼接
+    def synth_student():
+        d = c.api("POST", "/api/tutor/ask", {"question": "过拟合和正则化是什么关系？"})
+        s = d.get("synth") or {}
+        need(s.get("steps"), "学生侧应返回综合生成视图（steps）")
+        need(s.get("evidence"), "综合生成应带证据原文")
+        need(s.get("conclusion"), "综合生成应先给结论")
+        need("综合结论" in (d.get("answer") or ""), "答案里应先给出综合结论")
+        need(len(s["steps"]) == 5, f"五个步骤，实际 {len(s['steps'])}")
+        return (f"{s.get('mode')}：{s.get('evidence_count')} 条证据 / "
+                f"命中 {s.get('hit_count')} 条，结论「{s['conclusion'][:22]}…」")
+    c.check("综合生成（学生侧：证据 + 推理）", synth_student)
+
+    def synth_teacher():
+        c2 = Client(c.base)
+        c2.login("teacher")
+        d = c2.api("POST", "/api/teacher/copilot/ask", {"question": "讲一下正则化", "skill": "explain"})
+        s = d.get("synth") or {}
+        need(s.get("steps"), "教师侧应返回综合生成视图")
+        need(s.get("intent") == "explain", f"教师侧应为讲解型推理，实际 {s.get('intent')}")
+        return f"{s.get('mode')}：{s.get('evidence_count')} 条证据，提醒「{s['remind'][:20]}…」"
+    c.check("综合生成（教师侧：讲解型推理）", synth_teacher)
+
+    # ---- 会话：新开 / 回到某一次
+    def sessions():
+        s1 = c.api("POST", "/api/tutor/new")["session_id"]
+        c.api("POST", "/api/tutor/ask", {"question": "什么是梯度下降？", "session_id": s1})
+        c.api("POST", "/api/tutor/ask", {"question": "它和学习率有什么关系？", "session_id": s1})
+        s2 = c.api("POST", "/api/tutor/new")["session_id"]
+        c.api("POST", "/api/tutor/ask", {"question": "讲一下激活函数", "session_id": s2})
+
+        lst = c.api("GET", "/api/tutor/sessions")["sessions"]
+        ids = [x["session_id"] for x in lst]
+        need(s1 in ids and s2 in ids, f"会话列表缺少新建会话：{ids}")
+        one = [x for x in lst if x["session_id"] == s1][0]
+        need(one["turns"] == 4, f"s1 应有 4 条消息，实际 {one['turns']}")
+        need(one["title"], "会话标题为空")
+
+        hist = c.api("GET", f"/api/tutor/history?session_id={s1}")["messages"]
+        need(len(hist) == 4, f"按会话读历史应为 4 条，实际 {len(hist)}")
+        need(all(m["session_id"] == s1 for m in hist), "历史里混入了别的会话")
+        return f"{len(lst)} 个会话，s1「{one['title'][:14]}」{one['turns']} 条消息"
+    c.check("会话（新开 / 回到某一次对话）", sessions)
+
+    def clear_one():
+        lst = c.api("GET", "/api/tutor/sessions")["sessions"]
+        victim = [x for x in lst if x["session_id"]][0]["session_id"]
+        before = len(lst)
+        c.api("POST", "/api/tutor/clear", {"session_id": victim})
+        after = c.api("GET", "/api/tutor/sessions")["sessions"]
+        need(len(after) == before - 1, "按会话清空未生效")
+        return f"清空 1 次对话，剩余 {len(after)} 个"
+    c.check("只清空某一次对话", clear_one)
+
+    # ---- 智能体工具
+    def tool_upload():
+        d = c.api("GET", "/api/agent/tools")
+        need(len(d["tools"]) >= 2, "工具清单不足 2 个")
+        r = c.api("POST", "/api/agent/tools/upload_material/run", {
+            "title": "冒烟测试笔记", "category": "笔记",
+            "text": "梯度下降是一种一阶优化方法。学习率控制每步步长，过大发散，过小收敛慢。"
+                    "动量法通过累积历史梯度加速收敛，常用于深度学习训练。",
+        })
+        need(r["ok"] and r["material_id"], "上传资料未入库")
+        need(r["indexed_chunks"] > 0, "上传后没有建索引片段")
+        return f"入库 #{r['material_id']}，索引 {r['indexed_chunks']} 片段，" \
+               f"知识点 {r['knowledge_saved']} 个"
+    c.check("智能体工具 · 上传资料（入库+索引）", tool_upload)
+
+    def tool_generate():
+        r = c.api("POST", "/api/agent/tools/generate_material/run", {
+            "topic": "梯度下降", "kind": "复习提纲", "save": True,
+        })
+        need(r["markdown"], "生成内容为空")
+        need(r["material_id"], "未保存到资料库")
+        need(r["refs"], "生成结果缺少可溯源引用")
+        return f"生成 {len(r['markdown'])} 字，引用 {len(r['refs'])} 份资料，已存 #{r['material_id']}"
+    c.check("智能体工具 · 生成资料（可溯源+保存）", tool_generate)
+
+    def after_upload_answerable():
+        d = c.api("POST", "/api/tutor/ask", {"question": "动量法是什么？"})
+        need(d["refs"], "上传的资料没有被答疑引用到")
+        return f"引用 {len(d['refs'])} 处：{d['refs'][0]}"
+    c.check("上传的资料能被答疑引用（可溯源）", after_upload_answerable)
+
+    # ---- 教师侧同样支持
+    def teacher_side():
+        c.logout()
+        c.login("teacher")
+        d = c.api("GET", "/api/teacher/copilot/sessions")
+        need(d["strategies"], "教师侧拿不到策略清单")
+        sid = d["new_session"]
+        a = c.api("POST", "/api/teacher/copilot/ask",
+                  {"question": "讲一下反向传播，要能直接上课用", "session_id": sid})
+        need(a["session_id"] == sid, "教师侧会话未续上")
+        need(a["rag"]["strategy"], "教师侧没有 RAG 路由结果")
+        lst = c.api("GET", "/api/teacher/copilot/sessions")["sessions"]
+        need(any(x["session_id"] == sid for x in lst), "教师侧会话列表缺少新建会话")
+        hist = c.api("GET", f"/api/teacher/copilot/history?session_id={sid}")["messages"]
+        need(len(hist) == 2, f"教师侧按会话读历史应为 2 条，实际 {len(hist)}")
+        return f"教师侧 {a['rag']['strategy_name']}，会话 {len(lst)} 个"
+    c.check("教师侧：路由 + 会话", teacher_side)
+
+
+def test_isolation(c: Client) -> None:
+    """数据隔离：同学之间检索互不可见；教师公用资料导入 / 移除即时生效。"""
+    print("\n=== 数据隔离 ===")
+    c.logout()
+    c.login("stu02")
+
+    def library_scope():
+        d = c.api("GET", "/api/materials")
+        names = [m["filename"] for m in d["materials"]]
+        need(not any("陈嘉禾" in n for n in names), "stu02 的资料列表里出现了 stu01 的成绩单")
+        shared = d.get("shared") or []
+        need(shared, "教师共享列表为空")
+        need(all(s.get("imported") for s in shared), "种子学生应已预导入全部公用资料")
+        return f"我的 {len(d['materials'])} 份（无他人材料），教师共享 {len(shared)} 份（已预导入）"
+    c.check("资料列表按用户隔离", library_scope)
+
+    def no_leak():
+        d = c.api("POST", "/api/materials/search", {"query": "陈嘉禾 平均成绩 成绩单", "top_k": 8})
+        bad = [h for h in d["hits"] if "陈嘉禾" in str(h.get("ref") or "")]
+        need(not bad, f"检索命中了他人成绩单：{[h['ref'] for h in bad]}")
+        return f"命中 {len(d['hits'])} 条，均不含他人材料"
+    c.check("检索不串库（他人成绩单不可见）", no_leak)
+
+    def import_flow():
+        shared = (c.api("GET", "/api/materials")).get("shared") or []
+        target = next(s for s in shared if "注意力机制" in s["filename"])
+        mid = target["id"]
+        c.api("DELETE", f"/api/materials/{mid}/import")      # 移除导入
+        d = c.api("POST", "/api/materials/search",
+                  {"query": "缩放点积注意力 为什么要除以 sqrt(d_k)", "top_k": 8})
+        need(not any("注意力机制与Transformer" in str(h.get("ref") or "") for h in d["hits"]),
+             "移除导入后仍能检索到该资料")
+        c.api("POST", f"/api/materials/{mid}/import")        # 再导入
+        d2 = c.api("POST", "/api/materials/search",
+                   {"query": "缩放点积注意力 为什么要除以 sqrt(d_k)", "top_k": 8})
+        need(any("注意力机制与Transformer" in str(h.get("ref") or "") for h in d2["hits"]),
+             "重新导入后应能检索到该资料")
+        return "移除导入→检索不到；导入→立刻可引用"
+    c.check("公用资料导入 / 移除即时生效", import_flow)
+
+    def import_guard():
+        # 同学的私人材料不允许被导入 —— 隔离的最后一道闸
+        s1 = Client(c.base)
+        s1.login("stu01")
+        own = s1.api("GET", "/api/materials")["materials"]
+        transcript = next(m for m in own if "成绩单" in m["filename"])
+        status, _ = c.raw("POST", f"/api/materials/{transcript['id']}/import", {})
+        need(status == 404, f"导入他人私人材料应被拒（404），实际 {status}")
+        return "stu01 的成绩单对 stu02 不可导入（404）"
+    c.check("导入权限边界（只能导入教师公用资料）", import_guard)
+
+
 def test_guards(c: Client) -> None:
     print("\n=== 权限边界 ===")
     c.logout()
@@ -701,6 +906,8 @@ def main() -> int:
         client = Client(base, verbose=args.verbose)
         test_teacher(client)
         test_student(client)
+        test_agent_rag(client)
+        test_isolation(client)
         test_guards(client)
 
         total = client.passes + len(client.fails)
@@ -710,8 +917,9 @@ def main() -> int:
             for f in client.fails:
                 print("  ✗ " + f)
             if log_path and log_path.exists():
-                tail = log_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-15:]
-                print("\n--- 服务端日志（末尾 15 行）---")
+                # 取足够多的行：500 要从 Traceback 开头才看得清，15 行常常只剩最后一句。
+                tail = log_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-60:]
+                print(f"\n--- 服务端日志（末尾 {len(tail)} 行）---")
                 for line in tail:
                     print("  " + line)
         else:

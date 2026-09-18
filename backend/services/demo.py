@@ -156,6 +156,34 @@ SAMPLES: list[dict[str, Any]] = [
         "category": "作业",
         "points": "看点：作业规则集按题号切分，用题干动词定布鲁姆层级。",
     },
+    # ---- 问答集：不跑解析，直接给一批可以直接粘进输入框的问题与验收点
+    {
+        "id": "qa-set-student",
+        "title": "学生侧 · 答疑问答集（含验收点）",
+        "ability": "qa",
+        "type": "qa",
+        "file": "答疑问答集-学生.md",
+        "side": "student",
+        "points": "每条写清了期望的答疑类型与应走的 RAG 架构，可一键填入对话框逐条验收。",
+    },
+    {
+        "id": "qa-set-teacher",
+        "title": "教师侧 · Copilot 问答集（含验收点）",
+        "ability": "qa",
+        "type": "qa",
+        "file": "答疑问答集-教师.md",
+        "side": "teacher",
+        "points": "覆盖备课 / 讲知识点 / 查学生 / 批改标准四类技能，并含多模态与纠错的路由验证。",
+    },
+    {
+        "id": "qa-rag-route",
+        "title": "RAG 路由测试题（五种架构各一组）",
+        "ability": "qa",
+        "type": "qa",
+        "file": "RAG路由测试题.md",
+        "side": "student",
+        "points": "同一问题换种问法就该走不同 RAG。策略选「自动选择」逐条问，看徽标是否与判据一致。",
+    },
 ]
 
 # ================================================================ 测试用例
@@ -259,10 +287,127 @@ CASES: list[dict[str, Any]] = [
         "runner": "interaction.needs_clarify",
         "note": "宁可多问一句，也不编一个看起来像答案的东西。",
     },
+    # ---- RAG 路由（能力⑦）：五种架构各一条，判据就是"该走哪种"
+    {
+        "id": "rag-route-hybrid",
+        "ability": "rag",
+        "title": "路由：概念题应走混合式 RAG",
+        "input": {"question": "什么是反向传播？"},
+        "expected": {"strategy": "hybrid"},
+        "runner": "ragroute.route",
+        "note": "短问题不能因为字数少就被当成口语指代，否则会误走纠错式。",
+    },
+    {
+        "id": "rag-route-graph",
+        "ability": "rag",
+        "title": "路由：问关系应走图谱 RAG",
+        "input": {"question": "注意力机制和 Transformer 有什么关系？"},
+        "expected": {"strategy": "graph"},
+        "runner": "ragroute.route",
+        "note": "关系类问题靠字面检索答不好，要先取子图再取证据。",
+    },
+    {
+        "id": "rag-route-agentic",
+        "ability": "rag",
+        "title": "路由：要结合我的情况应走智能体式 RAG",
+        "input": {"question": "结合我的情况给我一个复习计划"},
+        "expected": {"strategy": "agentic"},
+        "runner": "ragroute.route",
+        "note": "复合任务要先规划，再逐个调资料 / 知识点库 / 学情画像。",
+    },
+    {
+        "id": "rag-route-corrective",
+        "ability": "rag",
+        "title": "路由：口语指代应走纠错型 RAG",
+        "input": {"question": "那个到底为什么不work？"},
+        "expected": {"strategy": "corrective"},
+        "runner": "ragroute.route",
+        "note": "首查大概率落空，得先改写再查，而不是硬答。",
+    },
+    {
+        "id": "rag-route-multimodal",
+        "ability": "rag",
+        "title": "路由：问图片应走多模态 RAG",
+        "input": {"question": "课件里那张图说明了什么？"},
+        "expected": {"strategy": "multimodal"},
+        "runner": "ragroute.route",
+        "note": "只检索文本块会漏掉图片素材，必须把图片一起召回。",
+    },
+    {
+        "id": "synth-student",
+        "ability": "synth",
+        "title": "综合生成（学生侧）：答案应是结论 + 推理，不是原文拼接",
+        "input": {
+            "role": "student",
+            "question": "过拟合和正则化是什么关系？",
+            "intent": "concept",
+            "track": "学业型",
+            "level": "B",
+            "hits": [
+                {"ref": "机器学习-第3讲.md#1",
+                 "content": "正则化通过在损失函数中加入惩罚项限制模型复杂度，从而缓解过拟合。"},
+                {"ref": "作业讲评-第2次.md#1",
+                 "content": "正则化系数越大，模型越简单，偏差越大、方差越小。"},
+            ],
+        },
+        "expected": {"steps": 5, "evidence": 2, "has_conclusion": True, "has_infer": True},
+        "runner": "synth.rule_compose",
+        "note": "五步视图 + 两条证据 + 一句推断句，缺一项就说明退化成了片段罗列。",
+    },
+    {
+        "id": "synth-teacher",
+        "ability": "synth",
+        "title": "综合生成（教师侧）：讲解型推理要给出课堂讲法",
+        "input": {
+            "role": "teacher",
+            "question": "讲一下正则化",
+            "intent": "explain",
+            "level": "A",
+            "hits": [
+                {"ref": "课件-正则化.md#1",
+                 "content": "正则化的作用是在经验风险上加入结构风险，控制模型复杂度。"},
+                {"ref": "课件-正则化.md#2",
+                 "content": "L1 倾向产生稀疏解，L2 让权重整体变小，两者适用场景不同。"},
+            ],
+        },
+        "expected": {"steps": 5, "evidence": 2, "has_conclusion": True, "has_infer": True},
+        "runner": "synth.rule_compose",
+        "note": "教师侧同一套综合层，只是讲法换成课堂上先给结论、再展开。",
+    },
 ]
 
 
 # ================================================================ 内部工具
+def parse_qa_file(text: str) -> list[dict[str, str]]:
+    """把问答集文件解析成 ``[{section, question, expect, source}]``。
+
+    格式刻意做得像人写的笔记（``## 小节`` / ``Q: 问题`` / ``期望：…`` / ``依据：…``），
+    既能直接读，也能被机器解析 —— 素材与用例不脱节。
+    """
+    items: list[dict[str, str]] = []
+    section = ""
+    cur: dict[str, str] | None = None
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if line.startswith("## "):
+            section = line[3:].strip()
+            continue
+        if line.startswith("Q:"):
+            if cur:
+                items.append(cur)
+            cur = {"section": section, "question": line[2:].strip(), "expect": "", "source": ""}
+            continue
+        if cur is None:
+            continue
+        if line.startswith("期望："):
+            cur["expect"] = line[3:].strip()
+        elif line.startswith("依据："):
+            cur["source"] = line[3:].strip()
+    if cur:
+        items.append(cur)
+    return items
+
+
 def _read_sample(sample: dict[str, Any]) -> tuple[Path | None, str]:
     path = SAMPLES_DIR / str(sample.get("file") or "")
     if not path.exists():
@@ -316,6 +461,12 @@ def _run_sample(sample: dict[str, Any]) -> dict[str, Any]:
                            "用于完整演示「读图 → 去杂 → 抽取」链路。配置 LLM_VISION_MODEL 后"
                            "会自动切换为真实视觉模型读图，预置结果让位。",
         }
+
+    # 问答集：不跑解析，把文件里的 Q: / 期望：/ 依据：解析成可直接填入的列表
+    if sample.get("type") == "qa":
+        return {"sample_id": sid, "type": "qa", "engine": "rule", "source": "file",
+                "title": sample["title"], "side": sample.get("side", "student"),
+                "pairs": parse_qa_file(text)}
 
     # 文本：完整走一遍 解析 → 去杂 → 分块 → 抽取
     doc = parsekit.parse_document(path.name, sample.get("kind", "other"), text)
@@ -405,6 +556,9 @@ def run_case(cid: str, live: bool = False) -> dict[str, Any]:
 def _execute(case: dict[str, Any]) -> dict[str, Any]:
     """真实链路。接真实模型后只需在对应分支补模型调用，用例与比对逻辑不用动。"""
     ability, inp = case["ability"], case.get("input") or {}
+    if ability == "rag":
+        from services import ragroute
+        return {"strategy": ragroute.route(str(inp.get("question") or ""), "student")["strategy"]}
     if ability == "parse":
         doc = parsekit.parse_document("case-input.txt", "other", str(inp.get("text") or ""))
         return {"doc": doc["doc"], "noise": doc["noise"]}
@@ -414,6 +568,22 @@ def _execute(case: dict[str, Any]) -> dict[str, Any]:
         kp = kprules.extract(text, kind=sample.get("kind", ""), category=sample.get("category", ""),
                              limit=8)
         return {"rule_set": kp["rule_set"], "items": kp["items"], "stats": kp["stats"]}
+    if ability == "synth":
+        from services import synth as _synth
+        hits = inp.get("hits") or []
+        text, view = _synth.rule_compose(
+            str(inp.get("role") or "student"), str(inp.get("question") or ""), hits,
+            track=str(inp.get("track") or "学业型"), level=str(inp.get("level") or "B"),
+            intent=str(inp.get("intent") or ""),
+        )
+        return {
+            "steps": len(view["steps"]),
+            "evidence": view["evidence_count"],
+            "has_conclusion": text.startswith("综合结论"),
+            "has_infer": any(line in text for line in (
+                _synth.infer_of(str(inp.get("intent") or "")),)),
+            "answer": text,
+        }
     if str(inp.get("side")) == "teacher":
         from services import copilot
         return {"intent_type": copilot.detect_intent(str(inp.get("question") or ""), "")}
@@ -431,6 +601,8 @@ def overview() -> dict[str, Any]:
             "parse": sum(1 for c in CASES if c["ability"] == "parse"),
             "kp": sum(1 for c in CASES if c["ability"] == "kp"),
             "qa": sum(1 for c in CASES if c["ability"] == "qa"),
+            "rag": sum(1 for c in CASES if c["ability"] == "rag"),
+            "synth": sum(1 for c in CASES if c["ability"] == "synth"),
         },
         "llm_mode": llm.describe(),
     }

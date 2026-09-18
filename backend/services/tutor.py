@@ -22,11 +22,12 @@
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Sequence
 
 import db
 import llm
-from services import interaction as ia, retriever, stratify
+from services import interaction as ia, rag, ragroute, retriever, stratify, synth
 
 # 六格矩阵：风格名 + 回答策略 + 下一步建议
 MATRIX: dict[tuple[str, str], dict] = {
@@ -129,51 +130,32 @@ def rule_answer(
     track: str,
     level: str,
 ) -> str:
-    """规则版答案：**同样按层不同**，且带引用与下一步建议。"""
+    """规则版答案：**同样按层不同**，且带引用与下一步建议。
+
+    已改为走 :mod:`services.synth` 的综合生成层——先给结论，再组织推理，
+    最后标出处与下一步，而不是把检索到的原文片段直接堆上去。
+    这里保留原签名，老调用方（教师 Copilot 等）不用改。
+    """
     cell = cell_of(track, level)
-    label = layer_label(track, level)
-
-    lines: list[str] = []
-    for hit in list(hits)[:2]:
-        sentence = _best_sentence(str(hit.get("content") or ""), question)
-        if not sentence:
-            continue
-        lines.append(f"- {sentence} [{hit.get('ref') or '资料'}]")
-
-    if not lines:
-        return (
-            f"（{label}）这个问题在当前知识库里没有检索到教师上传的相关资料，"
-            "所以先不给结论，避免编造。建议先到「资料库」确认该内容是否已上传，"
-            "或把问题再具体一点（例如指明章节或概念名）。\n\n"
-            f"下一步建议：{cell['next']}"
-        )
-
-    if track == "学业型" and level == "A":
-        opener = "从原理层面看："
-    elif track == "学业型" and level == "C":
-        opener = "先用一句话说清它是什么，再展开："
-    elif track == "事业型" and level == "A":
-        opener = "从工程落地角度看："
-    elif track == "事业型" and level == "C":
-        opener = "先看它有什么用："
-    else:
-        opener = "按你现在的进度，可以这样理解："
-
-    body = f"（{label}）{opener}\n" + "\n".join(lines)
-    body += (
-        "\n\n注：以上要点来自教师上传的课件原文；"
-        "受规则版能力限制，这里只抽取了与问题最相关的原文片段，未做扩展解释。"
+    text, _view = synth.rule_compose(
+        "student", question, hits, track=track, level=level,
+        style=cell["style"], next_step=cell["next"],
     )
-    body += f"\n\n下一步建议：{cell['next']}"
-    return body
+    return f"（{layer_label(track, level)}）{text}"
 
 
-def related_kps(question: str, course: str = "", limit: int = 3) -> list[dict]:
+def related_kps(question: str, course: str = "", limit: int = 3,
+                owner_id: int = 0, teacher: bool = False) -> list[dict]:
     """本次问题涉及的知识点：用问题的实词去匹配已入库的知识点名。
 
     比「把问题当材料再抽一次」便宜得多，也不会凭空造知识点。
+    可见范围与检索层一致（``rag.search_scope``），不引用他人私人材料里的知识点。
     """
-    rows = db.query("SELECT name, difficulty, course FROM knowledge_points ORDER BY id DESC LIMIT 200")
+    clause, args = rag.search_scope(owner_id, teacher)
+    rows = db.query(
+        "SELECT name, difficulty, course FROM knowledge_points WHERE 1=1" +
+        clause + " ORDER BY id DESC LIMIT 200", tuple(args),
+    )
     tokens = [t for t in re.split(r"[\s，,。？?、：:；;（）()【】\[\]]+", question or "")
               if len(t) >= 2]
     out: list[dict] = []
@@ -199,56 +181,66 @@ def ask(
     course: str = "",
     scope: str = "",
     top_k: int = 4,
+    session_id: str = "",
+    strategy: str = "auto",
 ) -> dict:
-    """分层答疑。返回 ``{answer, refs, layer, style, engine, hits}``。"""
+    """分层答疑。返回 ``{answer, refs, layer, style, engine, hits, rag, session_id}``。
+
+    ``strategy``：``auto`` 走 RAG 路由（按问题选五种架构之一），也可显式指定
+    ``hybrid / graph / agentic / corrective / multimodal`` 供演示对比。
+    """
     question = (question or "").strip()
     if not question:
         return {"answer": "请先输入你的问题。", "refs": [], "layer": "", "style": "",
-                "engine": "rule", "hits": []}
+                "engine": "rule", "hits": [], "rag": {}, "session_id": session_id or ""}
 
     user_id = int(user.get("id") or 0)
+    # 会话：不传就新开一次；传了就续上（支持「回到某一次对话」）
+    session_id = (session_id or "").strip() or ("s" + uuid.uuid4().hex[:10])
+
     profile = db.student_profile(user_id) or {}
     track = str(profile.get("track") or "学业型")
     level = str(profile.get("grade_level") or "B")
     interests = profile.get("interests") or []
 
-    # 学生可以限定检索范围（自己的材料 / 某门课）
+    # 学生可以限定课程范围；用户隔离（只检索自己的 + 已导入的公用资料）在
+    # ragroute._scope 里统一生效，不再是可选项。
     effective_course = course
-    if scope == "mine":
-        pass  # 检索层不做 owner 过滤时等价于全库；此处保留语义位，便于后续扩展
-    elif scope and scope not in ("all", ""):
+    if scope and scope not in ("all", "mine"):
         effective_course = effective_course or scope
 
-    hits = retriever.hybrid_search(question, top_k=top_k, course=effective_course)
+    # ---- RAG 路由：auto 时按问题选策略，也可显式指定（演示时用来对比五种架构）
+    rag = ragroute.resolve(question, "student", strategy)
+    executed = ragroute.execute(rag["strategy"], question, user, top_k, effective_course)
+    hits = executed["hits"]
+    rag = {**rag, "extra": executed.get("extra") or {}}
     context = retriever.context_block(hits)
     refs = [h.get("ref") for h in hits if h.get("ref")]
-
-    messages = [{"role": "system", "content": system_prompt(track, level, interests, context)}]
-    messages.extend(history(user_id))
-    messages.append({"role": "user", "content": question})
-
-    answer_text, engine = llm.chat(
-        messages,
-        mock=lambda: rule_answer(question, hits, track, level),
-        temperature=0.3,
-    )
-    if not answer_text.strip():
-        answer_text, engine = rule_answer(question, hits, track, level), "rule"
-
-    # 兜底：模型没标引用时，把检索到的出处补在末尾，保证"结果可溯源"
-    if engine == "llm" and refs and not any(f"[{r}]" in answer_text for r in refs[:2]):
-        answer_text += "\n\n参考资料：" + "；".join(f"[{r}]" for r in refs[:3])
 
     style = cell_of(track, level)["style"]
     layer = layer_label(track, level)
 
     # ---- 交互协议（能力③）：答什么疑 / 怎么交互 / 得到什么
     intent = ia.classify(question, "student")
-    kps = related_kps(question, effective_course)
+    kps = related_kps(question, effective_course,
+                      owner_id=user_id, teacher=str(user.get("role")) == "teacher")
+
+    # ---- 综合生成：检索只给证据，答案要"过一遍脑子"再出来
+    #     模型版：按 结论 / 推理链 / 易混点 / 下一步 四段组织，禁止照抄原文；
+    #     规则版：按 REASON_RULES 模板把证据改写成一条讲得通的推理。
+    answer_text, engine, synth_view = synth.compose(
+        "student", question, hits,
+        track=track, level=level, intent=str(intent.get("type") or ""),
+        interests=interests, style=style,
+        next_step=cell_of(track, level)["next"],
+        history=history(user_id),
+    )
+    if not answer_text.strip():
+        answer_text, engine = rule_answer(question, hits, track, level), "rule"
     clarify = ia.needs_clarify(question, hits)
-    db.log_chat(user_id, "user", question, scene="tutor", layer=layer)
+    db.log_chat(user_id, "user", question, scene="tutor", layer=layer, session_id=session_id)
     db.log_chat(user_id, "assistant", answer_text, refs=refs, scene="tutor",
-                layer=layer, engine=engine)
+                layer=layer, engine=engine, session_id=session_id)
 
     return {
         "answer": answer_text,
@@ -271,6 +263,9 @@ def ask(
             "grade_level": level,
             "interests": interests,
         },
+        "session_id": session_id,
+        "rag": rag,
+        "synth": synth_view,
         "intent": intent,
         "protocol": ia.protocol_view(
             "clarify" if clarify["need_clarify"] else "answer",
@@ -282,20 +277,53 @@ def ask(
     }
 
 
-def history_view(user_id: int, limit: int = 30) -> list[dict]:
-    rows = db.query(
-        "SELECT * FROM chat_messages WHERE user_id = ? AND scene = 'tutor' ORDER BY id DESC LIMIT ?",
-        (user_id, limit),
-    )
+def history_view(user_id: int, limit: int = 30, session_id: str = "") -> list[dict]:
+    """读某一次会话的消息；``session_id`` 为空时读全部（兼容老数据的「早期对话」）。"""
+    sql = ("SELECT * FROM chat_messages WHERE user_id = ? AND scene = 'tutor'")
+    args: list = [user_id]
+    if session_id:
+        sql += " AND session_id = ?"
+        args.append(session_id)
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    rows = db.query(sql, tuple(args))
     rows.reverse()
     for row in rows:
         row["refs"] = db.jload(row.get("refs"), [])
+        row["session_id"] = row.get("session_id") or ""
     return rows
 
 
-def clear_history(user_id: int) -> None:
+def sessions(user_id: int, limit: int = 30) -> list[dict]:
+    """会话列表：第一问做标题 + 轮次 + 最后时间，供左侧「历史对话」选择。"""
+    rows = db.chat_sessions(user_id, "tutor", limit)
+    out = []
+    for r in rows:
+        sid = r.get("session_id") or ""
+        out.append({
+            "session_id": sid,
+            "title": db.first_question(user_id, "tutor", sid) or "（空会话）" if sid else "早期对话",
+            "turns": int(r.get("turns") or 0),
+            "last_at": r.get("last_at") or "",
+        })
+    return out
+
+
+def new_session() -> str:
+    """生成一次新对话的 id。前端「新开对话」时先拿这个再发问。"""
+    return "s" + uuid.uuid4().hex[:10]
+
+
+def clear_history(user_id: int, session_id: str = "") -> None:
+    """清空全部，或只清某一次对话（传 session_id）。"""
     with db.connect() as conn:
-        conn.execute("DELETE FROM chat_messages WHERE user_id = ? AND scene = 'tutor'", (user_id,))
+        if session_id:
+            conn.execute(
+                "DELETE FROM chat_messages WHERE user_id = ? AND scene = 'tutor' AND session_id = ?",
+                (user_id, session_id),
+            )
+        else:
+            conn.execute("DELETE FROM chat_messages WHERE user_id = ? AND scene = 'tutor'", (user_id,))
 
 
 def _unused(*_: object) -> None:  # pragma: no cover

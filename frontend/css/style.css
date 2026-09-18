@@ -462,8 +462,7 @@ body::after {
     backdrop-filter: saturate(180%) blur(14px);
   }
 }
-.topbar__title { font-size: var(--fs-h3); font-weight: 650; color: var(--ink-900); }
-.topbar__crumb { font-size: 12.5px; color: var(--ink-500); }
+/* 页面标题只在 .page-head 渲染一次（顶栏不再重复），这里只留把右侧按钮推到右边的撑开块。 */
 .topbar__spacer { flex: 1; }
 
 .nav-toggle { padding: 6px; border-radius: var(--r-sm); color: var(--ink-600); }
@@ -2558,3 +2557,109 @@ html[data-theme="dark"] body::after {
   .qa-shell { grid-template-columns: 0 0 minmax(0, 1fr); min-height: 520px; }
   .qa-side { display: none; }
 }
+
+/* ================================================================
+   能力⑦：RAG 路由 · 智能体工具 · 会话
+   这一层只加新构件，不动上面任何既有规则（v4/v5 体系保持原样）。
+   ================================================================ */
+/* --- 会话侧栏：新开对话 + 会话列表 + 当前会话的每一轮 --------- */
+.sess-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border, #dce6f2);
+}
+.sess-head__title {
+  font-size: 12.5px; font-weight: 700; color: var(--ink-400, #334155);
+  display: flex; align-items: center; gap: 6px;
+}
+.sess-new {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 9px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--brand-500, #3b82f6); background: var(--brand-50, #eff6ff);
+  color: var(--brand-600, #2563eb); font-size: 12px; font-weight: 600;
+}
+.sess-new:hover { background: var(--brand-100, #dbeafe); }
+.sess-sec {
+  padding: 7px 12px 3px; font-size: 11px; font-weight: 700;
+  color: var(--ink-500, #94a3b8); letter-spacing: .04em;
+}
+.sess-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 8px 10px; }
+.qa-dock__item.is-turn { padding-left: 22px; border-style: dashed; }
+.qa-dock__item.is-turn .qa-dock__q { font-weight: 500; }
+
+/* --- 本次走了哪种 RAG --------------------------------------- */
+.rag-card {
+  margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--border, #dce6f2);
+  background: linear-gradient(180deg, var(--brand-50, #eff6ff), var(--surface, #fff));
+}
+.rag-card__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rag-card__sec { display: flex; gap: 8px; margin-top: 8px; align-items: flex-start; }
+.rag-card__k {
+  flex: 0 0 56px; font-size: 11px; font-weight: 700;
+  color: var(--ink-500, #64748b); padding-top: 2px;
+}
+.rag-card__v { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.rag-card__note {
+  margin-top: 8px; font-size: 11.5px; color: var(--ink-500, #64748b);
+  border-top: 1px dashed var(--border, #dce6f2); padding-top: 6px;
+}
+
+/* --- 综合生成：回答不是原文拼接 ------------------------------ */
+.synth-card {
+  margin-top: 12px; padding: 8px 12px 10px; border-radius: 10px;
+  border: 1px solid var(--border, #dce6f2);
+  background: linear-gradient(180deg, var(--brand-50, #eff6ff), var(--surface, #fff));
+}
+.synth-card > summary {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  cursor: pointer; list-style: none; padding: 2px 0;
+}
+.synth-card > summary::-webkit-details-marker { display: none; }
+.synth-card > summary::after {
+  content: ""; flex: 0 0 auto; width: 6px; height: 6px;
+  border-right: 1.5px solid var(--ink-400, #94a3b8);
+  border-bottom: 1.5px solid var(--ink-400, #94a3b8);
+  transform: rotate(45deg); transition: transform .18s ease;
+}
+.synth-card[open] > summary::after { transform: rotate(-135deg); }
+.synth-card__lead {
+  margin-top: 8px; font-size: 12.5px; font-weight: 600;
+  color: var(--ink-800, #1e293b); line-height: 1.6;
+}
+.synth-card__steps { margin-top: 6px; display: grid; gap: 5px; }
+.synth-step { display: flex; gap: 8px; align-items: flex-start; }
+.synth-step__i {
+  flex: 0 0 64px; font-size: 11px; font-weight: 700;
+  color: var(--ink-500, #64748b); padding-top: 1px;
+}
+.synth-step__t { flex: 1 1 auto; min-width: 0; font-size: 11.5px; color: var(--ink-600, #475569); line-height: 1.55; }
+.synth-card__k {
+  margin-top: 10px; font-size: 11px; font-weight: 700; color: var(--ink-500, #64748b);
+}
+.synth-ev { display: flex; gap: 6px; align-items: flex-start; margin-top: 5px; }
+.synth-ev__t { flex: 1 1 auto; min-width: 0; font-size: 11.5px; color: var(--ink-600, #475569); line-height: 1.55; }
+
+/* --- 智能体工具 --------------------------------------------- */
+.tool-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.tool-btn { gap: 5px; }
+.tool-result .stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.tool-result .stat {
+  flex: 1 1 80px; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--border, #dce6f2); background: var(--surface-2, #f8fafc);
+  text-align: center;
+}
+.tool-result .stat__num { font-size: 18px; font-weight: 700; color: var(--brand-600, #2563eb); }
+.tool-result .stat__label { font-size: 11px; color: var(--ink-500, #64748b); margin-top: 2px; }
+.md-box {
+  max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--border, #dce6f2); background: var(--surface-2, #f8fafc);
+  font-size: 13px; line-height: 1.85; color: var(--ink-400, #334155);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.switch-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--ink-500, #475569); cursor: pointer;
+}
+.switch-row input { width: 16px; height: 16px; accent-color: var(--brand-500, #3b82f6); }
+.t-danger { color: var(--danger-500, #ef4444); }

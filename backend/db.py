@@ -299,6 +299,16 @@ CREATE TABLE IF NOT EXISTS kp_mastery (
     updated_at  TEXT NOT NULL DEFAULT '',
     UNIQUE (student_id, kp_name)
 );
+
+-- 资料导入记录：学生把「教师上传的公用资料」导入自己的检索库。
+-- 数据隔离的关键 —— 学生默认只检索自己的资料，公用资料必须显式导入才进入范围；
+-- 不复制正文，只记引用，删除资料时级联清理。
+CREATE TABLE IF NOT EXISTS material_imports (
+    user_id     INTEGER NOT NULL,
+    material_id INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (user_id, material_id)
+);
 """
 
 # 索引：把最常用的过滤/连接列都建上
@@ -316,6 +326,7 @@ _INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_sub_hw ON homework_submissions(homework_id)",
     "CREATE INDEX IF NOT EXISTS idx_sub_stu ON homework_submissions(student_id)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_imp_user ON material_imports(user_id)",
 ]
 
 # 表 -> 后补列（老库平滑升级用）
@@ -336,7 +347,12 @@ _COLUMN_UPGRADES: dict[str, list[tuple[str, str]]] = {
         ("attempt", "INTEGER NOT NULL DEFAULT 1"),
         ("late", "INTEGER NOT NULL DEFAULT 0"),
     ],
-    "chat_messages": [("scene", "TEXT NOT NULL DEFAULT 'tutor'")],
+    "chat_messages": [
+        ("scene", "TEXT NOT NULL DEFAULT 'tutor'"),
+        # 会话：支持「新开对话 / 回到某一次对话」。老数据 session_id 为空串，
+        # 界面归到「早期对话」，不强行拆散。
+        ("session_id", "TEXT NOT NULL DEFAULT ''"),
+    ],
     # 团队类型：老师带的不只是科研课题组，还有横向项目、竞赛队、实习组。
     # 老库补列时靠 DEFAULT 回填为「科研课题组」（历史数据全是科研组）。
     "research_groups": [("kind", "TEXT NOT NULL DEFAULT '科研课题组'")],
@@ -574,12 +590,34 @@ def all_students() -> list[dict]:
 
 
 def log_chat(user_id: int, role: str, content: str, refs: Any = None,
-             scene: str = "tutor", layer: str = "", engine: str = "") -> int:
+             scene: str = "tutor", layer: str = "", engine: str = "",
+             session_id: str = "") -> int:
     return execute(
-        "INSERT INTO chat_messages (user_id, scene, role, content, refs, layer, engine, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (user_id, scene, role, content, jdump(refs or []), layer, engine, now()),
+        "INSERT INTO chat_messages (user_id, scene, role, content, refs, layer, engine, session_id, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (user_id, scene, role, content, jdump(refs or []), layer, engine, session_id, now()),
     )
+
+
+def chat_sessions(user_id: int, scene: str, limit: int = 30) -> list[dict]:
+    """会话列表：按 session_id 聚合，取每会话的第一问做标题。空 session_id 归为「早期对话」。"""
+    return query(
+        "SELECT session_id, COUNT(*) AS turns, MAX(created_at) AS last_at, "
+        "MIN(id) AS first_id "
+        "FROM chat_messages WHERE user_id = ? AND scene = ? "
+        "GROUP BY session_id ORDER BY last_at DESC LIMIT ?",
+        (user_id, scene, limit),
+    )
+
+
+def first_question(user_id: int, scene: str, session_id: str) -> str:
+    row = query(
+        "SELECT content FROM chat_messages "
+        "WHERE user_id = ? AND scene = ? AND session_id = ? AND role = 'user' "
+        "ORDER BY id ASC LIMIT 1",
+        (user_id, scene, session_id),
+    )
+    return str(row[0]["content"]) if row else ""
 
 
 def recent_chat(user_id: int, scene: str = "tutor", turns: int = 4) -> list[dict]:

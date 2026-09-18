@@ -158,12 +158,16 @@ def rule_lesson_plan(topic: str, course: str, periods: int, level: str,
 
 
 def lesson_plan(topic: str, course: str = "", periods: int = 1, level: str = "B",
-                top_k: int = 4) -> dict:
-    """生成教案（双引擎）。先检索资料再生成，避免凭空编造。"""
+                top_k: int = 4, owner_id: int = 0) -> dict:
+    """生成教案（双引擎）。先检索资料再生成，避免凭空编造。
+
+    ``owner_id``：教师 id，检索限定在该教师可见范围（自己 + 教师公用资料）内。
+    """
     query = f"{course} {topic}".strip()
-    hits = retriever.hybrid_search(query, top_k=top_k, course=course) if query else []
+    hits = retriever.hybrid_search(query, top_k=top_k, course=course, owner_id=owner_id,
+                                   teacher=True) if query else []
     if not hits and course:
-        hits = retriever.hybrid_search(topic, top_k=top_k)
+        hits = retriever.hybrid_search(topic, top_k=top_k, owner_id=owner_id, teacher=True)
 
     rule = rule_lesson_plan(topic, course, periods, level, hits)
     context = retriever.context_block(hits, max_chars=2000)
@@ -259,10 +263,11 @@ def rule_slide_outline(topic: str, pages: int, hits: Sequence[dict] | None = Non
     return {"title": topic, "pages": len(slides), "slides": slides}
 
 
-def slide_outline(topic: str, pages: int = 8, course: str = "") -> dict:
+def slide_outline(topic: str, pages: int = 8, course: str = "", owner_id: int = 0) -> dict:
     """生成 PPT 大纲（双引擎）。每页 title + bullets(≤4) + note。"""
     query = f"{course} {topic}".strip()
-    hits = retriever.hybrid_search(query, top_k=4, course=course) if query else []
+    hits = retriever.hybrid_search(query, top_k=4, course=course,
+                                   owner_id=owner_id, teacher=True) if query else []
     rule = rule_slide_outline(topic, pages, hits)
 
     prompt = (

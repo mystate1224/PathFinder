@@ -61,8 +61,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   view.innerHTML =
     '<div class="qa-shell" id="qa-shell">' +
       '<div class="qa-dock">' +
-        '<div class="qa-dock__head">' + PF.icon("clock", 14) + "<span>以前问过的</span></div>" +
-        '<div class="qa-dock__list" id="qa-history"></div>' +
+        '<div class="sess-head">' +
+          '<span class="sess-head__title">' + PF.icon("message", 14) + "对话</span>" +
+          '<button class="sess-new" id="btn-new">' + PF.icon("plus", 13) + "新开对话</button>" +
+        "</div>" +
+        '<div class="sess-list" id="qa-history"></div>' +
       "</div>" +
       '<div class="qa-grip" id="qa-grip" role="separator" aria-orientation="vertical" tabindex="0"></div>' +
       '<div class="qa-main">' +
@@ -70,6 +73,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         '<div class="qa-main__foot">' +
           '<div class="row" style="gap:8px;margin-bottom:8px">' +
             '<span class="t-xs t-dim" id="c-skill-hint">直接说你想做什么就行</span>' +
+            PF.ragSelect("c-rag", "auto", 116) +
             '<div class="spacer"></div>' +
             '<span class="t-xs t-dim">Ctrl / ⌘ + Enter 发送</span>' +
           "</div>" +
@@ -82,6 +86,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div>" +
       '<div class="qa-side">' +
         '<div id="agent-card"></div>' +
+        '<div class="card mt-4"><div class="card__head"><h3>智能体工具</h3></div>' +
+          '<div class="card__body" id="tools"></div>' +
+          '<div class="card__foot">' + PF.caveat(
+            "上传的资料会解析、抽知识点并进入检索索引；生成的教案要点/练习题会标注依据了哪几份资料，可直接带到备课助手里用。") +
+          "</div>" +
+        "</div>" +
         '<div class="card mt-4"><div class="card__head"><h3>它能做什么</h3></div>' +
           '<div class="card__body stack-sm" id="skills"></div>' +
           '<div class="card__foot">' + PF.caveat(
@@ -101,6 +111,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   PF.$("#btn-hist").addEventListener("click", function () { dock.toggle(); });
 
   /* ---------------------------------------------------------- 数据：一轮对话 */
+  const API_BASE = "/api/teacher/copilot";
   let ROUNDS = [];
   let CURRENT = -1;
   let LOCKED = "";
@@ -114,23 +125,51 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       out.push({
         q: m.content || "", at: m.created_at || "",
         a: ans ? ans.content : "", refs: [], data: null,
-        intent: "", intent_label: "", engine: (ans && ans.engine) || "", qa: null,
+        intent: "", intent_label: "", engine: (ans && ans.engine) || "", qa: null, rag: null,
       });
     }
     return out;
   }
 
+  /* ---------------------------------------------------------- 会话：新开 / 回到某一次 */
+  // el 传 null：会话与「本次对话的每一轮」画在同一个滚动区里，由 paintDock 统一渲染。
+  const sess = PF.sessionList({ el: null, api: API_BASE, onPick: function (sid) { loadHistory(sid); } });
+
+  PF.$("#btn-new").addEventListener("click", async function () {
+    await sess.create();
+    ROUNDS = []; CURRENT = -1;
+    paintRound(-1);
+    PF.toast("已新开一次对话", "ok");
+  });
+
   function paintDock() {
     const box = PF.$("#qa-history");
-    if (!ROUNDS.length) {
-      box.innerHTML = '<div class="t-xs t-dim">还没有对话记录。</div>';
-      return;
+    const list = sess.items || [];
+    let html = '<div class="sess-sec">全部会话（' + list.length + "）</div>";
+    html += list.length
+      ? list.map(function (s) {
+          return '<button class="qa-dock__item' + (s.session_id === sess.current ? " is-on" : "") +
+            '" data-sid="' + PF.esc(s.session_id) + '">' +
+            '<div class="qa-dock__q">' + PF.esc(PF.trunc(s.title || "（空会话）", 28)) + "</div>" +
+            '<div class="qa-dock__t">' + PF.num(s.turns, 0) + " 条 · " +
+            PF.esc(PF.when(s.last_at)) + "</div></button>";
+        }).join("")
+      : '<div class="t-xs t-dim" style="padding:2px 4px 8px">还没有对话，点上面「新开对话」。</div>';
+
+    if (ROUNDS.length) {
+      html += '<div class="sess-sec">本次对话（' + ROUNDS.length + "）</div>" +
+        ROUNDS.map(function (r, i) {
+          return '<button class="qa-dock__item is-turn' + (i === CURRENT ? " is-on" : "") +
+            '" data-r="' + i + '">' +
+            '<div class="qa-dock__q">' + PF.esc(PF.trunc(r.q || "（空）", 34)) + "</div>" +
+            '<div class="qa-dock__t">' + PF.esc(PF.when(r.at)) +
+            (r.rag && r.rag.strategy_name ? " · " + PF.esc(r.rag.strategy_name) : "") + "</div></button>";
+        }).join("");
     }
-    box.innerHTML = ROUNDS.map(function (r, i) {
-      return '<button class="qa-dock__item' + (i === CURRENT ? " is-on" : "") + '" data-r="' + i + '">' +
-        '<div class="qa-dock__q">' + PF.esc(PF.trunc(r.q || "（空）", 40)) + "</div>" +
-        '<div class="qa-dock__t">' + PF.esc(PF.when(r.at)) + "</div></button>";
-    }).join("");
+    box.innerHTML = html;
+    PF.$$("[data-sid]", box).forEach(function (b) {
+      b.addEventListener("click", function () { sess.pick(b.dataset.sid); });
+    });
     PF.$$("[data-r]", box).forEach(function (b) {
       b.addEventListener("click", function () { paintRound(Number(b.dataset.r)); });
     });
@@ -154,6 +193,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         (!isUser && m.intent === "lesson" ? lessonBlock(data) : "") +
         (!isUser && m.intent === "explain" ? explainBlock(data) : "") +
         (!isUser && m.intent === "grading" ? gradingBlock(data) : "") +
+        (!isUser && m.rag ? PF.ragCard(m.rag) : "") +
+        (!isUser && m.synth ? PF.synthCard(m.synth) : "") +
         PF.qaBlock(m.qa) +
       "</div></div>";
   }
@@ -234,7 +275,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           "· 讲知识点 —— 「讲一下反向传播，要能直接上课用」\n" +
           "· 批改标准 —— 「这份作业怎么给分？」\n\n" +
           "答案只引用你上传的课件原文，没有依据会直接说明。" +
-          "以前问过的，点左侧「历史对话」就能翻。</div></div>";
+          "左侧「对话」里能新开一次，也能回到以前某一次接着问。</div></div>";
       paintDock();
       return;
     }
@@ -242,7 +283,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     chat.innerHTML =
       renderMsg({ role: "user", content: r.q, created_at: r.at }) +
       (r.a ? renderMsg({ role: "assistant", content: r.a, intent: r.intent, intent_label: r.intent_label,
-                         engine: r.engine, created_at: r.at, data: r.data, qa: r.qa }) : "");
+                         engine: r.engine, created_at: r.at, data: r.data, qa: r.qa,
+                         rag: r.rag, synth: r.synth || (r.data || {}).synth }) : "");
     bindFollowups(chat);
     paintDock();
     const el = PF.$("#chat");
@@ -311,7 +353,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     const btn = PF.$("#btn-send");
 
     ROUNDS.push({ q: q, a: "", refs: [], data: null, intent: "", intent_label: "",
-                  engine: "", at: new Date().toISOString(), qa: null });
+                  engine: "", at: new Date().toISOString(), qa: null, rag: null });
     CURRENT = ROUNDS.length - 1;
     PF.$("#chat").innerHTML =
       renderMsg({ role: "user", content: q, created_at: ROUNDS[CURRENT].at }) +
@@ -323,13 +365,19 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     paintDock();
 
     try {
-      const d = await PF.post("/api/teacher/copilot/ask", { question: q, skill: LOCKED });
+      const d = await PF.post(API_BASE + "/ask", {
+        question: q, skill: LOCKED,
+        session_id: sess.current,                      // 不传后端新开一次；传了就续上
+        strategy: PF.$("#c-rag").value || "auto",      // auto = 按问题自动选五种架构之一
+      });
       if (PF.arr(d.skills).length) { SKILLS = d.skills; paintSkills(); }
       ROUNDS[CURRENT] = {
         q: q, a: d.answer, refs: (d.data || {}).refs || [], data: d.data || {},
         intent: d.intent, intent_label: d.intent_label, engine: d.engine,
-        at: new Date().toISOString(), qa: d,
+        at: new Date().toISOString(), qa: d, rag: d.rag || null, synth: d.synth || null,
       };
+      sess.current = d.session_id || sess.current;
+      await sess.refresh();
       paintRound(CURRENT);
     } catch (e) {
       ROUNDS[CURRENT].a = "处理失败：" + e.message;
@@ -341,9 +389,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     }
   }
 
-  async function loadHistory() {
+  async function loadHistory(sid) {
     try {
-      const d = await PF.get("/api/teacher/copilot/history?limit=60");
+      const d = await PF.get(API_BASE + "/history?limit=60" +
+        (sid ? "&session_id=" + encodeURIComponent(sid) : ""));
       ROUNDS = groupRounds(PF.arr(d.messages));
       CURRENT = ROUNDS.length ? ROUNDS.length - 1 : -1;
     } catch (e) {
@@ -352,24 +401,40 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     paintRound(CURRENT);
   }
 
+  /* ---------------------------------------------------------- 智能体工具 */
+  PF.agentTools({
+    el: PF.$("#tools"),
+    onInsert: function (_md, r) {
+      const input = PF.$("#c-input");
+      input.value = "帮我基于《" + (r.title || "生成的资料") + "》备一节课";
+      input.focus();
+    },
+    onDone: function () { sess.refresh(); },
+  });
+
   PF.$("#btn-send").addEventListener("click", send);
   PF.$("#c-input").addEventListener("keydown", function (e) {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
   });
 
   PF.$("#btn-clear").addEventListener("click", async function () {
+    const sid = sess.current;
     const yes = await PF.confirm({
-      title: "清空对话", text: "会删除全部 Copilot 对话历史，不可恢复。", okText: "清空", danger: true,
+      title: sid ? "清空本次对话" : "清空全部对话",
+      text: sid ? "只删当前这一次对话，其他对话保留。" : "会删除全部 Copilot 对话历史，不可恢复。",
+      okText: "清空", danger: true,
     });
     if (!yes) return;
-    try { await PF.post("/api/teacher/copilot/clear"); } catch (e) { /* 已提示 */ }
+    try { await PF.post(API_BASE + "/clear", { session_id: sid }); } catch (e) { /* 已提示 */ }
     ROUNDS = []; CURRENT = -1;
+    await sess.refresh();
     paintRound(-1);
     PF.toast("对话已清空", "ok");
   });
 
   paintSkills();
-  await loadHistory();
+  await sess.refresh();
+  await loadHistory(sess.current);
 })();
 </script>
 </body>

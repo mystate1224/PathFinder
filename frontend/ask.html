@@ -50,8 +50,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   view.innerHTML =
     '<div class="qa-shell" id="qa-shell">' +
       '<div class="qa-dock">' +
-        '<div class="qa-dock__head">' + PF.icon("clock", 14) + "<span>以前问过的</span></div>" +
-        '<div class="qa-dock__list" id="qa-history"></div>' +
+        '<div class="sess-head">' +
+          '<span class="sess-head__title">' + PF.icon("message", 14) + "对话</span>" +
+          '<button class="sess-new" id="btn-new">' + PF.icon("plus", 13) + "新开对话</button>" +
+        "</div>" +
+        '<div class="sess-list" id="qa-history"></div>' +
       "</div>" +
       '<div class="qa-grip" id="qa-grip" role="separator" aria-orientation="vertical" tabindex="0"></div>' +
       '<div class="qa-main">' +
@@ -64,6 +67,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             '<select class="select select--sm" id="c-top" style="width:110px">' +
               '<option value="4">引用 4 段</option><option value="6">引用 6 段</option>' +
               '<option value="2">引用 2 段</option></select>' +
+            PF.ragSelect("c-rag", "auto", 116) +
             '<div class="spacer"></div>' +
             '<span class="t-xs t-dim">Ctrl / ⌘ + Enter 发送</span>' +
           "</div>" +
@@ -76,6 +80,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div>" +
       '<div class="qa-side">' +
         '<div id="agent-card"></div>' +
+        '<div class="card mt-4"><div class="card__head"><h3>智能体工具</h3></div>' +
+          '<div class="card__body" id="tools"></div>' +
+          '<div class="card__foot">' + PF.caveat(
+            "上传的资料会解析、抽知识点并进入检索索引，之后的提问可以直接引用它；生成的草稿会标注依据了哪几份资料。") +
+          "</div>" +
+        "</div>" +
         '<div class="card mt-4"><div class="card__head"><h3>本次答疑风格</h3></div>' +
           '<div class="card__body stack-sm">' +
             '<dl class="style-grid">' +
@@ -103,7 +113,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   PF.$("#btn-hist").addEventListener("click", function () { dock.toggle(); });
 
   /* ---------------------------------------------------------- 数据：一轮对话 */
-  let ROUNDS = [];      // [{q, a, refs, layer, engine, at, qa}]
+  const API_BASE = "/api/tutor";
+  let ROUNDS = [];      // [{q, a, refs, layer, engine, at, qa, rag}]
   let CURRENT = -1;     // 当前展示第几轮，-1 表示还没问过
 
   function groupRounds(msgs) {
@@ -116,23 +127,51 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         q: m.content || "", at: m.created_at || "",
         a: ans ? ans.content : "", refs: PF.arr(ans && ans.refs),
         layer: (ans && ans.layer) || "", engine: (ans && ans.engine) || "",
-        qa: null,   // 历史轮次不带协议块，只有当前这一轮有
+        qa: null, rag: null,   // 历史轮次不带协议块，只有当前这一轮有
       });
     }
     return out;
   }
 
+  /* ---------------------------------------------------------- 会话：新开 / 回到某一次 */
+  // el 传 null：会话与「本次对话的每一轮」要画在同一个滚动区里，由 paintDock 统一渲染。
+  const sess = PF.sessionList({ el: null, api: API_BASE, onPick: function (sid) { loadHistory(sid); } });
+
+  PF.$("#btn-new").addEventListener("click", async function () {
+    await sess.create();
+    ROUNDS = []; CURRENT = -1;
+    paintRound(-1);
+    PF.toast("已新开一次对话", "ok");
+  });
+
   function paintDock() {
     const box = PF.$("#qa-history");
-    if (!ROUNDS.length) {
-      box.innerHTML = '<div class="t-xs t-dim">还没有对话记录。</div>';
-      return;
+    const list = sess.items || [];
+    let html = '<div class="sess-sec">全部会话（' + list.length + "）</div>";
+    html += list.length
+      ? list.map(function (s) {
+          return '<button class="qa-dock__item' + (s.session_id === sess.current ? " is-on" : "") +
+            '" data-sid="' + PF.esc(s.session_id) + '">' +
+            '<div class="qa-dock__q">' + PF.esc(PF.trunc(s.title || "（空会话）", 28)) + "</div>" +
+            '<div class="qa-dock__t">' + PF.num(s.turns, 0) + " 条 · " +
+            PF.esc(PF.when(s.last_at)) + "</div></button>";
+        }).join("")
+      : '<div class="t-xs t-dim" style="padding:2px 4px 8px">还没有对话，点上面「新开对话」。</div>';
+
+    if (ROUNDS.length) {
+      html += '<div class="sess-sec">本次对话（' + ROUNDS.length + "）</div>" +
+        ROUNDS.map(function (r, i) {
+          return '<button class="qa-dock__item is-turn' + (i === CURRENT ? " is-on" : "") +
+            '" data-r="' + i + '">' +
+            '<div class="qa-dock__q">' + PF.esc(PF.trunc(r.q || "（空）", 34)) + "</div>" +
+            '<div class="qa-dock__t">' + PF.esc(PF.when(r.at)) +
+            (r.rag && r.rag.strategy_name ? " · " + PF.esc(r.rag.strategy_name) : "") + "</div></button>";
+        }).join("");
     }
-    box.innerHTML = ROUNDS.map(function (r, i) {
-      return '<button class="qa-dock__item' + (i === CURRENT ? " is-on" : "") + '" data-r="' + i + '">' +
-        '<div class="qa-dock__q">' + PF.esc(PF.trunc(r.q || "（空）", 40)) + "</div>" +
-        '<div class="qa-dock__t">' + PF.esc(PF.when(r.at)) + "</div></button>";
-    }).join("");
+    box.innerHTML = html;
+    PF.$$("[data-sid]", box).forEach(function (b) {
+      b.addEventListener("click", function () { sess.pick(b.dataset.sid); });
+    });
     PF.$$("[data-r]", box).forEach(function (b) {
       b.addEventListener("click", function () { paintRound(Number(b.dataset.r)); });
     });
@@ -154,6 +193,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         PF.esc(m.content || "") +
         (refs.length ? '<div class="t-xs mt-3" style="color:var(--ink-500)">依据：' +
           refs.slice(0, 3).map(function (r) { return "[" + PF.esc(r) + "]"; }).join(" ") + "</div>" : "") +
+        (!isUser && m.rag ? PF.ragCard(m.rag) : "") +
+        (!isUser && m.synth ? PF.synthCard(m.synth) : "") +
         PF.qaBlock(m.qa) +
       "</div></div>";
   }
@@ -167,15 +208,16 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           '<div class="msg__bubble">你好，我是这门课的 AI 助教。' +
           "提问时我会先看你的画像，再决定从哪里讲起、讲多深；" +
           "答案只引用教师上传的课件原文，没有依据的地方会直接说明。\n\n" +
-          "可以先问一个你最近卡住的知识点。以前问过的，点左侧「历史对话」就能翻。</div></div>";
+          "可以先问一个你最近卡住的知识点。左侧「对话」里能新开一次，也能回到以前某一次继续问。</div></div>";
       paintDock();
       return;
     }
     const r = ROUNDS[i];
     chat.innerHTML =
       renderMsg({ role: "user", content: r.q, created_at: r.at, refs: [] }) +
-      (r.a ? renderMsg({ role: "assistant", content: r.a, layer: r.layer,
-                         engine: r.engine, created_at: r.at, refs: r.refs, qa: r.qa }) : "");
+      (r.a ? renderMsg({ role: "assistant", content: r.a, layer: r.layer, engine: r.engine,
+                         created_at: r.at, refs: r.refs, qa: r.qa, rag: r.rag,
+                         synth: r.synth }) : "");
     bindFollowups(chat);
     setStyle(r.layer, r.engine, r.refs);
     paintDock();
@@ -259,7 +301,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     const btn = PF.$("#btn-send");
 
     // 先把问题放到主区，回答到位后再补上
-    ROUNDS.push({ q: q, a: "", refs: [], layer: "", engine: "", at: new Date().toISOString(), qa: null });
+    ROUNDS.push({ q: q, a: "", refs: [], layer: "", engine: "",
+                  at: new Date().toISOString(), qa: null, rag: null });
+    const strategy = PF.$("#c-rag").value || "auto";
     CURRENT = ROUNDS.length - 1;
     PF.$("#chat").innerHTML =
       renderMsg({ role: "user", content: q, created_at: ROUNDS[CURRENT].at, refs: [] }) +
@@ -277,11 +321,15 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         question: q,
         course: PF.$("#c-course").value,
         top_k: Number(PF.$("#c-top").value),
+        session_id: sess.current,          // 不传后端会新开一次；传了就续上这一轮
+        strategy: strategy,                // auto = 按问题自动选五种架构之一
       });
       ROUNDS[CURRENT] = {
         q: q, a: d.answer, refs: PF.arr(d.refs), layer: d.layer, engine: d.engine,
-        at: new Date().toISOString(), qa: d,
+        at: new Date().toISOString(), qa: d, rag: d.rag || null, synth: d.synth || null,
       };
+      sess.current = d.session_id || sess.current;
+      await sess.refresh();
       paintRound(CURRENT);
       if (PF.arr(d.hits).length) paintHits(d.hits);
     } catch (e) {
@@ -291,9 +339,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   }
 
   /* ---------------------------------------------------------- 历史与推荐问题 */
-  async function loadHistory() {
+  async function loadHistory(sid) {
     try {
-      const d = await PF.get("/api/tutor/history?limit=60");
+      const d = await PF.get(API_BASE + "/history?limit=60" +
+        (sid ? "&session_id=" + encodeURIComponent(sid) : ""));
       ROUNDS = groupRounds(PF.arr(d.messages));
       CURRENT = ROUNDS.length ? ROUNDS.length - 1 : -1;
     } catch (e) {
@@ -301,6 +350,17 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     }
     paintRound(CURRENT);
   }
+
+  /* ---------------------------------------------------------- 智能体工具 */
+  PF.agentTools({
+    el: PF.$("#tools"),
+    onInsert: function (_md, r) {
+      const input = PF.$("#c-input");
+      input.value = "帮我讲解这份资料：" + (r.title || "我刚生成的资料");
+      input.focus();
+    },
+    onDone: function () { sess.refresh(); },
+  });
 
   (async function loadSuggest() {
     const box = PF.$("#suggest");
@@ -337,21 +397,26 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   });
 
   PF.$("#btn-clear").addEventListener("click", async function () {
+    const sid = sess.current;
     const yes = await PF.confirm({
-      title: "清空对话", text: "会删除你与 AI 助教的全部答疑记录，不可恢复。", okText: "清空", danger: true,
+      title: sid ? "清空本次对话" : "清空全部对话",
+      text: sid ? "只删当前这一次对话，其他对话保留。" : "会删除你与 AI 助教的全部答疑记录，不可恢复。",
+      okText: "清空", danger: true,
     });
     if (!yes) return;
     try {
-      await PF.post("/api/tutor/clear");
+      await PF.post(API_BASE + "/clear", { session_id: sid });
       ROUNDS = []; CURRENT = -1;
       setStyle("", "", []);
+      await sess.refresh();
       paintRound(-1);
       PF.toast("对话已清空", "ok");
     } catch (e) { /* 已提示 */ }
   });
 
   setStyle("", "", []);
-  await loadHistory();
+  await sess.refresh();
+  await loadHistory(sess.current);
 })();
 </script>
 </body>

@@ -30,6 +30,7 @@ import config  # noqa: E402
 import db  # noqa: E402
 import llm  # noqa: E402
 from services import (  # noqa: E402
+    agenttools,
     copilot,
     dashboard,
     demo,
@@ -44,6 +45,7 @@ from services import (  # noqa: E402
     parsekit,
     planner,
     rag,
+    ragroute,
     resources,
     retriever,
     stratify,
@@ -365,9 +367,14 @@ def api_meta(user: dict = Depends(current_user)):
         data["classes"] = homework.classes()
         data["courses"] = homework.courses(int(user["id"]))
     else:
+        # 课程下拉也要按可见范围取：否则学生能在筛选里看到同学私人材料（成绩单 / 简历）的课程名，
+        # 等于变相泄露"谁上传了什么"。规则与检索层保持一致。
+        clause, args = rag.search_scope(int(user["id"]), False)
         data["my_courses"] = [
             r["course"] for r in db.query(
-                "SELECT DISTINCT course FROM knowledge_points WHERE course <> '' ORDER BY course"
+                "SELECT DISTINCT course FROM knowledge_points WHERE course <> ''" +
+                clause + " ORDER BY course",
+                tuple(args),
             )
         ]
     return ok(data)
@@ -457,19 +464,55 @@ def api_tutor_ask(payload: dict = Body(default={}), user: dict = Depends(require
         course=_str(payload, "course"),
         scope=_str(payload, "scope"),
         top_k=_int(payload, "top_k", 4) or 4,
+        session_id=_str(payload, "session_id"),
+        strategy=_str(payload, "strategy") or "auto",
     )
     return ok(result)
 
 
+@app.get(f"{API}/tutor/sessions")
+def api_tutor_sessions(limit: int = 30, user: dict = Depends(require_student)):
+    """会话列表：支持「新开对话」与「回到某一次对话」。"""
+    return ok({"sessions": tutor.sessions(int(user["id"]), max(1, min(100, limit))),
+               "new_session": tutor.new_session(),
+               "strategies": ragroute.strategies_view()})
+
+
+@app.post(f"{API}/tutor/new")
+def api_tutor_new(user: dict = Depends(require_student)):
+    return ok({"session_id": tutor.new_session()}, message="已新开一次对话")
+
+
 @app.get(f"{API}/tutor/history")
-def api_tutor_history(limit: int = 30, user: dict = Depends(require_student)):
-    return ok({"messages": tutor.history_view(int(user["id"]), max(1, min(100, limit)))})
+def api_tutor_history(limit: int = 30, session_id: str = "",
+                      user: dict = Depends(require_student)):
+    return ok({"messages": tutor.history_view(int(user["id"]), max(1, min(100, limit)),
+                                              session_id)})
 
 
 @app.post(f"{API}/tutor/clear")
-def api_tutor_clear(user: dict = Depends(require_student)):
-    tutor.clear_history(int(user["id"]))
+def api_tutor_clear(payload: dict = Body(default={}), user: dict = Depends(require_student)):
+    """清空全部对话，或只清某一次（传 session_id）。"""
+    tutor.clear_history(int(user["id"]), _str(payload, "session_id"))
     return ok(message="对话已清空")
+
+
+# ================================================================ 智能体工具（Agent）
+@app.get(f"{API}/agent/tools")
+def api_agent_tools(side: str = "", user: dict = Depends(current_user)):
+    """两个智能体共用的工具清单（上传资料 / 生成资料）。"""
+    role = "teacher" if str(user.get("role")) == "teacher" else "student"
+    return ok({"tools": agenttools.tools_view(side or role),
+               "strategies": ragroute.strategies_view()})
+
+
+@app.post(f"{API}/agent/tools/{{tool_id}}/run")
+def api_agent_tool_run(tool_id: str, payload: dict = Body(default={}),
+                       user: dict = Depends(current_user)):
+    result = agenttools.run_tool(tool_id, payload or {}, user)
+    if result.get("error"):
+        return fail(result["error"], 404)
+    return ok(result)
 
 
 # ================================================================ 说明手册（三项能力口径）
@@ -522,7 +565,27 @@ def api_materials_overview(user: dict = Depends(current_user)):
 @app.get(f"{API}/materials")
 def api_materials(category: str = "", course: str = "", keyword: str = "",
                   user: dict = Depends(current_user)):
-    return ok(mylibrary.materials(int(user["id"]), category, course, keyword))
+    return ok(mylibrary.materials(
+        int(user["id"]), category, course, keyword,
+        teacher_scope=str(user.get("role")) == "teacher",
+    ))
+
+
+@app.post(f"{API}/materials/{{material_id}}/import")
+def api_material_import(material_id: int, user: dict = Depends(current_user)):
+    """把教师上传的公用资料导入我的检索库（数据隔离下的显式授权）。"""
+    okk, msg = mylibrary.import_material(int(user["id"]), material_id)
+    if not okk:
+        return fail(msg, 404)
+    return ok(message=msg)
+
+
+@app.delete(f"{API}/materials/{{material_id}}/import")
+def api_material_unimport(material_id: int, user: dict = Depends(current_user)):
+    """移除导入：只删引用记录，公用资料本体不受影响。"""
+    if not mylibrary.remove_import(int(user["id"]), material_id):
+        return fail("尚未导入该资料", 404)
+    return ok(message="已移除导入：这份资料不再进入你的检索范围")
 
 
 @app.get(f"{API}/materials/knowledge")
@@ -660,8 +723,10 @@ def api_materials_search(payload: dict = Body(default={}), user: dict = Depends(
     query = _str(payload, "query")
     if not query:
         return fail("请输入检索内容")
-    hits = retriever.hybrid_search(query, top_k=_int(payload, "top_k", 5) or 5,
-                                  course=_str(payload, "course"))
+    hits = retriever.hybrid_search(
+        query, top_k=_int(payload, "top_k", 5) or 5, course=_str(payload, "course"),
+        owner_id=int(user["id"]), teacher=str(user.get("role")) == "teacher",
+    )
     return ok({
         "query": query,
         "terms": rag.candidate_terms(query),
@@ -928,7 +993,8 @@ def api_teacher_lesson(payload: dict = Body(default={}), user: dict = Depends(re
     periods = max(1, min(6, _int(payload, "periods", 1) or 1))
     level = _str(payload, "level", "B") or "B"
 
-    result = teaching.lesson_plan(topic, course, periods, level)
+    result = teaching.lesson_plan(topic, course, periods, level,
+                                  owner_id=int(user["id"]))
     plan, engine = result["plan"], result["engine"]
     title = f"{topic} 教案"
     docx = office.build_docx(title, office.lesson_to_blocks(plan))
@@ -950,7 +1016,7 @@ def api_teacher_slides(payload: dict = Body(default={}), user: dict = Depends(re
     course = _str(payload, "course")
     pages = max(4, min(20, _int(payload, "pages", 8) or 8))
 
-    result = teaching.slide_outline(topic, pages, course)
+    result = teaching.slide_outline(topic, pages, course, owner_id=int(user["id"]))
     outline, engine = result["outline"], result["engine"]
     title = f"{topic} PPT 大纲"
     subtitle = f"{course}　共 {outline.get('pages')} 页" if course else f"共 {outline.get('pages')} 页"
@@ -1077,17 +1143,32 @@ async def api_teacher_batch_grade(
 # ================================================================ 教师 Copilot（能力⑥）
 @app.post(f"{API}/teacher/copilot/ask")
 def api_copilot_ask(payload: dict = Body(default={}), user: dict = Depends(require_teacher)):
-    return ok(copilot.ask(user, _str(payload, "question"), _str(payload, "skill")))
+    return ok(copilot.ask(user, _str(payload, "question"), _str(payload, "skill"),
+                          session_id=_str(payload, "session_id"),
+                          strategy=_str(payload, "strategy") or "auto"))
+
+
+@app.get(f"{API}/teacher/copilot/sessions")
+def api_copilot_sessions(limit: int = 30, user: dict = Depends(require_teacher)):
+    return ok({"sessions": copilot.sessions(int(user["id"]), max(1, min(100, limit))),
+               "new_session": copilot.new_session(),
+               "strategies": ragroute.strategies_view()})
+
+
+@app.post(f"{API}/teacher/copilot/new")
+def api_copilot_new(user: dict = Depends(require_teacher)):
+    return ok({"session_id": copilot.new_session()}, message="已新开一次对话")
 
 
 @app.get(f"{API}/teacher/copilot/history")
-def api_copilot_history(limit: int = 20, user: dict = Depends(require_teacher)):
-    return ok({"messages": copilot.history(int(user["id"]), max(1, min(100, limit)))})
+def api_copilot_history(limit: int = 20, session_id: str = "",
+                        user: dict = Depends(require_teacher)):
+    return ok({"messages": copilot.history(int(user["id"]), max(1, min(100, limit)), session_id)})
 
 
 @app.post(f"{API}/teacher/copilot/clear")
-def api_copilot_clear(user: dict = Depends(require_teacher)):
-    copilot.clear_history(int(user["id"]))
+def api_copilot_clear(payload: dict = Body(default={}), user: dict = Depends(require_teacher)):
+    copilot.clear_history(int(user["id"]), _str(payload, "session_id"))
     return ok(message="对话已清空")
 
 

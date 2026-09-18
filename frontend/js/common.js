@@ -62,6 +62,7 @@
     bell: '<path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"/><path d="M10.5 20a2 2 0 0 0 3 0"/>',
     activity: '<path d="M3 12h4l2.5-7 4 14 2.5-7h4"/>',
     crop: '<path d="M6 2v16h16"/><path d="M2 6h16v16"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M21 16.5L15.5 11 6 20"/>',
     home: '<path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/>',
     sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.2v2.3M12 19.5v2.3M2.2 12h2.3M19.5 12h2.3M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"/>',
     moon: '<path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z"/>',
@@ -539,6 +540,8 @@
         '<span class="agent-card__v">' + PF.esc(c.how || "") + "</span></div>" +
       '<div class="agent-card__row"><span class="agent-card__k">依据</span>' +
         '<span class="agent-card__v">' + PF.esc(c.ground || "") + "</span></div>" +
+      (c.can ? '<div class="agent-card__row"><span class="agent-card__k">还能做</span>' +
+        '<span class="agent-card__v">' + PF.esc(c.can) + "</span></div>" : "") +
       '<div class="agent-card__foot">' +
         '<button class="btn btn--sm btn--primary" id="' + PF.esc(c.btnId || "btn-manual") + '">' +
           PF.icon("book", 12) + "查看说明手册</button>" +
@@ -581,6 +584,360 @@
         }).join("") + "</div>";
     }
     return html;
+  };
+
+  /* ---------------------------------------------------------- RAG 路由
+     五种架构共用一张策略表。数据与后端 ragroute.STRATEGIES 对齐，
+     接口没返回时用它兜底，保证断网也能演示。 */
+  PF.RAG_STRATEGIES = [
+    { id: "auto", name: "自动选择", when: "按问题自己挑一种" },
+    { id: "hybrid", name: "混合式 RAG", when: "概念、原理这类文字解释" },
+    { id: "graph", name: "图谱 RAG", when: "问关系、前置、知识链路" },
+    { id: "agentic", name: "智能体式 RAG", when: "要结合我的情况、要计划" },
+    { id: "corrective", name: "纠错型 RAG", when: "口语、指代、说得含糊" },
+    { id: "multimodal", name: "多模态 RAG", when: "问图、表、扫描件、版面" },
+  ];
+
+  /** 策略下拉框。``picked`` 为当前值，默认 auto。 */
+  PF.ragSelect = function (id, picked, width) {
+    const cur = picked || "auto";
+    return '<select class="select select--sm" id="' + PF.esc(id) + '" title="检索策略：不同问题走不同架构" ' +
+      'style="width:' + (width || 128) + 'px">' +
+      PF.RAG_STRATEGIES.map(function (s) {
+        return '<option value="' + PF.esc(s.id) + '"' + (s.id === cur ? " selected" : "") + '>' +
+          PF.esc(s.name) + "</option>";
+      }).join("") + "</select>";
+  };
+
+  /** 本次走了哪种 RAG：徽标 + 理由 + 该架构自己的证据（子图 / 计划 / 改写 / 图片）。 */
+  PF.ragCard = function (rag) {
+    const r = rag || {};
+    if (!r.strategy) return "";
+    const extra = r.extra || {};
+    let html = '<div class="rag-card">' +
+      '<div class="rag-card__head">' +
+        '<span class="badge badge--brand">' + PF.esc(r.strategy_name || r.strategy) + "</span>" +
+        (r.auto === false ? '<span class="badge">手动指定</span>' : '<span class="badge">自动路由</span>') +
+        '<div class="spacer"></div>' +
+        '<span class="t-xs t-dim">' + PF.esc(r.reason || "") + "</span>" +
+      "</div>";
+
+    // 图谱：把召回到的子图读出来
+    const g = extra.graph;
+    if (g) {
+      html += '<div class="rag-card__sec"><span class="rag-card__k">子图</span>' +
+        '<span class="rag-card__v">' +
+        (PF.arr(g.nodes).length
+          ? PF.arr(g.nodes).slice(0, 8).map(function (n) {
+              return '<span class="chiplet">' + PF.esc(n) + "</span>";
+            }).join("")
+          : '<span class="t-dim">问题没命中知识点，未展开子图</span>') +
+        "</span></div>" +
+        '<div class="rag-card__sec"><span class="rag-card__k">关系</span>' +
+        '<span class="rag-card__v">' +
+        (PF.arr(g.edges).length
+          ? PF.arr(g.edges).slice(0, 6).map(function (e) {
+              return '<span class="chiplet">' + PF.esc(e.source) + " — " + PF.esc(e.target) +
+                '<span class="t-dim">（' + PF.esc(e.reason || "") + "）</span></span>";
+            }).join("")
+          : '<span class="t-dim">暂未建立关联边</span>') +
+        "</span></div>";
+    }
+    // 智能体式：规划了哪几步、每步拿到什么
+    if (PF.arr(extra.plan).length) {
+      html += '<div class="rag-card__sec"><span class="rag-card__k">规划执行</span>' +
+        '<span class="rag-card__v">' + extra.plan.map(function (p) {
+          return '<span class="chiplet">' + PF.esc(p.tool) + " · 取到 " + PF.num(p.found, 0) +
+            '<span class="t-dim">（' + PF.esc(p.note || "") + "）</span></span>";
+        }).join("") + "</span></div>";
+    }
+    // 纠错式：改写了什么
+    if (extra.rewrite) {
+      html += '<div class="rag-card__sec"><span class="rag-card__k">改写</span>' +
+        '<span class="rag-card__v t-sm">「' + PF.esc(extra.rewrite.from) + "」→「" +
+        PF.esc(extra.rewrite.to) + "」</span></div>";
+    }
+    if (extra.rounds) {
+      html += '<div class="rag-card__sec"><span class="rag-card__k">检索</span>' +
+        '<span class="rag-card__v t-sm">' + PF.num(extra.rounds, 0) + " 轮，首查质量 " +
+        PF.esc(extra.quality || "—") + "</span></div>";
+    }
+    // 多模态：一起召回了哪些图片素材
+    if (PF.arr(extra.images).length) {
+      html += '<div class="rag-card__sec"><span class="rag-card__k">图片素材</span>' +
+        '<span class="rag-card__v">' + extra.images.slice(0, 4).map(function (im) {
+          return '<span class="chiplet">' + PF.icon("image", 11) + PF.esc(PF.trunc(im.title, 16)) + "</span>";
+        }).join("") + "</span></div>";
+    }
+    if (extra.note) {
+      html += '<div class="rag-card__note">' + PF.esc(extra.note) + "</div>";
+    }
+    return html + "</div>";
+  };
+
+  /** 综合生成卡：回答不是检索片段的拼接，而是"证据 + 推理"综合出来的。
+      默认折叠，点开看它这次走了哪几步、依据了哪几句原文。 */
+  PF.synthCard = function (s) {
+    const d = s || {};
+    const steps = PF.arr(d.steps);
+    const ev = PF.arr(d.evidence);
+    if (!steps.length && !ev.length) return "";
+    let html = '<details class="synth-card">' +
+      "<summary>" +
+        '<span class="badge badge--brand">' + PF.esc(d.mode || "综合生成") + "</span>" +
+        '<span class="t-xs t-dim">' + PF.esc("综合 " + PF.num(d.evidence_count || ev.length, 0) +
+          " 条证据" + (d.hit_count ? "（命中 " + PF.num(d.hit_count, 0) + " 条）" : "") +
+          "，不是原文拼接") + "</span>" +
+        '<div class="spacer"></div>' +
+        '<span class="t-xs t-dim">看它怎么想出来的</span>' +
+      "</summary>";
+    if (d.conclusion) {
+      html += '<div class="synth-card__lead">' + PF.esc(d.conclusion) + "</div>";
+    }
+    html += '<div class="synth-card__steps">' + steps.map(function (st) {
+      return '<div class="synth-step">' +
+        '<span class="synth-step__i">' + PF.esc(st.name || "") + "</span>" +
+        '<span class="synth-step__t">' + PF.esc(PF.trunc(st.text || st.desc || "", 90)) + "</span>" +
+      "</div>";
+    }).join("") + "</div>";
+    if (ev.length) {
+      html += '<div class="synth-card__k">用到的证据原文</div>' +
+        ev.map(function (e) {
+          return '<div class="synth-ev">' +
+            '<span class="chiplet">' + PF.esc(e.ref || "资料") + "</span>" +
+            '<span class="synth-ev__t">' + PF.esc(PF.trunc(e.sentence || "", 80)) + "</span>" +
+          "</div>";
+        }).join("");
+    }
+    if (d.remind) {
+      html += '<div class="rag-card__note">' + PF.icon("info", 12) +
+        "易错提醒：" + PF.esc(d.remind) + "</div>";
+    }
+    return html + "</details>";
+  };
+
+  /* ---------------------------------------------------------- 智能体工具
+     两个对话页共用：从 /api/agent/tools 拿清单渲染按钮，点开弹窗填参数，
+     跑完把结果（含引用来源）就地展示。新增工具不需要改前端。 */
+  PF.agentTools = function (cfg) {
+    const c = cfg || {};
+    const box = c.el;
+    const apiBase = c.apiBase || "/api/agent/tools";
+    if (!box) return { refresh: function () {} };
+
+    function btnHtml(t) {
+      return '<button class="btn btn--sm tool-btn" data-tool="' + PF.esc(t.id) + '">' +
+        PF.icon(t.id === "upload_material" ? "upload" : "sparkles", 13) +
+        "<span>" + PF.esc(t.name) + "</span></button>";
+    }
+
+    async function refresh() {
+      const d = await PF.try(function () { return PF.get(apiBase, { quiet: true }); }, null);
+      const tools = PF.arr(d && d.tools);
+      if (!tools.length) {
+        box.innerHTML = '<span class="t-xs t-dim">工具暂不可用</span>';
+        return tools;
+      }
+      box.innerHTML = '<div class="tool-list">' + tools.map(btnHtml).join("") + "</div>" +
+        '<div class="t-xs t-dim mt-2">' + PF.esc(tools[0].desc || "") + "</div>";
+      PF.$$("[data-tool]", box).forEach(function (b) {
+        b.addEventListener("click", function () {
+          const t = tools.filter(function (x) { return x.id === b.dataset.tool; })[0];
+          if (t) open(t);
+        });
+      });
+      return tools;
+    }
+
+    function open(tool) {
+      PF.modal({
+        title: tool.name,
+        body:
+          '<p class="t-sm t-dim mb-3">' + PF.esc(tool.desc || "") + "</p>" +
+          PF.arr(tool.args).map(function (a) {
+            const lab = '<label class="t-xs t-strong" for="ta-' + PF.esc(a.key) + '">' +
+              PF.esc(a.label) + (a.required ? ' <span class="t-danger">*</span>' : "") + "</label>";
+            if (a.type === "textarea") {
+              return '<div class="field">' + lab +
+                '<textarea class="input" id="ta-' + PF.esc(a.key) + '" rows="6" placeholder="' +
+                PF.esc(a.placeholder || "") + '"></textarea></div>';
+            }
+            if (a.type === "select") {
+              return '<div class="field">' + lab +
+                '<select class="select" id="ta-' + PF.esc(a.key) + '">' +
+                PF.arr(a.options).map(function (o) {
+                  return '<option value="' + PF.esc(o) + '">' + PF.esc(o) + "</option>";
+                }).join("") + "</select></div>";
+            }
+            if (a.type === "switch") {
+              return '<label class="switch-row"><input type="checkbox" id="ta-' + PF.esc(a.key) + '">' +
+                "<span>" + PF.esc(a.label) + "</span></label>";
+            }
+            return '<div class="field">' + lab +
+              '<input class="input" id="ta-' + PF.esc(a.key) + '" placeholder="' +
+              PF.esc(a.placeholder || "") + '"></div>';
+          }).join(""),
+        actions: [
+          { label: "取消" },
+          { label: "执行", type: "primary", onClick: async function (m) {
+              const args = {};
+              for (const a of PF.arr(tool.args)) {
+                const el = PF.$("#ta-" + a.key, m.body);
+                if (!el) continue;
+                args[a.key] = a.type === "switch" ? !!el.checked : el.value;
+              }
+              const miss = PF.arr(tool.args).filter(function (a) {
+                return a.required && !String(args[a.key] || "").trim();
+              });
+              if (miss.length) { PF.toast("请填写：" + miss.map(function (a) { return a.label; }).join("、"), "warn"); return true; }
+              m.body.innerHTML = PF.loading("正在执行…");
+              const r = await PF.try(function () {
+                return PF.post(apiBase + "/" + tool.id + "/run", args);
+              }, null);
+              if (!r) { m.body.innerHTML = '<p class="t-sm t-danger">执行失败，请稍后重试。</p>'; return true; }
+              m.body.innerHTML = PF.toolResult(tool, r, {
+                onInsert: c.onInsert,
+                onRerun: function (patch) {
+                  return PF.post(apiBase + "/" + tool.id + "/run", Object.assign({}, args, patch));
+                },
+                refreshDone: function () { refresh(); if (c.onDone) c.onDone(r); },
+              });
+              return true;   // 留在弹窗里看结果
+            } },
+        ],
+      });
+    }
+
+    refresh();
+    return { refresh: refresh };
+  };
+
+  /** 工具执行结果：统一展示"做了什么 + 依据什么 + 接下来能干嘛"。 */
+  PF.toolResult = function (tool, r, opts) {
+    const o = opts || {};
+    const d = r || {};
+    if (d.ok === false) return '<p class="t-sm t-danger">' + PF.esc(d.error || "执行失败") + "</p>";
+
+    let html = '<div class="tool-result">' +
+      '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+        '<span class="badge badge--ok">已完成</span>' + PF.engineBadge(d.engine) +
+        (d.material_id ? '<span class="badge">资料 #' + PF.esc(d.material_id) + "</span>" : "") +
+      "</div>" +
+      '<p class="t-sm mt-3">' + PF.esc(d.message || "") + "</p>";
+
+    if (tool.id === "upload_material") {
+      const pr = d.parse || {};
+      html += '<div class="stat-row mt-3">' +
+        '<div class="stat"><div class="stat__num">' + PF.num(d.indexed_chunks, 0) + "</div>" +
+          '<div class="stat__label">索引片段</div></div>' +
+        '<div class="stat"><div class="stat__num">' + PF.num(d.knowledge_saved, 0) + "</div>" +
+          '<div class="stat__label">知识点</div></div>' +
+        '<div class="stat"><div class="stat__num">' + PF.num(pr.blocks || 0, 0) + "</div>" +
+          '<div class="stat__label">解析块</div></div>' +
+      "</div>";
+      const items = PF.arr(d.kp_rule && d.kp_rule.items);
+      if (items.length) {
+        html += '<div class="t-xs t-dim mt-3">抽出知识点（' + PF.esc(d.kp_rule.rule_set || "") + "）：" +
+          items.map(function (i) { return '<span class="chiplet">' + PF.esc(i.name) + "</span>"; }).join("") +
+          "</div>";
+      }
+    }
+
+    if (d.markdown) {
+      html += '<div class="md-box mt-3">' + PF.esc(d.markdown) + "</div>";
+      if (PF.arr(d.refs).length) {
+        html += '<div class="t-xs t-dim mt-2">依据：' + PF.arr(d.refs).slice(0, 6).map(function (x) {
+          return '<span class="chiplet">' + PF.esc(x) + "</span>";
+        }).join("") + "</div>";
+      }
+      html += '<div class="row mt-3" style="gap:8px;flex-wrap:wrap">' +
+        (typeof o.onInsert === "function"
+          ? '<button class="btn btn--sm" data-act="insert">' + PF.icon("send", 12) + "填入提问框</button>" : "") +
+        (!d.material_id && typeof o.onRerun === "function"
+          ? '<button class="btn btn--sm btn--primary" data-act="save">' + PF.icon("upload", 12) + "保存到资料库</button>" : "") +
+        "</div>";
+    }
+    html += "</div>";
+
+    // 结果里的按钮要在这里绑定：这一段 HTML 是后来塞进弹窗的
+    setTimeout(function () {
+      const scope = document.querySelector(".tool-result");
+      if (!scope) return;
+      const bi = scope.querySelector('[data-act="insert"]');
+      if (bi && typeof o.onInsert === "function") {
+        bi.addEventListener("click", function () { o.onInsert(d.markdown || "", d); PF.toast("已填入提问框", "ok"); });
+      }
+      const bs = scope.querySelector('[data-act="save"]');
+      if (bs && typeof o.onRerun === "function") {
+        bs.addEventListener("click", async function () {
+          PF.busy(bs, true, "保存中");
+          const again = await PF.try(function () { return o.onRerun({ save: true }); }, null);
+          PF.busy(bs, false);
+          if (!again) { PF.toast("保存失败", "warn"); return; }
+          PF.toast(again.message || "已保存", "ok");
+          if (typeof o.refreshDone === "function") o.refreshDone();
+          const host = scope.parentElement;
+          if (host) host.innerHTML = PF.toolResult(tool, again, { onInsert: o.onInsert });
+        });
+      }
+    }, 0);
+    return html;
+  };
+
+  /* ---------------------------------------------------------- 会话管理
+     「新开对话」与「回到某一次对话」。学生与教师两个场景只差 api 前缀。 */
+  PF.sessionList = function (cfg) {
+    const c = cfg || {};
+    const box = c.el;
+    const api = c.api || "/api/tutor";
+    let items = [];
+    let current = "";
+
+    function paint() {
+      if (!box) return;
+      box.innerHTML = PF.arr(items).length
+        ? items.map(function (s) {
+            return '<button class="qa-dock__item' + (s.session_id === current ? " is-on" : "") +
+              '" data-sid="' + PF.esc(s.session_id) + '">' +
+              '<div class="qa-dock__q">' + PF.esc(PF.trunc(s.title || "（空会话）", 30)) + "</div>" +
+              '<div class="qa-dock__t">' + PF.num(s.turns, 0) + " 条 · " +
+              PF.esc(PF.when(s.last_at)) + "</div></button>";
+          }).join("")
+        : '<div class="t-xs t-dim">还没有对话，点上面的「新开对话」开始。</div>';
+      PF.$$("[data-sid]", box).forEach(function (b) {
+        b.addEventListener("click", function () { pick(b.dataset.sid); });
+      });
+    }
+
+    function pick(sid) {
+      current = sid || "";
+      paint();
+      if (typeof c.onPick === "function") c.onPick(current);
+    }
+
+    async function refresh() {
+      const d = await PF.try(function () { return PF.get(api + "/sessions", { quiet: true }); }, null);
+      items = PF.arr(d && d.sessions);
+      if (typeof c.onStrategies === "function" && d) c.onStrategies(PF.arr(d.strategies));
+      if (!current && items.length) current = items[0].session_id || "";
+      paint();
+      return items;
+    }
+
+    async function create() {
+      const d = await PF.try(function () { return PF.post(api + "/new", {}, { quiet: true }); }, null);
+      current = (d && d.session_id) || "";
+      await refresh();
+      if (typeof c.onPick === "function") c.onPick(current);
+      return current;
+    }
+
+    return {
+      refresh: refresh, create: create, pick: pick, paint: paint,
+      get current() { return current; },
+      set current(v) { current = v || ""; paint(); },
+      get items() { return items; },
+    };
   };
 
   /** 把容器撑到视口底部，让左右两栏各自滚动（页面整体不再滚）。返回解绑函数。 */
@@ -741,6 +1098,8 @@
       { id: "parse", label: "① 图文解析示例" },
       { id: "kp", label: "② 知识点抽取示例" },
       { id: "qa", label: "③ 交互式答疑示例" },
+      { id: "rag", label: "④ RAG 路由用例" },
+      { id: "synth", label: "⑤ 综合生成用例" },
       { id: "cases", label: "测试用例" },
     ];
 
@@ -772,6 +1131,22 @@
               : "") +
             (res.vision_note ? '<div class="qa-clarify">' + PF.icon("info", 13) + "<div>" +
               PF.esc(res.vision_note) + "</div></div>" : "");
+        } else if (res.type === "qa") {
+          // 问答集：不跑解析，直接给可一键填入的问题清单与验收点
+          html += '<p class="mn-sum">共 ' + PF.arr(res.pairs).length +
+            " 条。点「填入」把问题放进输入框，按「期望」逐条验收。</p>" +
+            PF.arr(res.pairs).map(function (p, i) {
+              return '<div class="demo-row">' +
+                '<div class="demo-row__main">' +
+                  '<div class="t-sm"><b>' + (i + 1) + ".</b> " + PF.esc(p.question) +
+                    (p.section ? ' <span class="chip">' + PF.esc(p.section) + "</span>" : "") + "</div>" +
+                  (p.expect ? '<div class="t-xs t-dim mt-2">期望：' + PF.esc(p.expect) + "</div>" : "") +
+                  (p.source ? '<div class="t-xs t-dim">依据：' + PF.esc(p.source) + "</div>" : "") +
+                "</div>" +
+                '<div class="demo-row__act"><button class="btn btn--sm" data-ask="' +
+                  PF.esc(p.question) + '">填入</button></div>' +
+              "</div>";
+            }).join("");
         } else {
           const doc = (res.parse || {}).doc || {};
           html += '<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
@@ -784,6 +1159,13 @@
             demoKpTable((res.kp || {}).items);
         }
         box.innerHTML = html;
+        PF.$$("[data-ask]", box).forEach(function (b) {
+          b.addEventListener("click", function () {
+            if (typeof o.onAsk === "function") { o.onAsk(b.dataset.ask); m.close(); return; }
+            const input = PF.$("#c-input");
+            if (input) { input.value = b.dataset.ask; input.focus(); m.close(); }
+          });
+        });
       }).catch(function (e) {
         box.innerHTML = PF.empty({ title: "运行失败", desc: e.message });
       });
@@ -830,7 +1212,8 @@
             '<div class="demo-row__act stack-sm">' +
               '<button class="btn btn--sm" data-fixture="' + PF.esc(c.id) + '">按约定（Fixture）</button>' +
               '<button class="btn btn--sm btn--primary" data-live="' + PF.esc(c.id) + '">真实跑一遍（Live）</button>' +
-              (c.ability === "qa" ? '<button class="btn btn--sm" data-ask="' + PF.esc(c.input.question || "") +
+              (c.ability === "qa" || c.ability === "rag"
+                ? '<button class="btn btn--sm" data-ask="' + PF.esc(c.input.question || "") +
                 '">填入对话框</button>' : "") +
             "</div>" +
           "</div>";
@@ -880,11 +1263,23 @@
     function pick(id) {
       PF.$$("button", nav).forEach(function (b) { b.classList.toggle("is-on", b.dataset.t === id); });
       if (id === "cases") { renderCases(cases, body); return; }
+      if (id === "rag") {
+        renderCases(cases.filter(function (c) { return c.ability === "rag"; }), body);
+        return;
+      }
+      if (id === "synth") {
+        renderCases(cases.filter(function (c) { return c.ability === "synth"; }), body);
+        return;
+      }
       renderSamples(samples.filter(function (s) { return s.ability === id; }), body);
     }
 
     nav.innerHTML = TABS.map(function (t) {
-      const n = t.id === "cases" ? cases.length : samples.filter(function (s) { return s.ability === t.id; }).length;
+      // ④⑤ 是用例（五种架构 / 综合生成各一组），不是素材，所以按 cases 计数
+      const n = t.id === "cases" ? cases.length
+        : (t.id === "rag" || t.id === "synth")
+          ? cases.filter(function (c) { return c.ability === t.id; }).length
+          : samples.filter(function (s) { return s.ability === t.id; }).length;
       return '<button class="btn btn--sm mn-navbtn" data-t="' + t.id + '">' + PF.esc(t.label) +
         " <span class='t-xs t-dim'>" + n + "</span></button>";
     }).join("");
@@ -1475,10 +1870,7 @@
           '<header class="topbar">' +
             '<button class="btn--ghost nav-toggle" type="button" id="pf-nav-toggle" ' +
               'aria-label="展开导航" aria-controls="pf-main" aria-expanded="false">' + PF.icon("menu", 18) + "</button>" +
-            "<div>" +
-              '<div class="topbar__title">' + PF.esc(c.title || "") + "</div>" +
-              (c.crumb ? '<div class="topbar__crumb">' + PF.esc(c.crumb) + "</div>" : "") +
-            "</div>" +
+            // 页面标题只保留 page-head 一处：顶栏再放一遍就是两个相同的标题。
             '<div class="topbar__spacer"></div>' +
             '<button class="theme-toggle" type="button" id="pf-theme"></button>' +
             '<button class="topbar__user" type="button" id="pf-user" title="个人中心" aria-label="个人中心">' +
