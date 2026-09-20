@@ -286,7 +286,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
     course     TEXT NOT NULL DEFAULT '',
     file_path  TEXT NOT NULL DEFAULT '',
     content    TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT ''
+    created_at TEXT NOT NULL DEFAULT '',
+    folder     TEXT NOT NULL DEFAULT ''       -- 备课文件夹名，'' = 未归档
 );
 
 CREATE TABLE IF NOT EXISTS kp_mastery (
@@ -298,6 +299,16 @@ CREATE TABLE IF NOT EXISTS kp_mastery (
     evidence    TEXT NOT NULL DEFAULT '',
     updated_at  TEXT NOT NULL DEFAULT '',
     UNIQUE (student_id, kp_name)
+);
+
+-- 备课文件夹：教师可以**先建好空文件夹**再把产物移进去，所以文件夹不能只靠
+-- artifacts.folder 分组推导（空的就推导不出来），必须单独登记一条。
+CREATE TABLE IF NOT EXISTS prep_folders (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    UNIQUE (user_id, name)
 );
 
 -- 资料导入记录：学生把「教师上传的公用资料」导入自己的检索库。
@@ -327,6 +338,7 @@ _INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_sub_stu ON homework_submissions(student_id)",
     "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_imp_user ON material_imports(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_prep_folder ON prep_folders(user_id)",
 ]
 
 # 表 -> 后补列（老库平滑升级用）
@@ -343,6 +355,8 @@ _COLUMN_UPGRADES: dict[str, list[tuple[str, str]]] = {
     ],
     "knowledge_points": [("owner_id", "INTEGER NOT NULL DEFAULT 0")],
     "homework": [("status", "TEXT NOT NULL DEFAULT 'open'")],
+    # 备课产物归档：教案与 PPT 可以归到同一个备课文件夹里，空串 = 未归档。
+    "artifacts": [("folder", "TEXT NOT NULL DEFAULT ''")],
     "homework_submissions": [
         ("attempt", "INTEGER NOT NULL DEFAULT 1"),
         ("late", "INTEGER NOT NULL DEFAULT 0"),

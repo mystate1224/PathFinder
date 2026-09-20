@@ -304,6 +304,209 @@ def slide_outline(topic: str, pages: int = 8, course: str = "", owner_id: int = 
     return {"outline": result, "engine": engine}
 
 
+# ================================================================ 教案 → PPT
+def _normalize_outline(outline: dict, fallback: dict) -> dict:
+    """把任意来源（模型 / 前端编辑）的大纲压成同一形状，避免下游各写一份校验。"""
+    slides = outline.get("slides") if isinstance(outline, dict) else None
+    if not isinstance(slides, list):
+        return fallback
+    clean: list[dict] = []
+    for index, slide in enumerate(slides):
+        if not isinstance(slide, dict):
+            continue
+        bullets = slide.get("bullets") or []
+        if isinstance(bullets, str):
+            bullets = [bullets]
+        clean.append(
+            {
+                "title": str(slide.get("title") or f"第 {index + 1} 页")[:40],
+                "bullets": [str(b)[:80] for b in bullets][:4],
+                "note": str(slide.get("note") or "")[:200],
+            }
+        )
+    if not clean:
+        return fallback
+    out = dict(outline)
+    out["slides"] = clean
+    out["pages"] = len(clean)
+    out.setdefault("title", fallback.get("title", ""))
+    out.setdefault("source", "")
+    return out
+
+
+def rule_slides_from_plan(plan: dict, pages: int = 0) -> dict:
+    """教案 → PPT 大纲（规则版）：教案本身就是最好的提纲，一页一件事。"""
+    plan = plan if isinstance(plan, dict) else {}
+    topic = str(plan.get("title") or plan.get("topic") or "本次课").replace(" 教案", "").strip()
+    slides: list[dict] = [
+        {
+            "title": f"{topic}：本节要解决的问题",
+            "bullets": [
+                "本节要解决的核心问题是什么",
+                f"学完能做什么：{str((plan.get('objectives') or ['—'])[0])[:30]}",
+                "本节在整门课中的位置",
+            ],
+            "note": "开场先抛问题再给目录，学生才知道这节课要去哪。",
+        }
+    ]
+
+    objectives = [str(o) for o in (plan.get("objectives") or []) if str(o).strip()]
+    if objectives:
+        slides.append({"title": "学习目标", "bullets": objectives[:4],
+                       "note": "逐条念一遍，学生才知道这节课要交什么。"})
+
+    for seg in (plan.get("outline") or []):
+        if not isinstance(seg, dict):
+            continue
+        step = str(seg.get("step") or "环节")[:12]
+        minutes = seg.get("minutes") or 0
+        content = str(seg.get("content") or "")
+        bullets = [re.split(r"[。；]", content)[0].strip()[:60]] if content else []
+        bullets.append(f"{step}环节，约 {minutes} 分钟")
+        slides.append({"title": f"{step}（{minutes} 分钟）", "bullets": bullets[:4],
+                       "note": f"对应教案「{step}」环节，按教案节奏讲。"})
+
+    key_points = [str(k) for k in (plan.get("key_points") or []) if str(k).strip()]
+    if key_points:
+        slides.append({"title": "重点回顾", "bullets": key_points[:4],
+                       "note": "结束前回扣重点，让学生自查有没有跟上。"})
+
+    difficulties = [str(d) for d in (plan.get("difficulties") or []) if str(d).strip()]
+    if difficulties:
+        slides.append({"title": "易错点提醒", "bullets": difficulties[:4],
+                       "note": "这些点学生最容易错，讲慢一点、留 30 秒提问。"})
+
+    slides.append({
+        "title": "课堂小结与作业",
+        "bullets": [str(plan.get("homework") or "完成课后习题")[:60], "下次课预告与预习要求"],
+        "note": "作业要求逐条念一遍，避免学生漏项。",
+    })
+
+    wanted = max(3, min(30, int(pages or len(slides))))
+    if len(slides) > wanted:                # 页数被压缩时优先保住环节页
+        head = slides[:2]
+        tail = [s for s in slides[2:] if "分钟" in s.get("title", "")][: max(1, wanted - 3)]
+        slides = head + tail + slides[-1:]
+    return {"title": topic, "pages": len(slides), "slides": slides, "source": "lesson"}
+
+
+def slides_from_plan(plan: dict, pages: int = 0) -> dict:
+    """教案 → PPT 大纲（双引擎）。规则版已是一份能用的提纲，模型只做润色。"""
+    plan = plan if isinstance(plan, dict) else {}
+    rule = rule_slides_from_plan(plan, pages)
+    topic = rule["title"]
+
+    prompt = (
+        f"请把下面这份教案转成 {rule['pages']} 页 PPT 大纲。\n"
+        "要求：一页只讲一件事；title 不超过 12 字；每页 bullets 不超过 4 条，"
+        "必须是教案里出现过的要点，不要新增教案没有的内容；note 是讲给教师看的提示。\n"
+        "最后一页固定为「课堂小结与作业」。\n\n"
+        f"【教案】\n{_plan_brief(plan, 1200)}"
+    )
+    result, engine = llm.chat_json(
+        [{"role": "user", "content": prompt}],
+        '{"title":"","pages":0,"slides":[{"title":"","bullets":[""],"note":""}]}',
+        mock=rule,
+    )
+    result = _normalize_outline(result, rule)
+    result.setdefault("source", "lesson")
+    return {"outline": result, "engine": engine}
+
+
+def _plan_brief(plan: dict, limit: int = 1200) -> str:
+    """把教案压成一段可塞进提示词的短文，避免超长教案把 prompt 撑爆。"""
+    lines = [f"课题：{plan.get('title') or ''}"]
+    for field, label in (("objectives", "教学目标"), ("key_points", "重点"),
+                         ("difficulties", "难点")):
+        items = [str(x) for x in (plan.get(field) or []) if str(x).strip()]
+        if items:
+            lines.append(f"{label}：" + "；".join(items))
+    for seg in (plan.get("outline") or []):
+        if isinstance(seg, dict):
+            lines.append(f"{seg.get('step')}（{seg.get('minutes')}分钟）：{seg.get('content')}")
+    if plan.get("homework"):
+        lines.append(f"作业：{plan.get('homework')}")
+    return "\n".join(lines)[:limit]
+
+
+# ================================================================ 资料 → PPT
+def rule_slides_from_text(topic: str, text: str, pages: int = 8) -> dict:
+    """资料正文 → PPT 大纲（规则版）：按段落切页，段落首句当标题，后续句子当要点。"""
+    pages = max(3, min(20, int(pages or 8)))
+    topic = (topic or "上传资料").strip()
+    body = re.sub(r"[ \t]+", " ", str(text or "")).strip()
+
+    # 按「标题行 → 正文行」分组：Markdown 的 #，或「一、」「1.」这类编号起头的短行算标题。
+    # 后面的正文行一律并进当前标题，直到遇到下一个标题 —— 一个标题 = 一页。
+    blocks: list[list[str]] = []          # [标题, 正文…]
+    for raw in body.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        heading = re.match(r"^(#{1,6}\s*|[（(]?[一二三四五六七八九十\d]+[)）.、]\s*)\S*", line)
+        if heading and len(line) <= 40:
+            blocks.append([re.sub(r"^[#\s（）()0-9一二三四五六七八九十.、]+", "", line)[:40]])
+        elif blocks:
+            blocks[-1].append(line)
+        else:
+            blocks.append(["", line])
+    if not blocks:
+        blocks = [["", body[:400]]]
+
+    slides: list[dict] = [{
+        "title": f"{topic}：本节要解决的问题",
+        "bullets": ["本节要解决的核心问题是什么", "资料中的主线是什么", "学完能做什么"],
+        "note": "开场先抛问题，再说明这份资料的来源与范围。",
+    }]
+    for block in blocks:
+        if len(slides) >= pages - 1:
+            break
+        title = block[0]
+        para = "".join(block[1:])
+        sentences = [s.strip() for s in re.split(r"[。！？；]", para) if len(s.strip()) >= 6]
+        if not sentences:
+            continue                      # 只有标题没有正文的小节不单独占一页
+        # 有标题：正文逐句当要点；没标题：首句当标题，其余当要点。
+        head = title or sentences[0][:24]
+        bullets = sentences if title else sentences[1:4] or sentences[:1]
+        slides.append({
+            "title": head[:40],
+            "bullets": bullets[:4],
+            "note": "讲解提示：本页照资料讲，资料没写的不要临时发挥。",
+        })
+    # 资料本身很薄时不再用占位页凑数 —— 凑出来的空页老师还得自己删，
+    # 不如直接按资料实有内容出页，教师想加厚可以调大页数并补充资料。
+    slides.append({
+        "title": "课堂小结与作业",
+        "bullets": ["本节要点回顾", "易错点提示", "课后作业与提交要求"],
+        "note": "最后一页留出提问时间。",
+    })
+    return {"title": topic, "pages": len(slides), "slides": slides, "source": "material"}
+
+
+def slides_from_text(topic: str, text: str, pages: int = 8) -> dict:
+    """资料正文 → PPT 大纲（双引擎）。规则版按段落切页，模型版只做归纳。"""
+    rule = rule_slides_from_text(topic, text, pages)
+    if not str(text or "").strip():
+        return {"outline": rule, "engine": "rule"}
+
+    prompt = (
+        f"请把下面这份教学资料整理成 {rule['pages']} 页 PPT 大纲。\n"
+        "要求：严格依据资料，不得编造资料以外的内容；一页一件事；"
+        "title 不超过 12 字；每页 bullets 不超过 4 条；note 是讲给教师看的提示。\n"
+        "最后一页固定为「课堂小结与作业」。\n\n"
+        f"【资料】\n{str(text)[:3500]}"
+    )
+    result, engine = llm.chat_json(
+        [{"role": "user", "content": prompt}],
+        '{"title":"","pages":0,"slides":[{"title":"","bullets":[""],"note":""}]}',
+        mock=rule,
+    )
+    result = _normalize_outline(result, rule)
+    result.setdefault("source", "material")
+    return {"outline": result, "engine": engine}
+
+
 # ================================================================ 批改
 def key_terms(course: str = "", limit: int = 8) -> list[str]:
     """评分参照要点。

@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import re
 import sys
 import traceback
 from contextlib import asynccontextmanager
@@ -547,6 +548,13 @@ def api_demo_cases(user: dict = Depends(current_user)):
     return ok({"cases": demo.list_cases(), "overview": demo.overview()})
 
 
+@app.get(f"{API}/demo/lecture")
+def api_demo_lecture(user: dict = Depends(current_user)):
+    """备课演示用的示例讲义正文 —— 教师点「上传示例讲义」时前端拿它造一个文件，
+    省去演示前先找资料的麻烦。"""
+    return ok({"name": demo.LECTURE_FILE.name, "text": demo.lecture_text()})
+
+
 @app.post(f"{API}/demo/cases/{{cid}}/run")
 def api_demo_run_case(cid: str, payload: dict = Body(default={}),
                       user: dict = Depends(current_user)):
@@ -965,22 +973,51 @@ def api_teacher_recompute_mastery(student_id: int, payload: dict = Body(default=
 
 
 # ================================================================ 教师辅助（能力④⑤）
+def _folder_dir(user: dict, folder: str) -> Any:
+    """备课文件夹在磁盘上的真实目录（教师之间互不干扰）。
+
+    目录名 = ``用户id_文件夹名``：文件夹名是教师自己起的，两个教师完全可以叫同一个名字，
+    不带上 user_id 就会互相覆盖。
+    """
+    name = re.sub(r"[\\/:*?\"<>|]", "_", (folder or "").strip())[:60]
+    return config.EXPORT_DIR / f"{int(user['id'])}_{name}" if name else config.EXPORT_DIR
+
+
 def _save_artifact(user: dict, kind: str, title: str, course: str,
-                   blob: bytes | None, ext: str, content: dict) -> tuple[int, str]:
-    """把生成的教案/PPT 落盘并登记，返回 ``(artifact_id, 可下载文件名)``。"""
+                   blob: bytes | None, ext: str, content: dict,
+                   folder: str = "") -> tuple[int, str]:
+    """把生成的教案/PPT 落盘并登记，返回 ``(artifact_id, 可下载文件名)``。
+
+    ``folder`` 非空时落进对应备课文件夹，同一课题的教案与 PPT 天然聚在一起。
+    """
     user_id = int(user["id"])
     filename = office.safe_filename(title, ext)
     path = ""
     if blob is not None:
-        target = config.EXPORT_DIR / f"{user_id}_{db.now().replace(':', '').replace(' ', '').replace('-', '')[:14]}_{filename}"
+        directory = _folder_dir(user, folder)
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / f"{user_id}_{db.now().replace(':', '').replace(' ', '').replace('-', '')[:14]}_{filename}"
         target.write_bytes(blob)
         path = str(target)
     artifact_id = db.execute(
-        "INSERT INTO artifacts (user_id, kind, title, course, file_path, content, created_at) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (user_id, kind, title, course, path, db.jdump(content), db.now()),
+        "INSERT INTO artifacts (user_id, kind, title, course, file_path, content, created_at, folder) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (user_id, kind, title, course, path, db.jdump(content), db.now(), (folder or "").strip()),
     )
     return artifact_id, filename
+
+
+def _artifact_folder_of(user: dict, artifact_id: int) -> str:
+    row = db.query_one("SELECT folder FROM artifacts WHERE id = ? AND user_id = ?",
+                       (artifact_id, int(user["id"]))) or {}
+    return str(row.get("folder") or "")
+
+
+def _default_folder(title: str) -> str:
+    """自动生成备课文件夹名：课题 + 日期，方便一节课的产物自动聚成一堆。"""
+    stamp = db.now()[:10]
+    clean = re.sub(r"\s*(教案|PPT|PPT 大纲)\s*", "", (title or "").strip())
+    return f"{clean or '未命名备课'} · {stamp}"[:60]
 
 
 @app.post(f"{API}/teacher/lesson")
@@ -993,18 +1030,88 @@ def api_teacher_lesson(payload: dict = Body(default={}), user: dict = Depends(re
     periods = max(1, min(6, _int(payload, "periods", 1) or 1))
     level = _str(payload, "level", "B") or "B"
 
+    folder = _str(payload, "folder") or _default_folder(topic)
     result = teaching.lesson_plan(topic, course, periods, level,
                                   owner_id=int(user["id"]))
     plan, engine = result["plan"], result["engine"]
     title = f"{topic} 教案"
     docx = office.build_docx(title, office.lesson_to_blocks(plan))
-    artifact_id, filename = _save_artifact(user, "lesson", title, course, docx, ".docx", plan)
+    artifact_id, filename = _save_artifact(user, "lesson", title, course, docx, ".docx", plan,
+                                           folder=folder)
+    plan["folder"] = folder
 
     return ok(
-        {"plan": plan, "engine": engine, "refs": result["refs"],
+        {"plan": plan, "engine": engine, "refs": result["refs"], "folder": folder,
          "artifact": {"id": artifact_id, "filename": filename, "size": len(docx)}},
         message="教案已生成（含 docx 文件）",
     )
+
+
+@app.put(f"{API}/teacher/artifacts/{{artifact_id}}")
+def api_teacher_artifact_update(artifact_id: int, payload: dict = Body(default={}),
+                                user: dict = Depends(require_teacher)):
+    """保存教师手工改过的教案 / PPT 大纲，并按改后内容重新出一份文件。
+
+    只接受 ``content``（教案结构或大纲结构）与 ``title``；
+    文件落在原文件夹里，不会另起一份，避免产物库越改越乱。
+    """
+    row = db.query_one("SELECT * FROM artifacts WHERE id = ? AND user_id = ?",
+                       (artifact_id, int(user["id"])))
+    if not row:
+        return fail("产物不存在", 404)
+
+    kind = str(row.get("kind") or "")
+    content = payload.get("content")
+    if not isinstance(content, dict) or not content:
+        return fail("内容为空，未做任何修改")
+    title = _str(payload, "title") or str(row.get("title") or "")
+    course = _str(payload, "course") or str(row.get("course") or "")
+    folder = str(row.get("folder") or "")
+
+    if kind == "pptx":
+        slides = content.get("slides") or []
+        if not isinstance(slides, list) or not slides:
+            return fail("大纲为空，无法保存")
+        blob = office.build_pptx(title.replace(" PPT 大纲", ""), slides,
+                                 subtitle=f"{course}　共 {len(slides)} 页" if course else "")
+        ext = ".pptx"
+    else:
+        blob = office.build_docx(title, office.lesson_to_blocks(content))
+        ext = ".docx"
+
+    # 原地覆盖：旧文件删掉、新文件写回同一条记录，id 不变，前端不用重新定位。
+    old_path = Path(str(row.get("file_path") or ""))
+    if old_path.exists():
+        try:
+            old_path.unlink()
+        except OSError:
+            pass
+    directory = _folder_dir(user, folder)
+    directory.mkdir(parents=True, exist_ok=True)
+    filename = office.safe_filename(title, ext)
+    target = directory / f"{int(user['id'])}_{db.now().replace(':', '').replace(' ', '').replace('-', '')[:14]}_{filename}"
+    target.write_bytes(blob)
+    db.execute(
+        "UPDATE artifacts SET title=?, course=?, file_path=?, content=? WHERE id=?",
+        (title, course, str(target), db.jdump(content), artifact_id),
+    )
+
+    return ok({"artifact": {"id": artifact_id, "filename": filename, "size": len(blob)},
+               "folder": folder},
+              message="修改已保存，文件已按新内容重新生成")
+
+
+def _save_slides(user: dict, topic: str, course: str, outline: dict,
+                 folder: str = "") -> dict:
+    """把大纲导出成 pptx 并登记（教案转 PPT / 资料转 PPT / 课题直出三条路共用）。"""
+    slides = outline.get("slides") or []
+    folder = folder or _default_folder(topic)
+    title = f"{topic} PPT"
+    subtitle = f"{course}　共 {len(slides)} 页" if course else f"共 {len(slides)} 页"
+    pptx = office.build_pptx(topic, slides, subtitle=subtitle)
+    artifact_id, filename = _save_artifact(user, "pptx", title, course, pptx, ".pptx",
+                                           outline, folder=folder)
+    return {"id": artifact_id, "filename": filename, "size": len(pptx)}, folder
 
 
 @app.post(f"{API}/teacher/slides")
@@ -1018,15 +1125,92 @@ def api_teacher_slides(payload: dict = Body(default={}), user: dict = Depends(re
 
     result = teaching.slide_outline(topic, pages, course, owner_id=int(user["id"]))
     outline, engine = result["outline"], result["engine"]
-    title = f"{topic} PPT 大纲"
-    subtitle = f"{course}　共 {outline.get('pages')} 页" if course else f"共 {outline.get('pages')} 页"
-    pptx = office.build_pptx(topic, outline.get("slides") or [], subtitle=subtitle)
-    artifact_id, filename = _save_artifact(user, "pptx", title, course, pptx, ".pptx", outline)
+    outline.setdefault("source", "topic")
+    artifact, folder = _save_slides(user, topic, course, outline, _str(payload, "folder"))
 
     return ok(
-        {"outline": outline, "engine": engine,
-         "artifact": {"id": artifact_id, "filename": filename, "size": len(pptx)}},
+        {"outline": outline, "engine": engine, "folder": folder, "artifact": artifact},
         message="PPT 已生成（可直接下载打开）",
+    )
+
+
+@app.post(f"{API}/teacher/slides/from-lesson")
+def api_teacher_slides_from_lesson(payload: dict = Body(default={}),
+                                   user: dict = Depends(require_teacher)):
+    """根据一份已生成的教案生成 PPT —— 教案本身就是最好的提纲。
+
+    ``artifact_id`` 指定教案；也可以直接传 ``plan``（前端改过但还没保存时用这个）。
+    产物自动归入教案所在的备课文件夹。
+    """
+    artifact_id = _int(payload, "artifact_id", 0) or 0
+    plan = payload.get("plan") if isinstance(payload.get("plan"), dict) else None
+    course = _str(payload, "course")
+    folder = _str(payload, "folder")
+
+    if not plan:
+        if not artifact_id:
+            return fail("请先选择一份教案")
+        row = db.query_one("SELECT * FROM artifacts WHERE id = ? AND user_id = ?",
+                           (artifact_id, int(user["id"])))
+        if not row:
+            return fail("教案不存在", 404)
+        plan = db.jload(row.get("content"), {})
+        course = course or str(row.get("course") or "")
+        folder = folder or str(row.get("folder") or "")
+    if not plan:
+        return fail("教案内容为空，请重新生成")
+
+    pages = max(3, min(30, _int(payload, "pages", 0) or 0))
+    result = teaching.slides_from_plan(plan, pages)
+    outline, engine = result["outline"], result["engine"]
+    topic = str(plan.get("title") or "").replace(" 教案", "").strip() or outline.get("title") or "教案"
+    artifact, folder = _save_slides(user, topic, course, outline, folder)
+
+    return ok(
+        {"outline": outline, "engine": engine, "folder": folder, "artifact": artifact,
+         "topic": topic},
+        message="已按教案生成 PPT（可直接下载打开）",
+    )
+
+
+@app.post(f"{API}/teacher/slides/from-material")
+async def api_teacher_slides_from_material(
+    file: UploadFile = File(default=None),
+    topic: str = Form(""),
+    course: str = Form(""),
+    pages: int = Form(8),
+    folder: str = Form(""),
+    user: dict = Depends(require_teacher),
+):
+    """上传一份资料（课件 / 讲义 / md / txt / docx / pptx / pdf）直接生成 PPT。
+
+    与「按课题生成」的区别：内容完全来自这份资料，不靠主题推测，
+    所以老师手上有现成讲义时用这条路最准。
+    """
+    if file is None or not file.filename:
+        return fail("请先选择要上传的资料")
+    name = extract.safe_name(file.filename)
+    data = await file.read()
+    if not data:
+        return fail("文件内容为空")
+    try:
+        text = extract.read_text(name, data)
+    except Exception as exc:  # noqa: BLE001
+        return fail(f"资料读取失败：{exc}")
+    if len(text.strip()) < 20:
+        return fail("资料正文太短（不足 20 字），无法整理成 PPT")
+
+    topic = (topic or "").strip() or re.sub(r"\.(md|txt|docx|pptx|pdf|ppt|doc)$", "", name,
+                                            flags=re.I)[:30]
+    result = teaching.slides_from_text(topic, text, max(3, min(20, int(pages or 8))))
+    outline, engine = result["outline"], result["engine"]
+    outline["source_material"] = name
+    artifact, folder = _save_slides(user, topic, (course or "").strip(), outline, folder)
+
+    return ok(
+        {"outline": outline, "engine": engine, "folder": folder, "artifact": artifact,
+         "topic": topic, "material": name, "chars": len(text)},
+        message=f"已按《{name}》生成 PPT",
     )
 
 
@@ -1047,17 +1231,184 @@ def api_teacher_grade_suggest(payload: dict = Body(default={}),
 
 
 @app.get(f"{API}/teacher/artifacts")
-def api_teacher_artifacts(user: dict = Depends(require_teacher)):
+def api_teacher_artifacts(folder: str = "", user: dict = Depends(require_teacher)):
+    """备课文稿列表。``folder`` 为空 = 全部；传 ``未归档`` 查没有归档的产物。"""
+    clause, args = "", [int(user["id"])]
+    if folder:
+        clause = " AND folder = ?"
+        args.append("" if folder == "未归档" else folder)
     rows = db.query(
-        "SELECT id, kind, title, course, file_path, created_at FROM artifacts "
-        "WHERE user_id = ? ORDER BY id DESC LIMIT 50",
-        (int(user["id"]),),
+        "SELECT id, kind, title, course, file_path, folder, created_at FROM artifacts "
+        "WHERE user_id = ?" + clause + " ORDER BY id DESC LIMIT 200", tuple(args),
     )
     for row in rows:
         row["filename"] = Path(str(row.get("file_path") or "")).name
         row["exists"] = bool(row.get("file_path")) and Path(str(row["file_path"])).exists()
+        row["folder"] = str(row.get("folder") or "")
         row.pop("file_path", None)
     return ok({"artifacts": rows})
+
+
+@app.get(f"{API}/teacher/folders")
+def api_teacher_folders(user: dict = Depends(require_teacher)):
+    """备课文件夹列表（含每个文件夹里的产物数量）。
+
+    两个来源合并：``artifacts.folder`` 的分组结果，加上教师**手工新建的空文件夹**
+    （空文件夹里没有产物，光靠分组推不出来，所以单独登记在 prep_folders 里）。
+    """
+    uid = int(user["id"])
+    counts: dict[str, int] = {}
+    updated: dict[str, str] = {}
+    for r in db.query(
+        "SELECT folder, COUNT(*) AS count, MAX(created_at) AS updated_at "
+        "FROM artifacts WHERE user_id = ? GROUP BY folder", (uid,)
+    ):
+        name = str(r.get("folder") or "")
+        counts[name] = int(r.get("count") or 0)
+        updated[name] = str(r.get("updated_at") or "")
+    for r in db.query("SELECT name, created_at FROM prep_folders WHERE user_id = ?", (uid,)):
+        name = str(r.get("name") or "")
+        counts.setdefault(name, 0)
+        updated.setdefault(name, str(r.get("created_at") or ""))
+    folders = [{"name": n, "count": counts[n], "updated_at": updated.get(n, "")} for n in counts]
+    folders.sort(key=lambda f: (f["name"] == "", f["updated_at"]), reverse=True)
+    return ok({"folders": folders})
+
+
+@app.post(f"{API}/teacher/folders")
+def api_teacher_folder_create(payload: dict = Body(default={}),
+                              user: dict = Depends(require_teacher)):
+    """新建备课文件夹（只是个名字，产物移进来时才真正建立磁盘目录）。"""
+    name = _str(payload, "name").strip()
+    if not name:
+        return fail("请输入文件夹名")
+    if name == "未归档":
+        return fail("「未归档」是系统保留名，换一个吧")
+    uid = int(user["id"])
+    if db.query_one("SELECT id FROM artifacts WHERE user_id = ? AND folder = ? LIMIT 1", (uid, name)):
+        return fail("同名文件夹已存在")
+    if db.query_one("SELECT id FROM prep_folders WHERE user_id = ? AND name = ?", (uid, name)):
+        return fail("同名文件夹已存在")
+    db.execute("INSERT INTO prep_folders (user_id, name, created_at) VALUES (?,?,?)",
+               (uid, name, db.now()))
+    _folder_dir(user, name).mkdir(parents=True, exist_ok=True)
+    return ok({"folder": name}, message=f"已创建文件夹「{name}」")
+
+
+@app.post(f"{API}/teacher/folders/rename")
+def api_teacher_folder_rename(payload: dict = Body(default={}),
+                              user: dict = Depends(require_teacher)):
+    """重命名文件夹：库里的归属一并改，磁盘目录也跟着搬。"""
+    old = _str(payload, "old").strip()
+    new = _str(payload, "new").strip()
+    if not old or not new:
+        return fail("请输入原名称与新名称")
+    if new == "未归档":
+        return fail("「未归档」是系统保留名，换一个吧")
+    if old == new:
+        return ok({"folder": new}, message="名称未变")
+    uid = int(user["id"])
+    dup = db.query_one("SELECT id FROM artifacts WHERE user_id = ? AND folder = ? LIMIT 1", (uid, new))
+    if dup or db.query_one("SELECT id FROM prep_folders WHERE user_id = ? AND name = ?", (uid, new)):
+        return fail("已存在同名文件夹")
+
+    db.execute("UPDATE artifacts SET folder = ? WHERE user_id = ? AND folder = ?", (new, uid, old))
+    db.execute("UPDATE prep_folders SET name = ? WHERE user_id = ? AND name = ?", (new, uid, old))
+    # 旧文件夹若是历史数据（只有产物、没登记过），改名后补一条，保证列表稳定
+    db.execute("INSERT OR IGNORE INTO prep_folders (user_id, name, created_at) VALUES (?,?,?)",
+               (uid, new, db.now()))
+    src, dst = _folder_dir(user, old), _folder_dir(user, new)
+    if src.exists() and src.is_dir():
+        dst.mkdir(parents=True, exist_ok=True)
+        for item in list(src.iterdir()):
+            try:
+                item.replace(dst / item.name)
+            except OSError:
+                pass
+        try:
+            src.rmdir()
+        except OSError:
+            pass
+    return ok({"folder": new}, message=f"已重命名为「{new}」")
+
+
+@app.delete(f"{API}/teacher/folders/{{name}}")
+def api_teacher_folder_delete(name: str, keep_files: bool = True,
+                              user: dict = Depends(require_teacher)):
+    """删除文件夹。默认只取消归档（文件回到「未归档」保留下来），
+    ``keep_files=false`` 时才连文件一起删除。
+    """
+    name = (name or "").strip()
+    if not name or name == "未归档":
+        return fail("该文件夹不可删除")
+    uid = int(user["id"])
+    rows = db.query("SELECT id, file_path FROM artifacts WHERE user_id = ? AND folder = ?",
+                    (uid, name))
+    registered = db.query_one("SELECT id FROM prep_folders WHERE user_id = ? AND name = ?", (uid, name))
+    if not rows and not registered:
+        return fail("文件夹不存在", 404)
+    for row in rows:
+        if keep_files:
+            db.execute("UPDATE artifacts SET folder = '' WHERE id = ?", (row["id"],))
+        else:
+            path = Path(str(row.get("file_path") or ""))
+            if path.exists():
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            db.execute("DELETE FROM artifacts WHERE id = ?", (row["id"],))
+    db.execute("DELETE FROM prep_folders WHERE user_id = ? AND name = ?", (uid, name))
+    directory = _folder_dir(user, name)
+    if directory.exists() and directory.is_dir():
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+    return ok(message=("已取消归档，文件保留在「未归档」" if keep_files
+                       else f"已删除文件夹「{name}」及其 {len(rows)} 份文件"))
+
+
+@app.post(f"{API}/teacher/artifacts/move")
+def api_teacher_artifacts_move(payload: dict = Body(default={}),
+                               user: dict = Depends(require_teacher)):
+    """把若干产物移动到目标文件夹（传空串 / ``未归档`` 表示移出到未归档）。"""
+    ids = payload.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return fail("请先选择要移动的文件")
+    target = _str(payload, "folder").strip()
+    if target == "未归档":
+        target = ""
+    if target:
+        _folder_dir(user, target).mkdir(parents=True, exist_ok=True)
+        # 目标文件夹登记一下：即便里面暂时没有产物，也会出现在文件夹列表里
+        db.execute("INSERT OR IGNORE INTO prep_folders (user_id, name, created_at) VALUES (?,?,?)",
+                   (int(user["id"]), target, db.now()))
+
+    moved = 0
+    for raw in ids[:100]:
+        try:
+            artifact_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        row = db.query_one("SELECT file_path FROM artifacts WHERE id = ? AND user_id = ?",
+                           (artifact_id, int(user["id"])))
+        if not row:
+            continue
+        old_path = Path(str(row.get("file_path") or ""))
+        new_path = old_path
+        if old_path.exists():
+            directory = _folder_dir(user, target)
+            directory.mkdir(parents=True, exist_ok=True)
+            new_path = directory / old_path.name
+            try:
+                old_path.replace(new_path)
+            except OSError:
+                new_path = old_path
+        db.execute("UPDATE artifacts SET folder = ?, file_path = ? WHERE id = ?",
+                   (target, str(new_path), artifact_id))
+        moved += 1
+    return ok({"moved": moved, "folder": target}, message=f"已移动 {moved} 份文件")
 
 
 @app.get(f"{API}/teacher/artifacts/{{artifact_id}}")
@@ -1114,8 +1465,13 @@ def api_teacher_slides_save(payload: dict = Body(default={}), user: dict = Depen
     course = _str(payload, "course")
     title = f"{topic} PPT 大纲"
     pptx = office.build_pptx(topic, slides, subtitle=f"{course}　共 {len(slides)} 页" if course else "")
-    artifact_id, filename = _save_artifact(user, "pptx", title, course, pptx, ".pptx", outline)
-    return ok({"artifact": {"id": artifact_id, "filename": filename}}, message="已导出 PPT")
+    # 改完大纲重新导出时，默认留在原文件夹里，不另开一份，避免产物库越改越散。
+    # 认原文件夹的方式：前端直接带 folder，或带 artifact_id 由后端查。
+    folder = _str(payload, "folder") or _artifact_folder_of(user, _int(payload, "artifact_id", 0) or 0)
+    artifact_id, filename = _save_artifact(user, "pptx", title, course, pptx, ".pptx", outline,
+                                           folder=folder)
+    return ok({"artifact": {"id": artifact_id, "filename": filename}, "folder": folder},
+              message="已导出 PPT")
 
 
 @app.post(f"{API}/teacher/grade/batch")

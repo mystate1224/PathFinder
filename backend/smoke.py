@@ -26,8 +26,10 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
+from urllib.parse import quote
 
 HERE = Path(__file__).resolve().parent
 PYTHON = sys.executable
@@ -248,6 +250,96 @@ def test_teacher(c: Client) -> None:
         need(blob[:2] == b"PK", "下载内容不是有效的 OOXML 包")
         return f"{len(d['artifacts'])} 份文稿，下载《{first.get('title')}》{len(blob)} 字节，包头合法"
     c.check("备课文稿列表 + 下载校验", artifacts)
+
+    # --- 备课：教案/PPT 归档、教案编辑、文件夹整理（一次备课的产物聚在一起） ---
+    def slides_from_lesson():
+        d = c.api("POST", "/api/teacher/lesson",
+                  {"topic": "Dijkstra 最短路径", "course": "数据结构", "periods": 2, "level": "B",
+                   "folder": "冒烟 · Dijkstra"})
+        lesson_id = d["artifact"]["id"]
+        folder = d.get("folder")
+        need(folder == "冒烟 · Dijkstra", f"教案未归档到指定文件夹：{folder}")
+        r = c.api("POST", "/api/teacher/slides/from-lesson", {"artifact_id": lesson_id, "pages": 8})
+        page_list = r["outline"]["slides"]
+        need(len(page_list) >= 5, f"PPT 页数过少：{len(page_list)}")
+        need(all(s.get("title") for s in page_list), "PPT 存在无标题页")
+        last = str(page_list[-1].get("title") or "")
+        need("小结" in last or "作业" in last, f"末页应为小结与作业，实际：{last}")
+        need(r.get("folder") == folder, f"PPT 未与教案归档到同一文件夹：{r.get('folder')}")
+        need(r.get("artifact"), "PPT 未落盘")
+        return (f"{len(page_list)} 页，末页「{last}」，教案与 PPT 同在「{folder}」"
+                f"（{r['engine']}）")
+    c.check("备课：教案 → PPT（自动归入同一文件夹）", slides_from_lesson)
+
+    def slides_from_material():
+        text = ("# 冒泡排序\n"
+                "冒泡排序通过相邻元素的比较与交换，把当前最大的元素逐步移动到末尾，"
+                "时间复杂度为 O(n^2)，空间复杂度为 O(1)。\n"
+                "## 稳定性\n相等元素不发生交换，因此冒泡排序是稳定排序。\n"
+                "## 适用场景\n适合规模较小或基本有序的数据；大规模数据应改用快速排序或归并排序。")
+        body, ct = multipart({"topic": "冒泡排序", "pages": "8", "folder": "冒烟 · 冒泡排序"},
+                             [("file", "冒泡排序讲义.md", text.encode("utf-8"))])
+        d = c.form("/api/teacher/slides/from-material", body, ct)
+        page_list = d["outline"]["slides"]
+        need(len(page_list) >= 3, f"PPT 页数过少：{len(page_list)}")
+        last = str(page_list[-1].get("title") or "")
+        need("小结" in last or "作业" in last, f"末页应为小结与作业，实际：{last}")
+        need(d.get("folder") == "冒烟 · 冒泡排序", "资料生成的 PPT 未归档到指定文件夹")
+        # 可溯源：正文页的要点应来自资料原文，而不是凭空编的套话
+        bullets = [b for s in page_list[1:-1] for b in (s.get("bullets") or [])]
+        hit = sum(1 for b in bullets if str(b) in text)
+        need(bullets, "PPT 正文页没有要点")
+        need(hit / len(bullets) >= 0.6, f"要点可溯源率过低：{hit}/{len(bullets)}")
+        return f"{len(page_list)} 页，要点溯源 {hit}/{len(bullets)}，来源《{d.get('material')}》"
+    c.check("备课：上传资料 → PPT（要点可溯源）", slides_from_material)
+
+    def edit_lesson():
+        d = c.api("POST", "/api/teacher/lesson",
+                  {"topic": "编辑验证课题", "periods": 1, "level": "B", "folder": "冒烟 · 编辑"})
+        art = d["artifact"]
+        before = c.api("GET", f"/api/teacher/artifacts/{art['id']}")
+        need(before["content"].get("outline"), "产物内容缺失，无法验证编辑")
+        plan = dict(before["content"])
+        plan["homework"] = "课后第 1~3 题，并写出每一步的距离表"
+        plan["objectives"] = ["理解算法思想", "能手算一次完整过程"]
+        r = c.api("PUT", f"/api/teacher/artifacts/{art['id']}",
+                  {"content": plan, "title": plan.get("title") or "教案", "course": ""})
+        need(r["artifact"]["id"] == art["id"], "编辑保存后 id 变了（应原地覆盖，不新增一份）")
+        after = c.api("GET", f"/api/teacher/artifacts/{art['id']}")
+        need(after["content"]["homework"] == plan["homework"], "修改未持久化")
+        need(after.get("folder") == "冒烟 · 编辑", f"编辑后文件夹变了：{after.get('folder')}")
+        blob = c.raw("GET", f"/api/teacher/artifacts/{art['id']}/download", expect=200)[1]
+        need(blob[:2] == b"PK", "按改后内容重新生成的 docx 不是合法 OOXML 包")
+        return f"修改已持久化并重新出 docx（{len(blob)} 字节），仍在「{after.get('folder')}」"
+    c.check("备课：教案编辑保存（原地覆盖 + 重新出文件）", edit_lesson)
+
+    def folder_ops():
+        name = "冒烟 · 整理中"
+        name2 = "冒烟 · 已整理"
+        c.api("POST", "/api/teacher/folders", {"name": name})
+        # 建空文件夹也要能出现在列表里（老师可以先建好目录，再把产物移进来）
+        listed = [f["name"] for f in c.api("GET", "/api/teacher/folders")["folders"]]
+        need(name in listed, f"新建文件夹未出现在列表：{listed}")
+
+        # 每次生成都会自动归档，所以这里不挑「未归档」的，直接拿最近一份产物来搬
+        all_arts = c.api("GET", "/api/teacher/artifacts")["artifacts"]
+        need(all_arts, "没有产物，无法验证移动")
+        ids = [all_arts[0]["id"]]
+        c.api("POST", "/api/teacher/artifacts/move", {"ids": ids, "folder": name})
+        moved = [a for a in c.api("GET", "/api/teacher/artifacts")["artifacts"] if a["id"] in ids]
+        need(moved and moved[0]["folder"] == name, f"移动后归属不对：{moved and moved[0]['folder']}")
+
+        c.api("POST", "/api/teacher/folders/rename", {"old": name, "new": name2})
+        renamed = [a for a in c.api("GET", "/api/teacher/artifacts")["artifacts"] if a["id"] in ids]
+        need(renamed[0]["folder"] == name2, f"重命名后产物归属未跟着变：{renamed[0]['folder']}")
+
+        c.api("DELETE", f"/api/teacher/folders/{quote(name2, safe='')}")
+        back = [a for a in c.api("GET", "/api/teacher/artifacts")["artifacts"] if a["id"] in ids]
+        need(back[0]["folder"] == "", "删除文件夹后文件应退回「未归档」，而不是被删掉")
+        still = c.api("GET", f"/api/teacher/artifacts/{ids[0]}")
+        need(still.get("kind"), "记录应保留")
+        return f"新建 → 移入 → 重命名 → 取消归档，文件 {ids[0]} 仍可访问"
+    c.check("备课：文件夹整理（新建 / 移动 / 重命名 / 取消归档）", folder_ops)
 
     # --- 批改 ---
     def grade_one():

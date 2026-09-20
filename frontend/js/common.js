@@ -1100,6 +1100,7 @@
       { id: "qa", label: "③ 交互式答疑示例" },
       { id: "rag", label: "④ RAG 路由用例" },
       { id: "synth", label: "⑤ 综合生成用例" },
+      { id: "teach", label: "⑥ 备课生成用例" },
       { id: "cases", label: "测试用例" },
     ];
 
@@ -1263,12 +1264,9 @@
     function pick(id) {
       PF.$$("button", nav).forEach(function (b) { b.classList.toggle("is-on", b.dataset.t === id); });
       if (id === "cases") { renderCases(cases, body); return; }
-      if (id === "rag") {
-        renderCases(cases.filter(function (c) { return c.ability === "rag"; }), body);
-        return;
-      }
-      if (id === "synth") {
-        renderCases(cases.filter(function (c) { return c.ability === "synth"; }), body);
+      // ④ ⑤ ⑥ 三种都是"用例"而不是素材：它们没有可解析的文件，只有期望值
+      if (id === "rag" || id === "synth" || id === "teach") {
+        renderCases(cases.filter(function (c) { return c.ability === id; }), body);
         return;
       }
       renderSamples(samples.filter(function (s) { return s.ability === id; }), body);
@@ -1277,7 +1275,7 @@
     nav.innerHTML = TABS.map(function (t) {
       // ④⑤ 是用例（五种架构 / 综合生成各一组），不是素材，所以按 cases 计数
       const n = t.id === "cases" ? cases.length
-        : (t.id === "rag" || t.id === "synth")
+        : (t.id === "rag" || t.id === "synth" || t.id === "teach")
           ? cases.filter(function (c) { return c.ability === t.id; }).length
           : samples.filter(function (s) { return s.ability === t.id; }).length;
       return '<button class="mn-navbtn" data-t="' + t.id + '">' + PF.esc(t.label) +

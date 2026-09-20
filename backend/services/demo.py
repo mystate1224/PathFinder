@@ -28,9 +28,28 @@ from pathlib import Path
 from typing import Any
 
 import llm
-from services import extract, interaction as ia, kprules, parsekit
+from services import extract, interaction as ia, kprules, parsekit, teaching
 
 SAMPLES_DIR = Path(__file__).resolve().parents[2] / "samples"
+
+# 备课演示用的示例讲义：教师点「上传示例讲义生成 PPT」时直接拿它当素材，
+# 免得演示前还得先找一份资料。文件内容确定，用例才能写死期望。
+LECTURE_FILE = SAMPLES_DIR / "备课示例讲义.md"
+LECTURE_FALLBACK = (
+    "注意力机制通过查询与键的点积计算权重，再对值加权求和。\n"
+    "缩放点积注意力把点积结果除以根号 d_k，避免 softmax 进入饱和区导致梯度消失。\n"
+    "多头注意力用多个头并行关注不同子空间，最后拼接并做一次线性投影。\n"
+)
+
+
+def lecture_text() -> str:
+    """读取示例讲义正文（文件缺失时退回内置短文本，保证演示不中断）。"""
+    try:
+        text = LECTURE_FILE.read_text(encoding="utf-8")
+        return text if len(text.strip()) >= 20 else LECTURE_FALLBACK
+    except OSError:
+        return LECTURE_FALLBACK
+
 
 # ================================================================ 示例材料
 SAMPLES: list[dict[str, Any]] = [
@@ -374,6 +393,52 @@ CASES: list[dict[str, Any]] = [
         "runner": "synth.rule_compose",
         "note": "教师侧同一套综合层，只是讲法换成课堂上先给结论、再展开。",
     },
+    # ---- 备课（教案 / 教案转 PPT / 资料转 PPT）----
+    {
+        "id": "teach-lesson",
+        "ability": "teach",
+        "title": "备课（教案）：环节分钟数必须凑满总课时",
+        "input": {"topic": "Dijkstra 算法", "course": "数据结构", "periods": 2, "level": "B"},
+        "expected": {"segments": 4, "minutes_sum": 90, "has_homework": True},
+        "runner": "teaching.rule_lesson_plan",
+        "note": "2 课时 = 90 分钟。四个环节的分钟数加起来必须正好等于 90，" +
+                "否则界面上的时间分配条与总时长对不上，老师一眼就能看出破绽。",
+    },
+    {
+        "id": "teach-slides-from-lesson",
+        "ability": "teach",
+        "title": "备课（教案转 PPT）：沿用教案节奏，末尾固定小结页",
+        "input": {
+            "plan": {
+                "title": "Dijkstra 算法 教案",
+                "objectives": ["理解最短路的贪心选择性质", "能手算 Dijkstra 的每一步"],
+                "key_points": ["每次取距离最小的未确定点", "优先队列的作用"],
+                "difficulties": ["负权边不适用", "松弛操作的更新时机"],
+                "outline": [
+                    {"step": "导入", "content": "回顾 BFS 与最短路问题，抛出带权图怎么算", "minutes": 9},
+                    {"step": "讲授", "content": "讲清贪心选择性质与优先队列的实现", "minutes": 41},
+                    {"step": "演练", "content": "学生手算两道带权图最短路", "minutes": 27},
+                    {"step": "小结", "content": "归纳步骤并布置作业", "minutes": 13},
+                ],
+                "homework": "课后第 1~5 题，写出每一步的距离表",
+            },
+            "pages": 8,
+        },
+        "expected": {"min_pages": 5, "last_title": "课堂小结与作业", "titles_all_filled": True},
+        "runner": "teaching.rule_slides_from_plan",
+        "note": "教案本身就是最好的提纲：环节页直接沿用教案的分钟配比，不另起一套节奏。",
+    },
+    {
+        "id": "teach-slides-from-material",
+        "ability": "teach",
+        "title": "备课（资料转 PPT）：要点必须能在原文里找到出处",
+        # text 用示例讲义文件（见 lecture_text），不在此处复制一份正文，避免两处不一致。
+        "input": {"topic": "注意力机制", "pages": 8, "lecture_sample": True},
+        "expected": {"min_pages": 3, "last_title": "课堂小结与作业", "grounded": True},
+        "runner": "teaching.rule_slides_from_text",
+        "note": "grounded = 内容页的每个要点都能在讲义原文里找到；" +
+                "开场页与小结页是通用引导语，刻意不计入。",
+    },
 ]
 
 
@@ -532,6 +597,34 @@ def run_case(cid: str, live: bool = False) -> dict[str, Any]:
                 good = value >= expected[key]
                 checks.append({"name": f"{field} ≥ {expected[key]}", "pass": good, "actual": value})
                 ok = ok and good
+    elif ability == "teach":
+        # 教案与 PPT 的期望各不相同，逐项比对（比通用字典相等好读，也便于定位是哪一项没做到）
+        def add(name: str, good: bool, value: Any) -> None:
+            nonlocal ok
+            checks.append({"name": name, "pass": bool(good), "actual": value})
+            ok = ok and bool(good)
+
+        if "segments" in expected:
+            segments = actual.get("outline") or []
+            add(f"环节数 = {expected['segments']}", len(segments) == expected["segments"],
+                len(segments))
+            minutes = sum(int(s.get("minutes") or 0) for s in segments)
+            add(f"分钟合计 = {expected['minutes_sum']}", minutes == expected["minutes_sum"], minutes)
+        if "has_homework" in expected:
+            add("有作业布置", bool(str(actual.get("homework") or "").strip()),
+                str(actual.get("homework") or "")[:20])
+        slides = actual.get("slides") or []
+        if "min_pages" in expected:
+            add(f"页数 ≥ {expected['min_pages']}", len(slides) >= expected["min_pages"], len(slides))
+        if "last_title" in expected and slides:
+            last = str(slides[-1].get("title") or "")
+            add(f"末页 = {expected['last_title']}", last == expected["last_title"], last)
+        if expected.get("titles_all_filled"):
+            blank = sum(1 for s in slides if not str(s.get("title") or "").strip())
+            add("每页都有标题", blank == 0, f"空标题 {blank} 页")
+        if "grounded" in expected:
+            hay = str(inp_text(case) or "")
+            add("内容页要点均可溯源", _grounded(slides, hay), _grounded_rate(slides, hay))
     elif ability == "kp":
         rs = (actual.get("rule_set") or {}).get("id")
         good = rs == expected.get("rule_set")
@@ -553,9 +646,52 @@ def run_case(cid: str, live: bool = False) -> dict[str, Any]:
             "runner": case["runner"]}
 
 
+def inp_text(case: dict[str, Any]) -> str:
+    """用例输入里的正文：备课的资料用例直接读示例讲义，避免正文在两处各写一份。"""
+    inp = case.get("input") or {}
+    if inp.get("lecture_sample"):
+        return lecture_text()
+    return str(inp.get("text") or "")
+
+
+def _grounded(slides: list[dict[str, Any]], hay: str) -> bool:
+    """内容页的每个要点都能在原文里找到出处（开场页与小结页是通用引导语，不计入）。"""
+    return _grounded_rate(slides, hay) >= 1.0
+
+
+def _grounded_rate(slides: list[dict[str, Any]], hay: str) -> float:
+    """可溯源要点占比 —— 比布尔值更好定位问题（差在哪一页能直接看出来）。"""
+    inner = slides[1:-1] if len(slides) > 2 else slides
+    bullets = [str(b).strip() for s in inner for b in (s.get("bullets") or []) if str(b).strip()]
+    if not bullets:
+        return 0.0
+    hit = sum(1 for b in bullets if _in_text(b, hay))
+    return round(hit / len(bullets), 2)
+
+
+def _in_text(bullet: str, hay: str) -> bool:
+    """整句命中，或其中任意 8 字片段命中 —— 允许要点被改写，但不允许凭空新增。"""
+    if len(bullet) < 6:
+        return True
+    if bullet in hay:
+        return True
+    return any(bullet[i:i + 8] in hay for i in range(max(1, len(bullet) - 7)))
+
+
 def _execute(case: dict[str, Any]) -> dict[str, Any]:
     """真实链路。接真实模型后只需在对应分支补模型调用，用例与比对逻辑不用动。"""
     ability, inp = case["ability"], case.get("input") or {}
+    if ability == "teach":
+        runner = str(case.get("runner") or "")
+        if runner.endswith("rule_lesson_plan"):
+            return teaching.rule_lesson_plan(
+                inp.get("topic", ""), inp.get("course", ""),
+                int(inp.get("periods") or 1), inp.get("level", "B"),
+            )
+        if runner.endswith("rule_slides_from_plan"):
+            return teaching.rule_slides_from_plan(inp.get("plan") or {}, int(inp.get("pages") or 0))
+        return teaching.rule_slides_from_text(
+            inp.get("topic", ""), inp_text(case), int(inp.get("pages") or 8))
     if ability == "rag":
         from services import ragroute
         return {"strategy": ragroute.route(str(inp.get("question") or ""), "student")["strategy"]}
@@ -603,6 +739,7 @@ def overview() -> dict[str, Any]:
             "qa": sum(1 for c in CASES if c["ability"] == "qa"),
             "rag": sum(1 for c in CASES if c["ability"] == "rag"),
             "synth": sum(1 for c in CASES if c["ability"] == "synth"),
+            "teach": sum(1 for c in CASES if c["ability"] == "teach"),
         },
         "llm_mode": llm.describe(),
     }

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>备课助手 · 寻径教育 PathFinder</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234353ff' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css?v=6">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -25,11 +25,35 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     .teach-wrap { grid-template-columns: minmax(0, 1fr); }
     .teach-side { position: static; }
   }
+  /* 「我的产物」是文件夹视图：左边一列文件夹，右边文件表 */
+  .fm-wrap { display: grid; grid-template-columns: 252px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+  .fm-side { position: sticky; top: 78px; }
+  @media (max-width: 900px) {
+    .fm-wrap { grid-template-columns: minmax(0, 1fr); }
+    .fm-side { position: static; }
+  }
+  .fm-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer;
+    font-size: 13px; color: var(--ink-700); text-align: left;
+    background: transparent; border: 0;
+  }
+  .fm-item:hover { background: var(--brand-50); }
+  .fm-item.is-on { background: var(--brand-50); color: var(--brand-700); font-weight: 600; }
+  .fm-item__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fm-item__n { font-size: 12px; color: var(--ink-400); font-weight: 400; }
+  .fm-item__ops { display: flex; gap: 2px; opacity: .55; }
+  .fm-item:hover .fm-item__ops { opacity: 1; }
+  .fm-item__ops .btn { padding: 2px 5px; min-height: 0; }
+  /* 教案编辑态：每条环节一张小卡，字段直接可改 */
+  .seg-edit { border: 1px dashed var(--border-strong); border-radius: var(--r-sm); padding: 10px 12px; }
+  .seg-edit + .seg-edit { margin-top: 8px; }
+  .pick-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js"></script>
+<script src="/static/js/common.js?v=7"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -42,10 +66,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     active: "teach",
     me: me,
     title: "备课助手",
-    desc: "输入课题即可得到一份成型的教案与 PPT 大纲 —— 先检索你上传的课件，再生成；只依据资料，不凭空编造。生成的 docx / pptx 可直接下载打开。",
+    desc: "输入课题即可得到一份成型的教案与 PPT —— 先检索你上传的课件，再生成；只依据资料，不凭空编造。教案与 PPT 会自动归到同一个备课文件夹，也能上传讲义直接出 PPT。生成的 docx / pptx 可直接下载打开。",
     wide: true,
     actions:
       '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>" +
+      '<button class="btn btn--primary" id="btn-demo">' + PF.icon("play", 15) + "案例测试</button>" +
       '<a class="btn" href="/tutor">' + PF.icon("sparkles", 15) + "去问 Copilot</a>",
   });
 
@@ -58,13 +83,61 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   view.innerHTML = '<div id="tabs-host"></div>';
   const host = PF.$("#tabs-host", view);
 
-  const tabs = PF.tabs(host, [
+  /* 「我的产物」每次进入都要重新拉一次：教案 / PPT 是在别的标签页生成的，
+     不刷新的话列表会停在首次渲染的旧数据上。用 let + 判空是因为 PF.tabs 会在
+     构造过程中同步 activate 一次，那时 tabs 还没赋值。 */
+  let tabs = null;
+  tabs = PF.tabs(host, [
     { key: "lesson", label: "教案", icon: "book", render: renderLessonTab },
-    { key: "slides", label: "PPT 大纲", icon: "presentation", render: renderSlidesTab },
-    { key: "artifacts", label: "我的产物", icon: "folder", render: renderArtifactsTab },
-  ], { base: "#/", initial: "lesson" });
+    { key: "slides", label: "PPT", icon: "presentation", render: renderSlidesTab },
+    { key: "files", label: "我的产物", icon: "folder", render: renderFilesTab },
+  ], {
+    base: "#/",
+    initial: "lesson",
+    onChange: function (key) { if (tabs && key === "files") tabs.reload(); },
+  });
 
-  /* ============================================================ 共用：表单卡片 */
+  /* 三个标签共享的状态：教案 / PPT / 文件夹视图 */
+  const L = { plan: null, engine: "", refs: [], artifact: null, folder: "", course: "", edit: false };
+  const S = { outline: null, engine: "", artifact: null, topic: "", course: "", folder: "", source: "", material: "", edit: false };
+  const F = { folders: [], rows: [], lessons: [], current: "__all", picked: {} };
+
+  const DEMO_TOPIC = "Dijkstra 最短路径算法";
+
+  /* ============================================================ 小工具 */
+  function lines(v) {
+    return String(v || "").split("\n").map(function (s) { return s.trim(); })
+      .filter(function (s) { return s; });
+  }
+
+  /** 弹一个带输入框的小窗，返回填的内容（取消返回 null） */
+  function askText(title, label, value, okText) {
+    return new Promise(function (resolve) {
+      let done = false;
+      const m = PF.modal({
+        title: title, width: "narrow",
+        body: '<label class="t-sm t-strong">' + PF.esc(label) + "</label>" +
+          '<input class="input mt-2" id="ask-input" value="' + PF.esc(value || "") + '">',
+        actions: [
+          { label: "取消", onClick: function () { done = true; resolve(null); } },
+          { label: okText || "确定", type: "primary", onClick: function (o) {
+              const v = (PF.$("#ask-input", o.body).value || "").trim();
+              if (!v) { PF.toast("请输入名称", "warn"); return true; }
+              done = true; resolve(v);
+            } },
+        ],
+        onClose: function () { if (!done) resolve(null); },
+      });
+      const input = PF.$("#ask-input", m.body);
+      if (input) {
+        input.focus();
+        input.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); m.foot.lastElementChild.click(); }
+        });
+      }
+    });
+  }
+
   function courseSelect(id) {
     return '<select class="select" id="' + id + '">' +
       '<option value="">不限课程</option>' +
@@ -82,6 +155,13 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         : '<option value="A">A 拓展型</option><option value="B" selected>B 标准型</option>' +
           '<option value="C">C 巩固型</option>') +
       "</select>";
+  }
+
+  function pagesSelect(id, picked) {
+    return '<select class="select" id="' + id + '">' +
+      [6, 8, 10, 12, 14, 16].map(function (n) {
+        return '<option value="' + n + '"' + (n === picked ? " selected" : "") + ">" + n + " 页</option>";
+      }).join("") + "</select>";
   }
 
   function refsPanel(refs) {
@@ -104,6 +184,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div></div>";
   }
 
+  function folderBadge(folder) {
+    if (!folder) return '<span class="badge">未归档</span>';
+    return '<span class="badge badge--ok">' + PF.icon("folder", 11) + " " + PF.esc(PF.trunc(folder, 24)) + "</span>";
+  }
+
   /* ============================================================ 标签一：教案 */
   function renderLessonTab(box) {
     box.innerHTML =
@@ -118,15 +203,18 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               '<label class="t-sm t-strong mt-2">课时数</label>' +
               '<select class="select" id="l-periods">' +
                 [1, 2, 3, 4, 5, 6].map(function (n) {
-                  return '<option value="' + n + '">' + n + " 课时（" + n * 45 + " 分钟）</option>";
+                  return '<option value="' + n + '"' + (n === 2 ? " selected" : "") + ">" +
+                    n + " 课时（" + n * 45 + " 分钟）</option>";
                 }).join("") +
               "</select>" +
               '<label class="t-sm t-strong mt-2">课堂内容取向</label>' +
               orientationSelect("l-level") +
               '<div class="t-xs" id="l-goal" style="line-height:1.6"></div>' +
+              '<label class="t-sm t-strong mt-2">归档到备课文件夹</label>' +
+              '<input class="input" id="l-folder" placeholder="留空自动按「课题 · 日期」命名">' +
               '<button class="btn btn--primary btn--block mt-3" id="btn-lesson">' +
                 PF.icon("wand", 15) + "生成教案</button>" +
-              '<div class="t-xs t-dim">生成后会自动产出 docx 文件，可在右侧直接下载。</div>' +
+              '<div class="t-xs t-dim">生成后自动产出 docx 并归档；右侧可改内容，也能一键按教案生成 PPT。</div>' +
             "</div>" +
             '<div class="card__foot">' + PF.caveat(LAYER_CAVEAT, "warn") + "</div>" +
           "</div>" +
@@ -143,17 +231,17 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     const levelEl = PF.$("#l-level", box);
     function paintGoal() {
       const hit = ORIENTATIONS.filter(function (o) { return o.value === levelEl.value; })[0];
-      const text = hit && hit.goal ? "本次课额外目标：" + hit.goal : "";
-      PF.$("#l-goal", box).textContent = text;
+      PF.$("#l-goal", box).textContent = hit && hit.goal ? "本次课额外目标：" + hit.goal : "";
     }
     levelEl.addEventListener("change", paintGoal);
     paintGoal();
 
     PF.$("#l-topic", box).addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { e.preventDefault(); run(); }
+      if (e.key === "Enter") { e.preventDefault(); runLesson(); }
     });
+    PF.$("#btn-lesson", box).addEventListener("click", runLesson);
 
-    async function run() {
+    async function runLesson() {
       const topic = PF.$("#l-topic", box).value.trim();
       if (!topic) { PF.toast("请先输入课题", "warn"); PF.$("#l-topic", box).focus(); return; }
       const btn = PF.$("#btn-lesson", box);
@@ -167,37 +255,48 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           course: PF.$("#l-course", box).value,
           periods: Number(PF.$("#l-periods", box).value),
           level: levelEl.value,
+          folder: PF.$("#l-folder", box).value.trim(),
         });
-        out.innerHTML = planHtml(d.plan, d.engine, d.refs, d.artifact, levelEl.value);
-        bindPlan(out, d);
-        PF.toast("教案已生成", "ok");
+        applyLesson(d);
+        paintLesson();
+        PF.toast("教案已生成并归档", "ok");
       } catch (e) {
         out.innerHTML = PF.empty({ icon: "alert", title: "生成失败", desc: e.message });
       } finally { PF.busy(btn, false); }
     }
-
-    PF.$("#btn-lesson", box).addEventListener("click", run);
   }
 
-  function planHtml(plan, engine, refs, artifact, level) {
-    const p = plan || {};
+  function applyLesson(d) {
+    L.plan = d.plan || {};
+    L.engine = d.engine || "";
+    L.refs = PF.arr(d.refs);
+    L.artifact = d.artifact || null;
+    L.folder = d.folder || "";
+    L.course = (d.plan && d.plan.course) || "";
+    L.edit = false;
+  }
+
+  /** 把教案画到右侧。编辑态直接给出可改的字段，改完原地保存。 */
+  function paintLesson() {
+    const out = PF.$("#l-result");
+    if (!out || !L.plan) return;
+    const p = L.plan;
     const outline = PF.arr(p.outline);
     const total = outline.reduce(function (a, s) { return a + (Number(s.minutes) || 0); }, 0) || 1;
+    const canEdit = !!(L.artifact && L.artifact.id);
 
-    const segRows = outline.map(function (s) {
-      return '<div class="seg">' +
-        '<div class="seg__name">' + PF.esc(s.step || "环节") + "</div>" +
-        '<div><div class="t-sm" style="line-height:1.7">' + PF.esc(s.content || "") + "</div>" +
-          '<div class="mt-2">' + PF.progress(PF.pct(Number(s.minutes) || 0, total)) + "</div></div>" +
-        '<div class="seg__min">' + PF.num(s.minutes, 0) + " 分钟</div>" +
-      "</div>";
-    }).join("");
-
-    return '<div class="card">' +
+    const head =
+      '<div class="card">' +
         '<div class="card__head">' +
           "<h3>" + PF.icon("book", 15) + " " + PF.esc(p.title || "教案") + "</h3>" +
-          '<div class="card__head-actions">' +
-            PF.engineBadge(engine) +
+          '<div class="card__head-actions">' + PF.engineBadge(L.engine) +
+            (canEdit && !L.edit
+              ? '<button class="btn btn--sm" id="btn-edit-plan">' + PF.icon("edit", 13) + "编辑教案</button>" : "") +
+            (L.edit
+              ? '<button class="btn btn--sm" id="btn-cancel-plan">取消</button>' +
+                '<button class="btn btn--sm btn--ok" id="btn-save-plan">' + PF.icon("save", 13) + "保存修改</button>" : "") +
+            (!L.edit && canEdit
+              ? '<button class="btn btn--sm" id="btn-to-slides">' + PF.icon("presentation", 13) + "生成 PPT</button>" : "") +
             '<button class="btn btn--sm btn--primary" id="btn-dl-plan">' +
               PF.icon("download", 13) + "下载 docx</button>" +
           "</div>" +
@@ -208,129 +307,377 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             (p.course ? '<span class="badge badge--info">' + PF.esc(p.course) + "</span>" : "") +
             '<span class="badge">' + PF.num(p.periods, 0) + " 课时</span>" +
             '<span class="badge">共 ' + PF.num(p.total_minutes || total, 0) + " 分钟</span>" +
-            (artifact && artifact.filename
-              ? '<span class="badge badge--ok">' + PF.esc(PF.trunc(artifact.filename, 30)) + "</span>" : "") +
+            folderBadge(L.folder) +
+            (L.artifact && L.artifact.filename
+              ? '<span class="badge">' + PF.esc(PF.trunc(L.artifact.filename, 30)) + "</span>" : "") +
           "</div>" +
-          (p.note ? '<div class="mt-4">' + PF.caveat(p.note, "warn") + "</div>" : "") +
+          (L.edit
+            ? '<div class="mt-4">' + PF.caveat("改完点「保存修改」：文件会按新内容重新生成，仍留在同一个备课文件夹里。") + "</div>"
+            : "") +
+          (p.note && !L.edit ? '<div class="mt-4">' + PF.caveat(p.note, "warn") + "</div>" : "") +
         "</div>" +
-      "</div>" +
+      "</div>";
 
-      '<div class="grid grid-2" style="gap:16px">' +
-        '<div class="card"><div class="card__head"><h3>教学目标</h3></div>' +
-          '<div class="card__body"><ol class="obj-list">' +
-            PF.arr(p.objectives).map(function (o) { return "<li>" + PF.esc(o) + "</li>"; }).join("") +
-          "</ol></div></div>" +
-        '<div class="card"><div class="card__head"><h3>教学重点 / 难点</h3></div>' +
+    let body;
+    if (L.edit) {
+      body =
+        '<div class="card"><div class="card__head"><h3>编辑教案内容</h3></div>' +
           '<div class="card__body stack-sm">' +
-            '<div class="t-sm t-strong">重点</div><ul class="obj-list">' +
-              PF.arr(p.key_points).map(function (o) { return "<li>" + PF.esc(o) + "</li>"; }).join("") +
-            "</ul><div class=\"t-sm t-strong mt-3\">难点</div><ul class=\"obj-list\">" +
-              PF.arr(p.difficulties).map(function (o) { return "<li>" + PF.esc(o) + "</li>"; }).join("") +
-            "</ul></div></div>" +
-      "</div>" +
+            '<label class="t-sm t-strong">教案标题</label>' +
+            '<input class="input" id="e-title" value="' + PF.esc(p.title || "") + '">' +
+            '<label class="t-sm t-strong mt-3">教学目标（一行一条）</label>' +
+            '<textarea class="input" rows="4" id="e-obj">' + PF.esc(PF.arr(p.objectives).join("\n")) + "</textarea>" +
+            '<label class="t-sm t-strong mt-3">教学重点（一行一条）</label>' +
+            '<textarea class="input" rows="3" id="e-key">' + PF.esc(PF.arr(p.key_points).join("\n")) + "</textarea>" +
+            '<label class="t-sm t-strong mt-3">教学难点（一行一条）</label>' +
+            '<textarea class="input" rows="3" id="e-diff">' + PF.esc(PF.arr(p.difficulties).join("\n")) + "</textarea>" +
+          "</div>" +
+        "</div>" +
+        '<div class="card"><div class="card__head"><h3>课堂环节与时间</h3>' +
+          '<div class="card__head-actions"><span class="t-xs">共 ' + outline.length + " 个环节</span></div></div>" +
+          '<div class="card__body">' +
+            outline.map(function (s, i) {
+              return '<div class="seg-edit">' +
+                '<div class="row" style="gap:8px">' +
+                  '<input class="input input--sm flex-1" data-segi="' + i + '" data-f="step" ' +
+                    'value="' + PF.esc(s.step || "") + '" placeholder="环节名">' +
+                  '<input class="input input--sm" style="width:96px" data-segi="' + i + '" data-f="minutes" ' +
+                    'type="number" min="1" max="120" value="' + PF.esc(String(s.minutes || 10)) + '">' +
+                  '<span class="t-xs t-dim">分钟</span>' +
+                "</div>" +
+                '<textarea class="input mt-2" rows="2" data-segi="' + i + '" data-f="content" ' +
+                  'placeholder="这个环节做什么">' + PF.esc(s.content || "") + "</textarea>" +
+              "</div>";
+            }).join("") +
+          "</div>" +
+        "</div>" +
+        '<div class="card"><div class="card__head"><h3>作业布置</h3></div>' +
+          '<div class="card__body"><textarea class="input" rows="3" id="e-homework">' +
+            PF.esc(p.homework || "") + "</textarea></div></div>";
+    } else {
+      body =
+        '<div class="grid grid-2" style="gap:16px">' +
+          '<div class="card"><div class="card__head"><h3>教学目标</h3></div>' +
+            '<div class="card__body"><ol class="obj-list">' +
+              PF.arr(p.objectives).map(function (o) { return "<li>" + PF.esc(o) + "</li>"; }).join("") +
+            "</ol></div></div>" +
+          '<div class="card"><div class="card__head"><h3>教学重点 / 难点</h3></div>' +
+            '<div class="card__body stack-sm">' +
+              '<div class="t-sm t-strong">重点</div><ul class="obj-list">' +
+                PF.arr(p.key_points).map(function (o) { return "<li>" + PF.esc(o) + "</li>"; }).join("") +
+              "</ul><div class=\"t-sm t-strong mt-3\">难点</div><ul class=\"obj-list\">" +
+                PF.arr(p.difficulties).map(function (o) { return "<li>" + PF.esc(o) + "</li>"; }).join("") +
+              "</ul></div></div>" +
+        "</div>" +
+        '<div class="card"><div class="card__head"><h3>课堂环节与时间分配</h3>' +
+          '<div class="card__head-actions"><span class="t-xs">合计 ' + PF.num(total, 0) + " 分钟</span></div></div>" +
+          '<div class="card__body card__body--tight">' +
+            outline.map(function (s) {
+              return '<div class="seg">' +
+                '<div class="seg__name">' + PF.esc(s.step || "环节") + "</div>" +
+                '<div><div class="t-sm" style="line-height:1.7">' + PF.esc(s.content || "") + "</div>" +
+                  '<div class="mt-2">' + PF.progress(PF.pct(Number(s.minutes) || 0, total)) + "</div></div>" +
+                '<div class="seg__min">' + PF.num(s.minutes, 0) + " 分钟</div>" +
+              "</div>";
+            }).join("") +
+          "</div></div>" +
+        '<div class="card"><div class="card__head"><h3>作业布置</h3></div>' +
+          '<div class="card__body"><p class="t-body" style="line-height:1.85">' +
+            PF.esc(p.homework || "—") + "</p></div></div>" +
+        (p.advice
+          ? '<div class="card"><div class="card__head"><h3>教学建议</h3></div>' +
+            '<div class="card__body">' + PF.caveat(p.advice) + "</div></div>"
+          : "");
+    }
 
-      '<div class="card"><div class="card__head"><h3>课堂环节与时间分配</h3>' +
-        '<div class="card__head-actions"><span class="t-xs">合计 ' + PF.num(total, 0) + " 分钟</span></div></div>" +
-        '<div class="card__body card__body--tight">' + segRows + "</div></div>" +
-
-      '<div class="card"><div class="card__head"><h3>作业布置</h3></div>' +
-        '<div class="card__body"><p class="t-body" style="line-height:1.85">' +
-          PF.esc(p.homework || "—") + "</p></div></div>" +
-
-      (p.advice
-        ? '<div class="card"><div class="card__head"><h3>教学建议</h3></div>' +
-          '<div class="card__body">' + PF.caveat(p.advice) + "</div></div>"
-        : "") +
-
-      refsPanel(refs);
+    out.innerHTML = head + body + (L.edit ? "" : refsPanel(L.refs));
+    bindLesson(out);
   }
 
-  function bindPlan(out, d) {
-    const btn = PF.$("#btn-dl-plan", out);
-    if (!btn) return;
-    btn.addEventListener("click", function () {
-      const art = (d && d.artifact) || {};
-      if (!art.id) { PF.toast("本次未产出文件", "warn"); return; }
-      PF.download("/api/teacher/artifacts/" + art.id + "/download", art.filename || "教案.docx");
+  function bindLesson(out) {
+    const dl = PF.$("#btn-dl-plan", out);
+    if (dl) {
+      dl.addEventListener("click", function () {
+        if (!(L.artifact && L.artifact.id)) { PF.toast("本次未产出文件", "warn"); return; }
+        PF.download("/api/teacher/artifacts/" + L.artifact.id + "/download", L.artifact.filename || "教案.docx");
+      });
+    }
+    const ed = PF.$("#btn-edit-plan", out);
+    if (ed) {
+      ed.addEventListener("click", function () {
+        if (!(L.artifact && L.artifact.id)) { PF.toast("请先生成教案", "warn"); return; }
+        L.edit = true;
+        paintLesson();
+      });
+    }
+    const cancel = PF.$("#btn-cancel-plan", out);
+    if (cancel) cancel.addEventListener("click", function () { L.edit = false; paintLesson(); });
+    const save = PF.$("#btn-save-plan", out);
+    if (save) save.addEventListener("click", savePlan);
+    const toSlides = PF.$("#btn-to-slides", out);
+    if (toSlides) toSlides.addEventListener("click", function () { slidesFromLesson(); });
+  }
+
+  async function savePlan() {
+    const out = PF.$("#l-result");
+    if (!out || !(L.artifact && L.artifact.id)) return;
+    const segs = PF.arr(L.plan.outline).map(function (s, i) {
+      const pick = function (f, fallback) {
+        const el = PF.$('[data-segi="' + i + '"][data-f="' + f + '"]', out);
+        return el ? el.value : fallback;
+      };
+      return {
+        step: String(pick("step", s.step || "")).trim() || ("环节 " + (i + 1)),
+        minutes: Math.max(1, Math.min(120, Number(pick("minutes", s.minutes)) || 10)),
+        content: String(pick("content", s.content || "")).trim(),
+      };
     });
+    const minutes = segs.reduce(function (a, s) { return a + s.minutes; }, 0);
+    const title = (PF.$("#e-title", out).value || "").trim() || (L.plan.title || "教案");
+    const plan = {
+      title: title,
+      course: L.course,
+      periods: L.plan.periods,
+      orientation: L.plan.orientation,
+      total_minutes: minutes,
+      objectives: lines(PF.$("#e-obj", out).value),
+      key_points: lines(PF.$("#e-key", out).value),
+      difficulties: lines(PF.$("#e-diff", out).value),
+      outline: segs,
+      homework: (PF.$("#e-homework", out).value || "").trim(),
+      note: L.plan.note || "",
+      advice: L.plan.advice || "",
+    };
+    const btn = PF.$("#btn-save-plan", out);
+    PF.busy(btn, true, "保存中");
+    try {
+      const d = await PF.api("/api/teacher/artifacts/" + L.artifact.id, {
+        method: "PUT", body: { content: plan, title: title, course: L.course },
+      });
+      L.plan = plan;
+      if (d && d.artifact) {
+        L.artifact = { id: L.artifact.id, filename: d.artifact.filename, size: d.artifact.size };
+      }
+      if (d && d.folder) L.folder = d.folder;
+      L.edit = false;
+      paintLesson();
+      PF.toast("修改已保存，docx 已按新内容重新生成", "ok");
+    } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
   }
 
-  /* ============================================================ 标签二：PPT 大纲 */
-  const S = { outline: null, engine: "", artifact: null, topic: "", course: "", edit: false };
-
+  /* ============================================================ 标签二：PPT */
   function renderSlidesTab(box) {
     box.innerHTML =
       '<div class="teach-wrap">' +
         '<div class="teach-side">' +
-          '<div class="card"><div class="card__head"><h3>' + PF.icon("presentation", 15) + " 大纲参数</h3></div>" +
+          '<div class="card"><div class="card__head"><h3>' + PF.icon("presentation", 15) + " 从哪里生成</h3></div>" +
             '<div class="card__body stack-sm">' +
-              '<label class="t-sm t-strong">课题</label>' +
-              '<input class="input" id="s-topic" placeholder="如：梯度下降与学习率">' +
-              '<label class="t-sm t-strong mt-2">所属课程</label>' +
-              courseSelect("s-course") +
-              '<label class="t-sm t-strong mt-2">页数</label>' +
-              '<select class="select" id="s-pages">' +
-                [6, 8, 10, 12, 14, 16].map(function (n) {
-                  return '<option value="' + n + '"' + (n === 8 ? " selected" : "") + ">" + n + " 页</option>";
-                }).join("") +
-              "</select>" +
-              '<button class="btn btn--primary btn--block mt-3" id="btn-slides">' +
-                PF.icon("wand", 15) + "生成大纲</button>" +
-              '<div class="t-xs t-dim">生成时同步导出 .pptx；也可以先改大纲，再重新导出。</div>' +
+              '<div class="segmented" id="s-src">' +
+                '<button class="segmented__item is-active" data-src="topic">输入课题</button>' +
+                '<button class="segmented__item" data-src="material">上传资料</button>' +
+                '<button class="segmented__item" data-src="lesson">用我的教案</button>' +
+              "</div>" +
+
+              '<div data-panel="topic">' +
+                '<label class="t-sm t-strong mt-3">课题</label>' +
+                '<input class="input" id="s-topic" placeholder="如：梯度下降与学习率">' +
+                '<label class="t-sm t-strong mt-2">所属课程</label>' +
+                courseSelect("s-course") +
+                '<label class="t-sm t-strong mt-2">页数</label>' + pagesSelect("s-pages", 8) +
+                '<label class="t-sm t-strong mt-2">归档到备课文件夹</label>' +
+                '<input class="input" id="s-folder" placeholder="留空自动按「课题 · 日期」命名">' +
+                '<button class="btn btn--primary btn--block mt-3" id="btn-slides">' +
+                  PF.icon("wand", 15) + "生成 PPT</button>" +
+                '<div class="t-xs t-dim">按课题检索你的课件后编排，同步导出 pptx。</div>' +
+              "</div>" +
+
+              '<div data-panel="material" hidden>' +
+                '<label class="t-sm t-strong mt-3">选择资料</label>' +
+                '<input class="input" type="file" id="sf-file" ' +
+                  'accept=".md,.txt,.pdf,.docx,.pptx,.doc,.ppt,.png,.jpg,.jpeg,.webp">' +
+                '<div class="t-xs t-dim">支持讲义 / 课件 / 论文（md、txt、pdf、docx、pptx）。' +
+                  "内容完全来自这份资料，不靠课题推测。</div>" +
+                '<label class="t-sm t-strong mt-2">课题（留空取文件名）</label>' +
+                '<input class="input" id="sf-topic" placeholder="如：注意力机制">' +
+                '<label class="t-sm t-strong mt-2">所属课程</label>' +
+                courseSelect("sf-course") +
+                '<label class="t-sm t-strong mt-2">页数</label>' + pagesSelect("sf-pages", 8) +
+                '<label class="t-sm t-strong mt-2">归档到备课文件夹</label>' +
+                '<input class="input" id="sf-folder" placeholder="留空自动按「课题 · 日期」命名">' +
+                '<button class="btn btn--primary btn--block mt-3" id="btn-slides-file">' +
+                  PF.icon("upload", 15) + "按资料生成 PPT</button>" +
+                '<button class="btn btn--block btn--sm mt-2" id="btn-slides-sample">' +
+                  PF.icon("file", 13) + "用内置示例讲义试一遍</button>" +
+              "</div>" +
+
+              '<div data-panel="lesson" hidden>' +
+                '<label class="t-sm t-strong mt-3">选一份教案</label>' +
+                '<select class="select" id="sl-plan"><option value="">读取中…</option></select>' +
+                '<div class="t-xs t-dim">教案本身就是最好的提纲：每个环节一页，' +
+                  "最后固定为小结与作业，并自动归到教案所在的文件夹。</div>" +
+                '<label class="t-sm t-strong mt-2">页数</label>' + pagesSelect("sl-pages", 8) +
+                '<button class="btn btn--primary btn--block mt-3" id="btn-slides-plan">' +
+                  PF.icon("presentation", 15) + "按教案生成 PPT</button>" +
+              "</div>" +
             "</div>" +
           "</div>" +
         "</div>" +
         '<div class="stack" id="s-result">' +
           PF.empty({
             icon: "presentation",
-            title: "还没有生成 PPT 大纲",
-            desc: "填好课题与页数后点「生成大纲」。每页包含标题、要点与讲给教师看的讲解提示，最后一页固定为小结与作业。",
+            title: "还没有生成 PPT",
+            desc: "三种来源任选：输入课题、上传一份讲义 / 课件、或直接点用刚生成的教案。每页包含标题、要点与讲给教师看的讲解提示，最后一页固定为小结与作业。",
           }) +
         "</div>" +
       "</div>";
 
-    PF.$("#s-topic", box).addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { e.preventDefault(); run(); }
+    PF.$$("[data-src]", box).forEach(function (b) {
+      b.addEventListener("click", function () {
+        PF.$$("[data-src]", box).forEach(function (x) { x.classList.toggle("is-active", x === b); });
+        PF.$$("[data-panel]", box).forEach(function (pn) {
+          pn.hidden = pn.dataset.panel !== b.dataset.src;
+        });
+        if (b.dataset.src === "lesson") loadLessonOptions(box);
+      });
     });
 
-    async function run() {
-      const topic = PF.$("#s-topic", box).value.trim();
-      if (!topic) { PF.toast("请先输入课题", "warn"); PF.$("#s-topic", box).focus(); return; }
-      const btn = PF.$("#btn-slides", box);
-      const out = PF.$("#s-result", box);
-      out.innerHTML = '<div class="card"><div class="card__body">' +
-        PF.loading("正在检索课件并编排大纲") + "</div></div>";
-      PF.busy(btn, true, "生成中");
+    PF.$("#s-topic", box).addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); runSlidesByTopic(); }
+    });
+    PF.$("#btn-slides", box).addEventListener("click", runSlidesByTopic);
+    PF.$("#btn-slides-file", box).addEventListener("click", function () {
+      const input = PF.$("#sf-file", box);
+      if (!(input.files && input.files.length)) { PF.toast("请先选择一份资料", "warn"); return; }
+      runSlidesByFile(input.files[0]);
+    });
+    PF.$("#btn-slides-sample", box).addEventListener("click", async function () {
+      const btn = this;
+      PF.busy(btn, true, "读取中");
       try {
-        const d = await PF.post("/api/teacher/slides", {
-          topic: topic,
-          course: PF.$("#s-course", box).value,
-          pages: Number(PF.$("#s-pages", box).value),
-        });
-        S.outline = d.outline || {};
-        S.engine = d.engine;
-        S.artifact = d.artifact || null;
-        S.topic = topic;
-        S.course = PF.$("#s-course", box).value;
-        S.edit = false;
-        paintSlides();
-        PF.toast("大纲已生成", "ok");
-      } catch (e) {
-        out.innerHTML = PF.empty({ icon: "alert", title: "生成失败", desc: e.message });
-      } finally { PF.busy(btn, false); }
-    }
+        const lec = await PF.get("/api/demo/lecture");
+        await runSlidesByFile(new File([lec.text || ""], lec.name || "备课示例讲义.md",
+          { type: "text/markdown" }));
+      } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
+    });
+    PF.$("#btn-slides-plan", box).addEventListener("click", function () {
+      const id = Number(PF.$("#sl-plan", box).value || 0);
+      if (!id) { PF.toast("请先选一份教案", "warn"); return; }
+      slidesFromLesson(id, Number(PF.$("#sl-pages", box).value || 8));
+    });
+  }
 
-    PF.$("#btn-slides", box).addEventListener("click", run);
+  async function loadLessonOptions(box) {
+    const sel = PF.$("#sl-plan", box || document);
+    if (!sel) return;
+    try {
+      const d = await PF.get("/api/teacher/artifacts");
+      F.lessons = PF.arr(d.artifacts).filter(function (r) { return r.kind !== "pptx"; });
+    } catch (e) { F.lessons = []; }
+    if (!F.lessons.length) {
+      sel.innerHTML = '<option value="">（还没有教案，先去「教案」标签生成）</option>';
+      return;
+    }
+    sel.innerHTML = F.lessons.map(function (r) {
+      const picked = (L.artifact && r.id === L.artifact.id) ? " selected" : "";
+      return '<option value="' + r.id + '"' + picked + ">" +
+        PF.esc(PF.trunc(r.title || "教案", 26)) + "（" + PF.esc(PF.when(r.created_at)) + "）</option>";
+    }).join("");
+  }
+
+  function applySlides(d, source, extra) {
+    S.outline = d.outline || {};
+    S.engine = d.engine || "";
+    S.artifact = d.artifact || null;
+    S.folder = d.folder || "";
+    S.topic = d.topic || (d.outline && d.outline.title) || "";
+    S.course = (extra && extra.course) || "";
+    S.material = d.material || "";
+    S.source = source;
+    S.edit = false;
+  }
+
+  async function runSlidesByTopic() {
+    const box = PF.$("#s-result");
+    const topic = (PF.$("#s-topic").value || "").trim();
+    if (!topic) { PF.toast("请先输入课题", "warn"); PF.$("#s-topic").focus(); return; }
+    const btn = PF.$("#btn-slides");
+    showSlidesLoading(box);
+    PF.busy(btn, true, "生成中");
+    try {
+      const course = PF.$("#s-course").value;
+      const d = await PF.post("/api/teacher/slides", {
+        topic: topic, course: course,
+        pages: Number(PF.$("#s-pages").value),
+        folder: PF.$("#s-folder").value.trim(),
+      });
+      applySlides(d, "topic", { course: course });
+      paintSlides();
+      PF.toast("PPT 已生成并归档", "ok");
+    } catch (e) {
+      if (box) box.innerHTML = PF.empty({ icon: "alert", title: "生成失败", desc: e.message });
+    } finally { PF.busy(btn, false); }
+  }
+
+  async function runSlidesByFile(file) {
+    const box = PF.$("#s-result");
+    const btn = PF.$("#btn-slides-file") || PF.$("#btn-slides-sample");
+    showSlidesLoading(box);
+    if (btn) PF.busy(btn, true, "生成中");
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    fd.append("topic", (PF.$("#sf-topic") ? PF.$("#sf-topic").value : "") || "");
+    fd.append("course", PF.$("#sf-course") ? PF.$("#sf-course").value : "");
+    fd.append("pages", (PF.$("#sf-pages") ? PF.$("#sf-pages").value : "") || "8");
+    fd.append("folder", (PF.$("#sf-folder") ? PF.$("#sf-folder").value : "") || "");
+    try {
+      const d = await PF.api("/api/teacher/slides/from-material", { method: "POST", form: fd });
+      applySlides(d, "material", { course: PF.$("#sf-course") ? PF.$("#sf-course").value : "" });
+      paintSlides();
+      PF.toast("已按《" + (d.material || file.name) + "》生成 PPT", "ok");
+    } catch (e) {
+      if (box) box.innerHTML = PF.empty({ icon: "alert", title: "生成失败", desc: e.message });
+    } finally { if (btn) PF.busy(btn, false); }
+  }
+
+  /** 教案 → PPT：产物自动落进教案所在的备课文件夹 */
+  async function slidesFromLesson(artifactId, pages) {
+    const id = artifactId || (L.artifact && L.artifact.id) || 0;
+    if (!id) {
+      PF.toast("还没有教案，请先生成一份", "warn");
+      tabs.go("lesson");
+      return;
+    }
+    if (L.edit) { PF.toast("教案正在编辑，请先保存修改", "warn"); return; }
+    const box = PF.$("#s-result");
+    showSlidesLoading(box);
+    try {
+      const d = await PF.post("/api/teacher/slides/from-lesson", {
+        artifact_id: id, pages: Number(pages || 8) || 8,
+      });
+      applySlides(d, "lesson", { course: (d.outline && d.outline.course) || L.course });
+      tabs.go("slides");
+      paintSlides();
+      PF.toast("已按教案生成 PPT，与教案放在同一个文件夹", "ok");
+    } catch (e) {
+      if (box) box.innerHTML = PF.empty({ icon: "alert", title: "生成失败", desc: e.message });
+    }
+  }
+
+  function showSlidesLoading(box) {
+    if (!box) return;
+    box.innerHTML = '<div class="card"><div class="card__body">' +
+      PF.loading("正在编排 PPT（约 2~5 秒）") + "</div></div>";
   }
 
   function paintSlides() {
     const out = PF.$("#s-result");
     if (!out || !S.outline) return;
     const slides = PF.arr(S.outline.slides);
+    const srcLabel = { topic: "按课题生成", material: "按资料生成", lesson: "按教案生成" }[S.source] || "";
 
     const head =
       '<div class="card"><div class="card__head">' +
-        "<h3>" + PF.icon("presentation", 15) + " " + PF.esc(S.outline.title || S.topic || "PPT 大纲") + "</h3>" +
+        "<h3>" + PF.icon("presentation", 15) + " " + PF.esc(S.outline.title || S.topic || "PPT") + "</h3>" +
         '<div class="card__head-actions">' + PF.engineBadge(S.engine) +
           '<button class="btn btn--sm" id="btn-edit-slides">' +
             PF.icon("edit", 13) + (S.edit ? "完成编辑" : "编辑大纲") + "</button>" +
@@ -340,12 +687,15 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div>" +
       '<div class="card__body"><div class="row" style="gap:6px;flex-wrap:wrap">' +
         '<span class="badge badge--brand">共 ' + PF.num(slides.length, 0) + " 页</span>" +
+        (srcLabel ? '<span class="badge badge--info">' + PF.esc(srcLabel) + "</span>" : "") +
+        (S.material ? '<span class="badge">' + PF.esc(PF.trunc(S.material, 24)) + "</span>" : "") +
         (S.course ? '<span class="badge badge--info">' + PF.esc(S.course) + "</span>" : "") +
+        folderBadge(S.folder) +
         (S.artifact && S.artifact.filename
-          ? '<span class="badge badge--ok">已导出 ' + PF.esc(PF.trunc(S.artifact.filename, 28)) + "</span>" : "") +
+          ? '<span class="badge">' + PF.esc(PF.trunc(S.artifact.filename, 28)) + "</span>" : "") +
       "</div>" +
       (S.edit
-        ? '<div class="mt-4">' + PF.caveat("编辑模式下可直接改标题、要点（一行一条）与讲解提示，改完点「导出 pptx」，会按你改后的内容生成文件。") + "</div>"
+        ? '<div class="mt-4">' + PF.caveat("编辑模式下可直接改标题、要点（一行一条）与讲解提示，改完点「导出 pptx」，会按改后的内容重新生成文件。") + "</div>"
         : "") +
       "</div></div>";
 
@@ -390,8 +740,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           const slide = S.outline.slides[idx];
           if (!slide) return;
           if (field === "bullets") {
-            slide.bullets = el.value.split("\n").map(function (s) { return s.trim(); })
-              .filter(function (s) { return s; });
+            slide.bullets = lines(el.value);
           } else {
             slide[field] = el.value;
           }
@@ -406,11 +755,14 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     if (!slides.length) { PF.toast("大纲为空", "warn"); return; }
     try {
       const d = await PF.post("/api/teacher/slides/save", {
-        topic: S.topic || S.outline.title || "PPT 大纲",
+        topic: S.topic || S.outline.title || "PPT",
         course: S.course,
         outline: S.outline,
+        folder: S.folder,
+        artifact_id: (S.artifact && S.artifact.id) || 0,
       });
       S.artifact = d.artifact || null;
+      if (d && d.folder) S.folder = d.folder;
       S.edit = false;
       paintSlides();
       PF.toast("已导出 PPT", "ok");
@@ -421,64 +773,228 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     } catch (e) { /* 已提示 */ }
   }
 
-  /* ============================================================ 标签三：我的产物 */
-  async function renderArtifactsTab(box) {
+  /* ============================================================ 标签三：我的产物（文件夹） */
+  async function renderFilesTab(box) {
     box.innerHTML = PF.loading("正在读取产物库");
-    let d;
-    try {
-      d = await PF.get("/api/teacher/artifacts");
-    } catch (e) {
-      box.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+    await loadFiles();
+    if (!F.rows.length) {
+      box.innerHTML = PF.empty({
+        icon: "folder",
+        title: "产物库还是空的",
+        desc: "在「教案」或「PPT」标签里生成一次，文件会自动归到一个备课文件夹里。也可以点右上角「案例测试」一键造一组示例。",
+      });
       return;
     }
-    const rows = PF.arr(d.artifacts);
+    paintFiles(box);
+  }
+
+  async function loadFiles() {
+    try {
+      const fd = await PF.get("/api/teacher/folders");
+      F.folders = PF.arr(fd && fd.folders);
+    } catch (e) { F.folders = []; }
+    try {
+      const ad = await PF.get("/api/teacher/artifacts");
+      F.rows = PF.arr(ad && ad.artifacts);
+    } catch (e) { F.rows = []; }
+  }
+
+  function countOf(name) {
+    return F.rows.filter(function (r) { return (r.folder || "") === name; }).length;
+  }
+
+  function currentRows() {
+    if (F.current === "__all") return F.rows;
+    return F.rows.filter(function (r) { return (r.folder || "") === F.current; });
+  }
+
+  function paintFiles(box) {
+    const rows = currentRows();
+    const named = F.folders.filter(function (f) { return f.name; });
+
+    const sideItems =
+      '<button class="fm-item' + (F.current === "__all" ? " is-on" : "") + '" data-f="__all">' +
+        PF.icon("folder", 14) + '<span class="fm-item__name">全部</span>' +
+        '<span class="fm-item__n">' + F.rows.length + "</span></button>" +
+      '<button class="fm-item' + (F.current === "" ? " is-on" : "") + '" data-f="">' +
+        PF.icon("folder", 14) + '<span class="fm-item__name">未归档</span>' +
+        '<span class="fm-item__n">' + countOf("") + "</span></button>" +
+      named.map(function (f) {
+        return '<button class="fm-item' + (F.current === f.name ? " is-on" : "") + '" data-f="' +
+            PF.esc(f.name) + '">' + PF.icon("folder", 14) +
+          '<span class="fm-item__name" title="' + PF.esc(f.name) + '">' + PF.esc(f.name) + "</span>" +
+          '<span class="fm-item__n">' + f.count + "</span>" +
+          '<span class="fm-item__ops">' +
+            '<button class="btn btn--sm" data-rename="' + PF.esc(f.name) + '" title="重命名"' +
+              ' aria-label="重命名文件夹">' + PF.icon("edit", 12) + "</button>" +
+            '<button class="btn btn--sm btn--danger" data-delfolder="' + PF.esc(f.name) + '" title="删除文件夹"' +
+              ' aria-label="删除文件夹">' + PF.icon("trash", 12) + "</button>" +
+          "</span></button>";
+      }).join("");
+
+    const moveOptions = '<option value="">未归档</option>' +
+      named.map(function (f) { return '<option value="' + PF.esc(f.name) + '">' + PF.esc(f.name) + "</option>"; }).join("") +
+      '<option value="__new">＋ 新建文件夹…</option>';
 
     box.innerHTML =
-      '<div class="card"><div class="card__head">' +
-        "<h3>" + PF.icon("folder", 15) + " 我生成的教案与 PPT</h3>" +
-        '<div class="card__head-actions"><span class="t-xs">' + rows.length + " 份</span></div>" +
-      "</div>" +
-      '<div class="card__body card__body--flush">' +
-        PF.table([
-          { key: "kind", label: "类型", render: function (r) {
-              return r.kind === "pptx"
-                ? '<span class="badge badge--brand">' + PF.icon("presentation", 11) + " PPT</span>"
-                : '<span class="badge badge--info">' + PF.icon("book", 11) + " 教案</span>";
-            } },
-          { key: "title", label: "标题", render: function (r) {
-              return '<div class="t-strong">' + PF.esc(r.title || "—") + "</div>" +
-                '<div class="t-xs t-dim">' + PF.esc(r.filename || "（文件已清理）") + "</div>";
-            } },
-          { key: "course", label: "课程", render: function (r) { return PF.esc(r.course || "—"); } },
-          { key: "created_at", label: "生成时间", render: function (r) {
-              return '<span class="t-sm">' + PF.esc(PF.when(r.created_at)) + "</span>";
-            } },
-          { key: "exists", label: "文件", render: function (r) {
-              return r.exists
-                ? '<span class="badge badge--ok">可下载</span>'
-                : '<span class="badge badge--danger">已清理</span>';
-            } },
-          { key: "ops", label: "操作", cls: "nowrap", render: function (r) {
-              return '<div class="row" style="gap:6px">' +
-                '<button class="btn btn--sm" data-preview="' + r.id + '">' + PF.icon("search", 12) + "预览</button>" +
-                (r.exists
-                  ? '<button class="btn btn--sm" data-download="' + r.id + '">' + PF.icon("download", 12) + "下载</button>"
-                  : "") +
-                '<button class="btn btn--sm btn--danger" data-del="' + r.id + '">' + PF.icon("trash", 12) + "</button>" +
-                "</div>";
-            } },
-        ], rows, {
-          empty: {
-            icon: "folder",
-            title: "产物库还是空的",
-            desc: "在「教案」或「PPT 大纲」标签里生成一次，文件就会出现在这里（含 docx / pptx，可直接打开）。",
-          },
-        }) +
-      "</div>" +
-      '<div class="card__foot"><span class="t-xs t-dim">' +
-        "产物保存在本地 export 目录，文件随记录一起删除；学生在自己的页面上看不到这些文件。" +
-      "</span></div></div>";
+      '<div class="fm-wrap">' +
+        '<div class="fm-side">' +
+          '<div class="card"><div class="card__head"><h3>' + PF.icon("folder", 15) + " 备课文件夹</h3>" +
+            '<div class="card__head-actions"><span class="t-xs">' + named.length + " 个</span></div></div>" +
+            '<div class="card__body card__body--flush stack-sm">' + sideItems + "</div>" +
+            '<div class="card__foot"><button class="btn btn--sm btn--block" id="btn-new-folder">' +
+              PF.icon("plus", 13) + "新建文件夹</button></div>" +
+          "</div>" +
+          '<div class="card mt-4"><div class="card__body">' +
+            '<div class="t-xs t-dim" style="line-height:1.7">' +
+              "勾选文件后可移动到任意文件夹；教案与它生成的 PPT 默认就在同一个文件夹里。" +
+              "删除文件夹只取消归档，文件会退回「未归档」，不会丢。" +
+            "</div></div></div>" +
+        "</div>" +
+        '<div class="card">' +
+          '<div class="card__head">' +
+            "<h3>" + PF.esc(F.current === "__all" ? "全部产物" : (F.current || "未归档")) +
+              "　<span class='t-xs t-dim'>" + rows.length + " 份</span></h3>" +
+            '<div class="card__head-actions">' +
+              '<button class="btn btn--sm" id="btn-pickall">全选</button>' +
+            "</div>" +
+          "</div>" +
+          '<div class="card__body">' +
+            '<div class="pick-bar mb-3">' +
+              '<span class="t-sm t-dim">已选 <b id="pick-n">0</b> 份</span>' +
+              '<select class="select select--sm" id="mv-to" style="min-width:150px">' + moveOptions + "</select>" +
+              '<button class="btn btn--sm btn--primary" id="btn-move">' + PF.icon("folder", 12) + "移动</button>" +
+            "</div>" +
+            PF.table([
+              { key: "pick", label: "", cls: "nowrap", render: function (r) {
+                  return '<input type="checkbox" data-pick="' + r.id + '"' +
+                    (F.picked[r.id] ? " checked" : "") + ' aria-label="选择文件">';
+                } },
+              { key: "kind", label: "类型", render: function (r) {
+                  return r.kind === "pptx"
+                    ? '<span class="badge badge--brand">' + PF.icon("presentation", 11) + " PPT</span>"
+                    : '<span class="badge badge--info">' + PF.icon("book", 11) + " 教案</span>";
+                } },
+              { key: "title", label: "标题", render: function (r) {
+                  return '<div class="t-strong">' + PF.esc(r.title || "—") + "</div>" +
+                    '<div class="t-xs t-dim">' + PF.esc(r.filename || "（文件已清理）") + "</div>" +
+                    (F.current === "__all" ? '<div class="mt-2">' + folderBadge(r.folder) + "</div>" : "");
+                } },
+              { key: "course", label: "课程", render: function (r) { return PF.esc(r.course || "—"); } },
+              { key: "created_at", label: "生成时间", render: function (r) {
+                  return '<span class="t-sm">' + PF.esc(PF.when(r.created_at)) + "</span>";
+                } },
+              { key: "ops", label: "操作", cls: "nowrap", render: function (r) {
+                  return '<div class="row" style="gap:6px">' +
+                    '<button class="btn btn--sm" data-preview="' + r.id + '">' + PF.icon("search", 12) + "预览</button>" +
+                    (r.exists
+                      ? '<button class="btn btn--sm" data-download="' + r.id + '">' + PF.icon("download", 12) + "下载</button>"
+                      : '<span class="badge badge--danger">已清理</span>') +
+                    '<button class="btn btn--sm btn--danger" data-del="' + r.id + '" aria-label="删除">' +
+                      PF.icon("trash", 12) + "</button>" +
+                    "</div>";
+                } },
+            ], rows, {
+              empty: {
+                icon: "folder",
+                title: "这个文件夹是空的",
+                desc: "把别处的产物移进来，或直接在这里新建一份。",
+              },
+            }) +
+          "</div>" +
+          '<div class="card__foot"><span class="t-xs t-dim">' +
+            "产物保存在本地 export 目录，按文件夹分目录存放；学生在自己的页面上看不到这些文件。" +
+          "</span></div>" +
+        "</div>" +
+      "</div>";
 
+    bindFiles(box, rows);
+  }
+
+  function bindFiles(box, rows) {
+    PF.$$("[data-f]", box).forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        if (e.target.closest("[data-rename]") || e.target.closest("[data-delfolder]")) return;
+        F.current = b.dataset.f;
+        F.picked = {};
+        paintFiles(box);
+      });
+    });
+    PF.$$("[data-rename]", box).forEach(function (b) {
+      b.addEventListener("click", async function (e) {
+        e.stopPropagation();
+        const oldName = b.dataset.rename;
+        const next = await askText("重命名文件夹", "新的文件夹名", oldName, "重命名");
+        if (!next || next === oldName) return;
+        try {
+          await PF.post("/api/teacher/folders/rename", { old: oldName, new: next });
+          F.current = next;
+          await loadFiles();
+          paintFiles(box);
+          PF.toast("已重命名", "ok");
+        } catch (err) { /* 已提示 */ }
+      });
+    });
+    PF.$$("[data-delfolder]", box).forEach(function (b) {
+      b.addEventListener("click", async function (e) {
+        e.stopPropagation();
+        const name = b.dataset.delfolder;
+        const yes = await PF.confirm({
+          title: "删除文件夹「" + name + "」",
+          text: "默认只取消归档，文件会退回「未归档」，不会删除。",
+          okText: "取消归档",
+        });
+        if (!yes) return;
+        try {
+          await PF.api("/api/teacher/folders/" + encodeURIComponent(name), { method: "DELETE" });
+          F.current = "__all";
+          await loadFiles();
+          paintFiles(box);
+          PF.toast("已取消归档，文件保留在「未归档」", "ok");
+        } catch (err) { /* 已提示 */ }
+      });
+    });
+    PF.$("#btn-new-folder", box).addEventListener("click", async function () {
+      const name = await askText("新建备课文件夹", "文件夹名（如：第 3 章 · 注意力机制）", "", "创建");
+      if (!name) return;
+      try {
+        await PF.post("/api/teacher/folders", { name: name });
+        F.current = name;
+        await loadFiles();
+        paintFiles(box);
+        PF.toast("已创建文件夹", "ok");
+      } catch (err) { /* 已提示 */ }
+    });
+    PF.$("#btn-pickall", box).addEventListener("click", function () {
+      const allOn = rows.every(function (r) { return F.picked[r.id]; });
+      rows.forEach(function (r) { F.picked[r.id] = !allOn; });
+      paintFiles(box);
+    });
+    PF.$$("[data-pick]", box).forEach(function (cb) {
+      cb.addEventListener("change", function () {
+        const id = Number(cb.dataset.pick);
+        if (cb.checked) F.picked[id] = true; else delete F.picked[id];
+        PF.$("#pick-n", box).textContent = String(Object.keys(F.picked).length);
+      });
+    });
+    PF.$("#btn-move", box).addEventListener("click", async function () {
+      const ids = Object.keys(F.picked).map(Number);
+      if (!ids.length) { PF.toast("请先勾选要移动的文件", "warn"); return; }
+      let target = PF.$("#mv-to", box).value;
+      if (target === "__new") {
+        target = await askText("新建并移动到", "新文件夹名", "", "创建并移动");
+        if (!target) return;
+        try { await PF.post("/api/teacher/folders", { name: target }); } catch (err) { return; }
+      }
+      try {
+        await PF.post("/api/teacher/artifacts/move", { ids: ids, folder: target });
+        F.picked = {};
+        if (target) F.current = target; else F.current = "";
+        await loadFiles();
+        paintFiles(box);
+        PF.toast("已移动 " + ids.length + " 份文件", "ok");
+      } catch (err) { /* 已提示 */ }
+    });
     PF.$$("[data-preview]", box).forEach(function (b) {
       b.addEventListener("click", function () { previewArtifact(Number(b.dataset.preview)); });
     });
@@ -499,8 +1015,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         try {
           await PF.del("/api/teacher/artifacts/" + b.dataset.del);
           PF.toast("已删除", "ok");
-          tabs.reload();
-        } catch (e) { /* 已提示 */ }
+          await loadFiles();
+          paintFiles(box);
+        } catch (err) { /* 已提示 */ }
       });
     });
   }
@@ -567,6 +1084,145 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     });
   }
 
+  /* ============================================================ 案例测试面板
+     给测试的人一条捷径：不用手填课题、不用先找资料，点一下就把流程跑通，
+     顺便在「我的产物」里留下一组可看的教案 + PPT，方便验收文件夹整理。 */
+  async function openDemo() {
+    const m = PF.modal({
+      title: "备课案例测试",
+      width: "wide",
+      body:
+        '<p class="mn-sum">每一步都会真的调用后端、真的产出文件，跑完可以直接到「我的产物」里查看与整理。' +
+        "想看更细的验收点（期望值比对），点下方「备课测试用例」。</p>" +
+        demoRow("d1", "① 生成示例教案",
+          "课题「" + DEMO_TOPIC + "」，2 课时 · B 取向。生成后自动归档到备课文件夹，可在右侧下载 docx。",
+          "生成") +
+        demoRow("d2", "② 用教案生成 PPT",
+          "拿上一步的教案当提纲（每个环节一页，末页固定小结与作业），自动放进同一个文件夹。没有教案时会先自动生成。",
+          "生成") +
+        demoRow("d3", "③ 上传示例讲义生成 PPT",
+          "用仓库自带的《备课示例讲义.md》当资料，页面与要点全部来自讲义正文，可逐条溯源。",
+          "生成") +
+        demoRow("d4", "④ 一键跑通全流程",
+          "教案 → PPT → 自动归入同一文件夹，跑完直接跳到「我的产物」看结果。演示前点这个最省事。",
+          "跑一遍") +
+        '<div class="mt-4"><button class="btn btn--sm" id="dm-cases">' +
+          PF.icon("check", 13) + "备课测试用例（按约定 / 真实跑一遍）</button></div>",
+      actions: [{ label: "关闭", type: "primary" }],
+    });
+
+    PF.$('[data-demo="d1"]', m.body).addEventListener("click", function () { demoLesson(this); });
+    PF.$('[data-demo="d2"]', m.body).addEventListener("click", function () { demoSlidesFromLesson(this); });
+    PF.$('[data-demo="d3"]', m.body).addEventListener("click", function () { demoSlidesFromMaterial(this); });
+    PF.$('[data-demo="d4"]', m.body).addEventListener("click", function () { demoAll(this); });
+    PF.$("#dm-cases", m.body).addEventListener("click", function () {
+      m.close();
+      PF.demo("teach");
+    });
+  }
+
+  function demoRow(id, title, desc, btnText) {
+    return '<div class="demo-row">' +
+      '<div class="demo-row__main">' +
+        '<div class="t-sm t-strong">' + PF.esc(title) + "</div>" +
+        '<div class="t-xs t-dim mt-2">' + PF.esc(desc) + "</div>" +
+        '<div class="demo-res" data-res></div>' +
+      "</div>" +
+      '<div class="demo-row__act"><button class="btn btn--sm btn--primary" data-demo="' + id + '">' +
+        PF.esc(btnText) + "</button></div>" +
+    "</div>";
+  }
+
+  function demoResult(btn, html) {
+    const box = btn.closest(".demo-row").querySelector("[data-res]");
+    if (box) box.innerHTML = html;
+  }
+
+  function badges(items) {
+    return '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+      items.map(function (t) { return '<span class="chip">' + PF.esc(t) + "</span>"; }).join("") + "</div>";
+  }
+
+  async function demoLesson(btn) {
+    PF.busy(btn, true, "生成中");
+    try {
+      const d = await PF.post("/api/teacher/lesson", {
+        topic: DEMO_TOPIC, course: "", periods: 2, level: "B",
+        folder: "案例 · " + DEMO_TOPIC,
+      });
+      applyLesson(d);
+      tabs.go("lesson");
+      paintLesson();
+      const segs = PF.arr(d.plan && d.plan.outline).length;
+      demoResult(btn, '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+        '<span class="badge badge--ok">已完成</span>' + PF.engineBadge(d.engine) +
+        '<span class="chip">' + segs + " 个环节</span>" +
+        '<span class="chip">' + ((d.plan && d.plan.total_minutes) || 0) + " 分钟</span>" +
+        '<span class="chip">文件夹：' + PF.esc(d.folder || "未归档") + "</span></div>");
+      PF.toast("示例教案已生成", "ok");
+    } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
+  }
+
+  async function demoSlidesFromLesson(btn) {
+    if (!(L.artifact && L.artifact.id)) await demoLesson(btn);
+    PF.busy(btn, true, "生成中");
+    try {
+      const d = await PF.post("/api/teacher/slides/from-lesson", {
+        artifact_id: L.artifact.id, pages: 8,
+      });
+      applySlides(d, "lesson", { course: L.course });
+      tabs.go("slides");
+      paintSlides();
+      const n = PF.arr(d.outline && d.outline.slides).length;
+      demoResult(btn, badges(["已完成", n + " 页", "文件夹：" + (d.folder || "未归档")]));
+      PF.toast("已按教案生成 PPT", "ok");
+    } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
+  }
+
+  async function demoSlidesFromMaterial(btn) {
+    PF.busy(btn, true, "生成中");
+    try {
+      const lec = await PF.get("/api/demo/lecture");
+      const fd = new FormData();
+      fd.append("file", new File([lec.text || ""], lec.name || "备课示例讲义.md",
+        { type: "text/markdown" }));
+      fd.append("topic", "注意力机制");
+      fd.append("pages", "8");
+      fd.append("folder", "案例 · 注意力机制讲义");
+      const d = await PF.api("/api/teacher/slides/from-material", { method: "POST", form: fd });
+      applySlides(d, "material", {});
+      tabs.go("slides");
+      paintSlides();
+      const n = PF.arr(d.outline && d.outline.slides).length;
+      demoResult(btn, badges(["已完成", n + " 页", "资料：" + (d.material || ""),
+        "文件夹：" + (d.folder || "未归档")]));
+      PF.toast("已按示例讲义生成 PPT", "ok");
+    } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
+  }
+
+  async function demoAll(btn) {
+    PF.busy(btn, true, "跑流程");
+    try {
+      const lesson = await PF.post("/api/teacher/lesson", {
+        topic: DEMO_TOPIC, course: "", periods: 2, level: "B",
+        folder: "案例 · " + DEMO_TOPIC,
+      });
+      const d = await PF.post("/api/teacher/slides/from-lesson", {
+        artifact_id: lesson.artifact.id, pages: 8,
+      });
+      applyLesson(lesson);
+      applySlides(d, "lesson", { course: "" });
+      await loadFiles();
+      F.current = lesson.folder || "__all";
+      tabs.go("files");
+      tabs.reload();
+      demoResult(btn, badges(["教案 + PPT 已生成", "共 2 份文件",
+        "文件夹：" + (d.folder || "未归档")]));
+      PF.toast("全流程已跑通，已跳到「我的产物」", "ok");
+    } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
+  }
+
+  PF.$("#btn-demo").addEventListener("click", function () { openDemo(); });
   PF.$("#btn-refresh").addEventListener("click", function () { tabs.reload(); });
 })();
 </script>
