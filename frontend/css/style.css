@@ -2854,3 +2854,70 @@ html[data-theme="dark"] body::after {
 }
 .switch-row input { width: 16px; height: 16px; accent-color: var(--brand-500, #4353ff); }
 .t-danger { color: var(--danger-500, #ef4444); }
+
+/* ============================================================ v7.2 匹配页专用（2026-09-20）
+   ① 统计格棋盘上色：同一网格里第奇数个格子宝蓝实底白字、第偶数个格子
+   荧光黄绿 #D6F94B 实底深字（该色对白对比 1.20，严禁白字，只能配深色文字）。
+   实底写死色值不引令牌，原因同 v7：暗色令牌是倒置的，写死才能两套主题块面一致。
+   ② 匹配度五档配色：<20 红 / 20-40 紫 / 40-50 橙 / 50-70 黄 / ≥70 绿。
+   进度条走 .progress__bar--X，分数大字走 .mk-score--X，百分比与列表数字
+   走 .mk-pct--X / .mk-cell--X；文字色统一取各档加深一档保证对白可读。 */
+
+/* —— ① 棋盘统计格（仅 match 页挂 .stat-grid--checker 的网格生效） —— */
+.stat-grid--checker > .stat:nth-child(odd) {
+  background: var(--gradient-block);
+  border-color: transparent;
+  box-shadow: 0 12px 26px -16px rgba(67, 83, 255, .60);
+}
+.stat-grid--checker > .stat:nth-child(odd) .stat__num { color: #fff; }
+.stat-grid--checker > .stat:nth-child(odd) .stat__num .t-sm { color: rgba(255, 255, 255, .85); }
+.stat-grid--checker > .stat:nth-child(odd) .stat__label { color: rgba(255, 255, 255, .82); }
+.stat-grid--checker > .stat:nth-child(odd) .t-xs { color: rgba(255, 255, 255, .68); }
+.stat-grid--checker > .stat:nth-child(odd) .stat__ico {
+  background: rgba(255, 255, 255, .18); color: #fff; border: none; box-shadow: none;
+}
+.stat-grid--checker > .stat:nth-child(even) {
+  background: #d6f94b;
+  border-color: transparent;
+  box-shadow: 0 12px 26px -16px rgba(140, 168, 16, .55);
+}
+.stat-grid--checker > .stat:nth-child(even) .stat__num { color: #172033; }
+.stat-grid--checker > .stat:nth-child(even) .stat__num .t-sm { color: rgba(23, 32, 51, .72); }
+.stat-grid--checker > .stat:nth-child(even) .stat__label { color: rgba(23, 32, 51, .72); }
+.stat-grid--checker > .stat:nth-child(even) .t-xs { color: rgba(23, 32, 51, .60); }
+.stat-grid--checker > .stat:nth-child(even) .stat__ico {
+  background: rgba(23, 32, 51, .10); color: #172033; border: none; box-shadow: none;
+}
+/* 悬停反馈保留，但实底上不做位移，只加深投影 */
+.stat-grid--checker > .stat:hover { transform: none; }
+.stat-grid--checker > .stat:nth-child(odd):hover { box-shadow: 0 16px 30px -16px rgba(67, 83, 255, .72); }
+.stat-grid--checker > .stat:nth-child(even):hover { box-shadow: 0 16px 30px -16px rgba(140, 168, 16, .65); }
+
+/* —— ② 匹配度五档 —— */
+.progress__bar--danger { background: linear-gradient(90deg, #f87171, #ef4444); }
+.progress__bar--vivid  { background: linear-gradient(90deg, #a78bfa, #8b5cf6); }
+.progress__bar--orange { background: linear-gradient(90deg, #fb923c, #f97316); }
+.progress__bar--yellow { background: linear-gradient(90deg, #facc15, #eab308); }
+.mk-pct, .mk-cell { font-weight: 700; font-variant-numeric: tabular-nums; }
+.mk-pct--ok     { color: #059669; }
+.mk-pct--yellow { color: #a16207; }
+.mk-pct--orange { color: #ea580c; }
+.mk-pct--vivid  { color: #7c3aed; }
+.mk-pct--danger { color: #dc2626; }
+.mk-score--ok .mk-score__n     { color: #059669; }
+.mk-score--yellow .mk-score__n { color: #a16207; }
+.mk-score--orange .mk-score__n { color: #ea580c; }
+.mk-score--vivid .mk-score__n  { color: #7c3aed; }
+.mk-score--danger .mk-score__n { color: #dc2626; }
+.mk-cell--ok     { color: #059669; }
+.mk-cell--yellow { color: #a16207; }
+.mk-cell--orange { color: #ea580c; }
+.mk-cell--vivid  { color: #7c3aed; }
+.mk-cell--danger { color: #dc2626; }
+
+/* 暗色主题：块面颜色不变（写死），分档文字色换亮一档保证对深底可读 */
+html[data-theme="dark"] .mk-pct--ok,     html[data-theme="dark"] .mk-score--ok .mk-score__n,     html[data-theme="dark"] .mk-cell--ok     { color: #34d399; }
+html[data-theme="dark"] .mk-pct--yellow, html[data-theme="dark"] .mk-score--yellow .mk-score__n, html[data-theme="dark"] .mk-cell--yellow { color: #facc15; }
+html[data-theme="dark"] .mk-pct--orange, html[data-theme="dark"] .mk-score--orange .mk-score__n, html[data-theme="dark"] .mk-cell--orange { color: #fb923c; }
+html[data-theme="dark"] .mk-pct--vivid,  html[data-theme="dark"] .mk-score--vivid .mk-score__n,  html[data-theme="dark"] .mk-cell--vivid  { color: #a78bfa; }
+html[data-theme="dark"] .mk-pct--danger, html[data-theme="dark"] .mk-score--danger .mk-score__n, html[data-theme="dark"] .mk-cell--danger { color: #f87171; }

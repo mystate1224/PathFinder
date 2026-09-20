@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>团队匹配 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=12">
+<link rel="stylesheet" href="/static/css/style.css?v=13">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -98,8 +98,20 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     return list.map(function (d) { return '<span class="chip">' + PF.esc(d) + "</span>"; }).join(" ");
   }
 
+  /** 匹配度分档配色（用户 2026-09-20 定）：≥70 绿 / 50-70 黄 / 40-50 橙 / 20-40 紫 / <20 红。
+     返回值同时用作 progress__bar--X 与 mk-score--X / mk-pct--X 的档位后缀。 */
+  function scoreTone(score) {
+    const s = Number(score) || 0;
+    if (s >= 70) return "ok";
+    if (s >= 50) return "yellow";
+    if (s >= 40) return "orange";
+    if (s >= 20) return "vivid";
+    return "danger";
+  }
+
   function scorePill(score) {
-    return '<div class="mk-score">' +
+    const tone = scoreTone(score);
+    return '<div class="mk-score mk-score--' + tone + '">' +
       '<div class="mk-score__n">' + PF.num(score, 1) + "</div>" +
       '<div class="mk-score__u">匹配分 / 100</div></div>';
   }
@@ -160,7 +172,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     });
 
     const stats =
-      '<div class="grid grid-4">' +
+      '<div class="grid grid-4 stat-grid--checker">' +
         statCard("layers", "我的团队", PF.num(groups.length, 0) + ' <span class="t-sm">个</span>',
           d.class_id ? "候选范围：行政班 " + d.class_id : "候选范围：全部学生", "") +
         statCard("users", "候选学生", PF.num(Object.keys(seen).length, 0) + ' <span class="t-sm">人</span>',
@@ -268,8 +280,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           '<div class="mk-card__body">' +
             '<div class="mk-chips">' + dirChips(c.interests, "未填写兴趣方向") + "</div>" +
             '<div class="mk-bar mt-3"><span>匹配度</span>' +
-              PF.progress(c.score, { tone: Number(c.score) >= 70 ? "ok" : "" }) +
-              "<span>" + PF.num(c.score, 0) + "%</span></div>" +
+              PF.progress(c.score, { tone: scoreTone(c.score) }) +
+              '<span class="mk-pct mk-pct--' + scoreTone(c.score) + '">' + PF.num(c.score, 0) + "%</span></div>" +
             '<p class="mk-reason">' + PF.esc(stripName(c.reason, c.name)) + "</p>" +
           "</div>" +
           '<div class="mk-card__foot">' +
@@ -416,7 +428,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                 return "<b>" + PF.esc(r.name || "") + "</b> " + PF.trackBadge(r.track) +
                   " " + PF.levelTag(r.grade_level); } },
             { key: "group", label: "团队" },
-            { key: "score", label: "匹配分", cls: "nowrap", render: function (r) { return PF.num(r.score, 1); } },
+            { key: "score", label: "匹配分", cls: "nowrap", render: function (r) { return '<b class="mk-cell mk-cell--' + scoreTone(r.score) + '">' + PF.num(r.score, 1) + "</b>"; } },
             { key: "username", label: "账号", cls: "nowrap t-mono" },
           ], matched, { empty: {
             icon: "users", title: "还没有确认成功的匹配",
@@ -505,7 +517,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     }).length;
 
     const stats =
-      '<div class="grid grid-4">' +
+      '<div class="grid grid-4 stat-grid--checker">' +
         statCard("target", "推荐团队", PF.num(list.length, 0) + ' <span class="t-sm">个</span>',
           "按匹配分从高到低，只列前 5 个", "") +
         statCard("check", "已确认匹配", PF.num(d.confirmed, 0) + ' <span class="t-sm">个</span>',
@@ -604,8 +616,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           ? '<div class="t-sm mt-3" style="line-height:1.8"><b>招募要求：</b>' + PF.esc(c.requirement) + "</div>"
           : "") +
         '<div class="mk-bar mt-3"><span>匹配度</span>' +
-          PF.progress(c.score, { tone: Number(c.score) >= 70 ? "ok" : "" }) +
-          "<span>" + PF.num(c.score, 0) + "%</span></div>" +
+          PF.progress(c.score, { tone: scoreTone(c.score) }) +
+          '<span class="mk-pct mk-pct--' + scoreTone(c.score) + '">' + PF.num(c.score, 0) + "%</span></div>" +
         '<p class="mk-reason">' + PF.esc(stripName(c.reason, myName)) + "</p>" +
       "</div>" +
       '<div class="mk-card__foot">' +
@@ -639,7 +651,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     }).length;
 
     const stats =
-      '<div class="grid grid-4">' +
+      '<div class="grid grid-4 stat-grid--checker">' +
         statCard("activity", "我表过态的团队", PF.num(list.length, 0) + ' <span class="t-sm">个</span>',
           "含已确认、待确认与已婉拒", "") +
         statCard("check", "已确认匹配", PF.num(matchedN, 0) + ' <span class="t-sm">个</span>',
@@ -660,7 +672,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                 return "<b>" + PF.esc(r.group_name || "") + "</b>"; } },
             { key: "teacher_name", label: "指导教师", cls: "nowrap" },
             { key: "directions", label: "方向", render: function (r) { return dirChips(r.directions); } },
-            { key: "score", label: "匹配分", cls: "nowrap", render: function (r) { return PF.num(r.score, 1); } },
+            { key: "score", label: "匹配分", cls: "nowrap", render: function (r) { return '<b class="mk-cell mk-cell--' + scoreTone(r.score) + '">' + PF.num(r.score, 1) + "</b>"; } },
             { key: "student_action", label: "我的意向", cls: "nowrap", render: function (r) {
                 return intentBadge("", r.student_action); } },
             { key: "teacher_action", label: "老师意向", cls: "nowrap", render: function (r) {
