@@ -1,5 +1,5 @@
 /* ==========================================================================
-   寻径教育 PathFinder · 设计系统 v7「色块」
+   寻径教育 PathFinder · 设计系统 v6「宝蓝·青」
    --------------------------------------------------------------------------
    单一样式表。零构建、零框架：所有页面只引这一份 CSS。
    设计令牌集中在 :root，改主题只改这里。
@@ -19,23 +19,10 @@
      · 主按钮是宝蓝同色系渐变（500 → 600），hover / active 各压深一档，
        所以三个状态上白字都清晰，不需要为了 hover 单独改字色
 
-   v7「色块」（2026-09-20）：v6 配色不动，**把颜色从"描边"升级成"块"**。
-     v6 的问题不是颜色不对，而是颜色只以 8%～16% 的淡底出现，整屏读下来
-     仍然是"白 + 灰线"，缺少商品级界面的骨架感。v7 补的是**成块的实色**：
-     · 导航选中项：从淡蓝底改成宝蓝实底块 + 白字（配荧光黄绿的路标条）
-     · 统计图标块：从淡色渐变改成实底渐变 + 白图标
-     · 卡片头：左缘一道 蓝→青 的竖色条，卡片之间不用描边也能分区
-     · 顶栏：底部一条 蓝→青→黄绿 的三色细线，是全站唯一的横向色带
-     · 登录页：左栏整块下沉为品牌实底海报（白字），右栏保持纯白 ——
-       左右半屏的强对比，是商业级登录页最有效的一记
-     所有色块都落在**不承载长文本**的位置，正文区仍是白底深字，
-     所以对比度不受影响；荧光黄绿依旧只做装饰，不放字。
-
    回退到旧配色：
-     v6「宝蓝·青」整份存档在 `frontend/css/themes/style-v6-baolancyan.css`；
-     再上一版 v4「轻科技」（明亮蓝 + 清新青 + 紫点缀）在
-     `frontend/css/themes/style-v4-lighttech.css`。覆盖本文件即可 ——
-     三个版本的 class 名、布局、间距完全一致，只翻了色值与装饰层。
+     旧版 v4「轻科技」（明亮蓝 + 清新青 + 紫点缀）整份存档在
+     `frontend/css/themes/style-v4-lighttech.css`，覆盖本文件即可 ——
+     因为 v6 只翻了色值与少量装饰用 rgba，class 名、布局、间距完全一致。
    ========================================================================== */
 
 /* ---------------------------------------------------------------- 1. 令牌 */
@@ -167,18 +154,6 @@
   --gradient-fresh: linear-gradient(135deg, #17c9a8 0%, #d6f94b 100%);
   --gradient-vivid: linear-gradient(135deg, #d6f94b 0%, #17c9a8 100%);
 
-  /* v7「色块」专用：三条"实底"渐变 + 一块品牌投影。
-     它们与上面的渐变分工不同 —— 上面那三条是给大面积填充用的（按钮、图表），
-     这三条专门喂「成块的实色」：导航选中块、图标块、登录海报、卡片竖条。
-     色值故意写死而不引 --brand-*：暗色主题下 --brand-500 会翻成浅蓝，
-     而这些块要的是"任何主题下都是同一块宝蓝"，否则暗色里会浮起一块亮斑。
-     白字落在 #4353ff 上是 5.36 ✅，落在最深的 #2f3ca1 上是 9.24 ✅。 */
-  --gradient-block: linear-gradient(135deg, #4353ff 0%, #3540e2 100%);
-  --gradient-hero: linear-gradient(155deg, #2f3ca1 0%, #4353ff 52%, #3f74f0 100%);
-  --gradient-rail: linear-gradient(180deg, #4353ff 0%, #17c9a8 100%);
-  --brand-900: #25308a;
-  --shadow-brand: 0 4px 14px rgba(67, 83, 255, .28);
-
   /* 间距 */
   --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
   --s-5: 20px; --s-6: 24px; --s-7: 32px; --s-8: 40px; --s-9: 56px;
@@ -304,16 +279,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: var(--s-5) 0; }
 /* 极淡的三色光晕 + 微弱网格。都挂在 fixed 伪元素上：
    用 GPU 合成层，滚动时不触发重绘，也不会随页面长度拉伸。
    v4：浅蓝 / 浅青 / 浅紫以 5%～12% 透明度柔和叠加，营造空气感。 */
-/* v7：三团光晕整体提浓（.10 → .18 这一档），并补一块明确的黄绿圆斑。
-   上一版 .07～.10 在 #f6f9ff 上几乎读不出颜色，所以"白"得没有骨架；
-   提浓后仍不到 20%，正文区的白底深字不受影响。 */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(44rem 30rem at 6% -8%, rgba(67, 83, 255, .18), transparent 60%),
-    radial-gradient(34rem 26rem at 98% 2%, rgba(23, 201, 168, .15), transparent 58%),
-    radial-gradient(46rem 32rem at 72% 106%, rgba(214, 249, 75, .22), transparent 60%),
-    radial-gradient(9rem 9rem at 94% 94%, rgba(214, 249, 75, .50), rgba(214, 249, 75, 0) 70%);
+    radial-gradient(46rem 30rem at 8% -6%, rgba(67, 83, 255, .10), transparent 62%),
+    radial-gradient(40rem 28rem at 96% 4%, rgba(23, 201, 168, .08), transparent 60%),
+    radial-gradient(52rem 34rem at 74% 108%, rgba(214, 249, 75, .07), transparent 62%);
 }
 body::after {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
@@ -362,19 +333,10 @@ body::after {
   border-bottom: 1px solid var(--border);
   position: relative;
 }
-/* v7：品牌区下缘换掉原来的发丝灰线，改成一条渐隐的品牌短条 ——
-   与顶栏那条三色线同语汇，但短得多，只做"抬头见色"的一点提示。 */
-.sidebar__brand::after {
-  content: "";
-  position: absolute; left: 20px; bottom: -1px;
-  width: 64px; height: 2px; border-radius: 2px;
-  background: linear-gradient(90deg, #4353ff 0%, #17c9a8 100%);
-}
 .sidebar__mark {
   width: 32px; height: 32px; flex: 0 0 32px;
   border-radius: 10px;
-  /* v7：500 → 700，块面更实（白字对两档分别是 5.36 / 7.63 ✅） */
-  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+  background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
   display: grid; place-items: center;
   box-shadow: 0 4px 12px rgba(67, 83, 255, .30), var(--sh-inset);
   color: #fff;
@@ -410,30 +372,21 @@ body::after {
 }
 .nav-item:hover { background: rgba(67, 83, 255, .08); color: var(--brand-700); }
 .nav-item svg { width: 17px; height: 17px; flex: 0 0 17px; opacity: .9; }
-/* v7：选中项从"淡蓝底 + 蓝字"升级成**实底宝蓝块 + 白字**。
-   这是全站份量最重的一块实色，也是侧栏唯一允许吸走注意力的地方；
-   白字对 #4353ff 是 5.36 ✅，悬停时也不改字色（后面单独压掉 hover）。 */
 .nav-item.is-active {
-  background: var(--gradient-block);
-  color: #fff;
+  background: linear-gradient(90deg, rgba(67, 83, 255, .16), rgba(67, 83, 255, .05));
+  color: var(--brand-700);
   font-weight: 650;
-  box-shadow: var(--shadow-brand);
 }
-.nav-item.is-active svg { opacity: 1; color: #fff; }
-/* hover 规则写在前面且同样命中选中项，这里必须压回去，否则一悬停就变蓝字 */
-.nav-item.is-active:hover { background: var(--gradient-block); color: #fff; }
-/* 选中项里的计数片：半透明白底，不与白字打架 */
-.nav-item.is-active .nav-item__tag { background: rgba(255, 255, 255, .22); color: #fff; }
-/* 当前页的"路标"：左侧一小段竖光 —— 块底换成宝蓝后，路标改用荧光黄绿，
-   这样"蓝块 + 黄绿条"是这一版最有辨识度的一处配色对位。 */
+.nav-item.is-active svg { opacity: 1; color: var(--brand-600); }
+/* 当前页的"路标"：左侧一小段竖光 */
 .nav-item.is-active::before {
   content: "";
   position: absolute;
   left: -12px; top: 50%; transform: translateY(-50%);
   width: 3px; height: 18px;
   border-radius: 0 3px 3px 0;
-  background: #d6f94b;
-  box-shadow: none;
+  background: var(--brand-500);
+  box-shadow: var(--glow-brand-sm);
 }
 
 /* 导航滑块（v2.2）：切换页面时，一块"底光"从上一页选中项的位置
@@ -441,12 +394,10 @@ body::after {
    即单页应用侧边栏滑动指示器的跨页等价物。
    由 common.js 在外壳渲染后创建、落地即删，落点样式与 .is-active
    常态逐像素一致，删除时不产生二次跳变。 */
-/* 滑块落点必须与 .nav-item.is-active 逐像素一致，所以这里同步成实底块 */
 .nav-glider {
   position: absolute;
   border-radius: var(--r-sm);
-  background: var(--gradient-block);
-  box-shadow: var(--shadow-brand);
+  background: linear-gradient(90deg, rgba(67, 83, 255, .16), rgba(67, 83, 255, .05));
   pointer-events: none;
   transition: top var(--dur-3) var(--ease-soft);
 }
@@ -493,8 +444,7 @@ body::after {
 .sidebar__avatar {
   width: 30px; height: 30px; flex: 0 0 30px;
   border-radius: 50%;
-  /* v7：与品牌块同档加深 */
-  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+  background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
   display: grid; place-items: center;
   font-size: var(--fs-xs); font-weight: 700; color: #fff;
   box-shadow: var(--sh-inset);
@@ -518,9 +468,6 @@ body::after {
   top: 0;
   z-index: 30;
 }
-/* v7：顶栏三色细线统一收在文件后部 v2.4「顶部品牌轨」一节维护
-   （.shell::before 是视口顶的品牌轨，.topbar::after 是顶栏底的三色线），
-   这里不再重复定义，避免两处同属性互相覆盖。 */
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .topbar {
     background: rgba(255, 255, 255, .72);
@@ -552,12 +499,11 @@ body::after {
    层叠上下文，把菜单的 z-index 困在头部里；不给 actions 提层的话，
    DOM 顺序更靠后的卡片 / 标签条会把下拉盖住（表现为"看得见点不着"）。 */
 .page-head__actions { display: flex; gap: var(--s-2); flex-wrap: wrap; position: relative; z-index: 40; }
-/* v7：标题下面这条渐隐线改成"蓝块 + 黄绿块"的两段拼接 ——
-   每个页面抬头第一眼就能拿到一块实色，而不再是灰调的渐隐。 */
+/* 标题旁边一条极细的品牌渐隐线，把"页"和"内容"轻轻分开 */
 .page-head__title::after {
-  content: ""; display: block; width: 46px; height: 3px; margin-top: 10px;
+  content: ""; display: block; width: 42px; height: 2px; margin-top: 10px;
   border-radius: 2px;
-  background: linear-gradient(90deg, #4353ff 0 30px, #d6f94b 30px 46px);
+  background: linear-gradient(90deg, var(--brand-400), rgba(67, 83, 255, 0));
 }
 
 /* ---------------------------------------------------------------- 5. 卡片 */
@@ -590,10 +536,7 @@ body::after {
   /* 渐变 → 纯色：表头的浅渐变是上一代后台模板的痕迹，
      在纯白卡片上也让顶部显脏。纯色 + 一道发丝描边已经足够分区。 */
   background: var(--surface-2);
-  position: relative;
 }
-/* v7：卡片头左缘的竖色条统一在后部「v2.4 系统性视觉打磨」一节维护
-   （.card__head::before），此处不再重复定义。 */
 .card__head h3 {
   font-size: var(--fs-h3); font-weight: 650; color: var(--ink-900);
   display: inline-flex; align-items: center; gap: 7px;
@@ -627,7 +570,7 @@ body::after {
 .res-card, .hub-card { overflow: hidden; }
 .mk-card:hover, .res-card:hover, .hub-card:hover, .hw-card:hover {
   box-shadow: var(--sh-2);
-  border-color: var(--brand-300);
+  border-color: var(--border-strong);
 }
 /* 内边距从 15px 提到 18px，标题从 14px 提到 16px。
    这四个卡片族是 match / resources / hub / homework 的主力展示单元，
@@ -815,12 +758,12 @@ body::after {
   background: var(--gradient-brand);
   border-color: transparent;
   color: #fff;
-  box-shadow: var(--shadow-brand), 0 0 0 1px rgba(255, 255, 255, .12) inset;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .12), 0 0 0 1px rgba(255, 255, 255, .12) inset;
 }
 .btn--primary:hover {
   background: linear-gradient(135deg, #3d4ce2 0%, #3644c2 100%);
   color: #fff;
-  box-shadow: 0 6px 20px rgba(67, 83, 255, .34), var(--glow-brand-sm);
+  box-shadow: 0 4px 16px rgba(67, 83, 255, .28), var(--glow-brand-sm);
 }
 .btn--primary:active {
   background: linear-gradient(135deg, #3644c2 0%, #2f3ca1 100%);
@@ -1064,36 +1007,18 @@ body::after {
   transition: box-shadow var(--transition), border-color var(--transition), transform var(--transition);
 }
 .stat:hover { box-shadow: var(--sh-2); border-color: var(--brand-200); transform: translateY(-1px); }
-/* v7：图标块从淡色渐变改成**实底渐变 + 白图标**。
-   统计卡是全页最先被扫到的单元，原来 36px 的淡蓝圆角块在白底上几乎隐形，
-   实底之后"数据卡"才算有了视觉锚点。
-   图标是图形而非文本，对比度按 3:1 判；四色起点对白分别是
-   5.36 / 3.0 / 3.4 / 4.0，全部达标。 */
 .stat__ico {
   width: 36px; height: 36px; flex: 0 0 36px;
   border-radius: var(--r-sm);
   display: grid; place-items: center;
-  background: linear-gradient(140deg, #4353ff 0%, #3540e2 100%);
-  color: #fff;
-  border: none;
-  box-shadow: 0 4px 10px rgba(67, 83, 255, .26);
+  background: linear-gradient(150deg, var(--brand-50), rgba(255, 255, 255, .55));
+  color: var(--brand-500);
+  border: 1px solid var(--brand-200);
 }
 .stat__ico svg { width: 18px; height: 18px; }
-.stat__ico--ok {
-  background: linear-gradient(140deg, #059669 0%, #047857 100%);
-  color: #fff; border: none;
-  box-shadow: 0 4px 10px rgba(4, 120, 87, .24);
-}
-.stat__ico--warn {
-  background: linear-gradient(140deg, #d97706 0%, #b45309 100%);
-  color: #fff; border: none;
-  box-shadow: 0 4px 10px rgba(180, 83, 9, .24);
-}
-.stat__ico--info {
-  background: linear-gradient(140deg, #0284c7 0%, #0369a1 100%);
-  color: #fff; border: none;
-  box-shadow: 0 4px 10px rgba(2, 132, 199, .24);
-}
+.stat__ico--ok { background: var(--ok-50); color: var(--ok-500); border-color: #a7f3d0; }
+.stat__ico--warn { background: var(--warn-50); color: var(--warn-500); border-color: #fde68a; }
+.stat__ico--info { background: var(--info-50); color: var(--info-500); border-color: #bae6fd; }
 .stat__num {
   font-size: 26px; font-weight: 750; line-height: 1.15;
   color: var(--ink-950); letter-spacing: -.02em;
@@ -1351,8 +1276,6 @@ body::after {
 .loading-row { display: flex; align-items: center; gap: 9px; padding: var(--s-6); color: var(--ink-500); font-size: var(--fs-sm); justify-content: center; }
 
 /* 提示条 */
-/* v7：提示条左缘 3px 实色条，语义色直接上墙（info 蓝 / warn 琥珀 / danger 红）。
-   原来只有一圈 1px 淡描边，四条提示并排时看不出轻重。 */
 .note {
   display: flex; gap: 10px;
   padding: 11px 14px;
@@ -1360,12 +1283,11 @@ body::after {
   font-size: 12.5px; line-height: 1.65;
   background: var(--info-50); color: var(--info-700);
   border: 1px solid #d3e2ef;
-  border-left: 3px solid var(--info-500);
 }
 .note svg { width: 15px; height: 15px; flex: 0 0 15px; margin-top: 2px; }
-.note--warn { background: var(--warn-50); color: var(--warn-700); border-color: #ecd9b8; border-left-color: var(--warn-500); }
-.note--brand { background: var(--brand-50); color: var(--brand-700); border-color: var(--brand-200); border-left-color: var(--brand-500); }
-.note--danger { background: var(--danger-50); color: var(--danger-700); border-color: #f2d2d3; border-left-color: var(--danger-500); }
+.note--warn { background: var(--warn-50); color: var(--warn-700); border-color: #ecd9b8; }
+.note--brand { background: var(--brand-50); color: var(--brand-700); border-color: var(--brand-200); }
+.note--danger { background: var(--danger-50); color: var(--danger-700); border-color: #f2d2d3; }
 
 /* ---------------------------------------------------------------- 15. 对话气泡 */
 /* 答疑页与 Copilot 页共用同一套；msg--me 与 msg--user 是同义别名，两页都能用。 */
@@ -1449,10 +1371,7 @@ body::after {
 .suggest:hover { border-color: var(--brand-400); color: var(--brand-700); background: var(--brand-50); border-style: solid; transform: translateY(-1px); }
 
 /* ---------------------------------------------------------------- 16. 专用块 */
-/* 登录页 v7：左半屏是**品牌实底海报**，右半屏纯白表单。
-   这是整版最关键的一处改动 —— 上一版两侧都是浅色，整页读下来没有重心；
-   左栏下沉为宝蓝实底后，白字（对 #2f3ca1 9.24 ✅）依然清晰，
-   而"半屏色块 + 半屏留白"正是商业级登录页最稳定的构图。 */
+/* 登录页：整页浅色，左栏是"品牌叙事"的淡色渐变面板 */
 .auth {
   min-height: 100vh;
   display: grid;
@@ -1462,60 +1381,47 @@ body::after {
 .auth__art {
   position: relative;
   background:
-    radial-gradient(90% 70% at 8% 4%, rgba(120, 132, 255, .55) 0%, rgba(67, 83, 255, 0) 60%),
-    radial-gradient(60% 50% at 96% 92%, rgba(23, 201, 168, .38) 0%, rgba(23, 201, 168, 0) 62%),
-    var(--gradient-hero);
-  color: #fff;
+    radial-gradient(120% 90% at 0% 0%, rgba(67, 83, 255, .14) 0%, rgba(255, 255, 255, 0) 58%),
+    radial-gradient(110% 110% at 100% 100%, rgba(23, 201, 168, .10) 0%, rgba(255, 255, 255, 0) 62%),
+    linear-gradient(160deg, #f6f9ff 0%, #eef5ff 100%);
+  color: var(--ink-800);
   padding: 56px 52px;
   display: flex; flex-direction: column;
   overflow: hidden;
   border-right: 1px solid var(--border);
 }
-/* 右下角一块荧光黄绿圆斑 + 右上角一小块青绿，给实底海报留两处"透气口"。
-   黄绿对深蓝底是 8+ ✅，但这里只作装饰，不放任何文字。 */
 .auth__art::after {
   content: "";
   position: absolute; right: -140px; bottom: -160px;
   width: 460px; height: 460px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(214, 249, 75, .34), transparent 68%);
+  background: radial-gradient(circle, rgba(214, 249, 75, .16), transparent 68%);
 }
-/* 网格线在深底上必须反相成白线，否则整片网格会消失 */
 .auth__grid-lines {
   position: absolute; inset: 0;
-  background-image: linear-gradient(rgba(255, 255, 255, .10) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(255, 255, 255, .10) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(100, 116, 139, .05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(100, 116, 139, .05) 1px, transparent 1px);
   background-size: 46px 46px;
   -webkit-mask-image: radial-gradient(ellipse at 30% 20%, #000 28%, transparent 76%);
   mask-image: radial-gradient(ellipse at 30% 20%, #000 28%, transparent 76%);
 }
 .auth__inner { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100%; }
 .auth__brand { display: flex; align-items: center; gap: 12px; margin-bottom: auto; }
-/* 品牌块在深底上换成荧光黄绿实底 + 深蓝图标：这是登录页唯一的"亮块"，
-   黄绿对 #25308a 图标对比 8.6 ✅ */
-.auth__brand .sidebar__mark {
-  width: 38px; height: 38px; flex-basis: 38px; border-radius: 12px;
-  background: linear-gradient(135deg, #d6f94b 0%, #bbdb48 100%);
-  color: var(--brand-900);
-  box-shadow: 0 4px 14px rgba(214, 249, 75, .28);
-}
-.auth__brand .sidebar__name { color: #fff; }
-.auth__brand .sidebar__sub { color: rgba(255, 255, 255, .62); }
-.auth__headline { font-size: 32px; font-weight: 750; line-height: 1.32; letter-spacing: -.02em; margin-bottom: 14px; color: #fff; }
-.auth__sub { font-size: 14.5px; color: rgba(255, 255, 255, .82); line-height: 1.85; max-width: 44ch; }
+.auth__brand .sidebar__mark { width: 38px; height: 38px; flex-basis: 38px; border-radius: 12px; }
+.auth__headline { font-size: 32px; font-weight: 750; line-height: 1.32; letter-spacing: -.02em; margin-bottom: 14px; color: var(--ink-950); }
+.auth__sub { font-size: 14.5px; color: var(--ink-600); line-height: 1.85; max-width: 44ch; }
 .auth__points { margin-top: 34px; display: flex; flex-direction: column; gap: 14px; }
-.auth__point { display: flex; gap: 11px; align-items: flex-start; font-size: 13.5px; color: rgba(255, 255, 255, .78); line-height: 1.75; }
-.auth__point strong { color: #fff; }
-/* 要点图标：半透明白底 + 白图标，在彩底上比"白底彩图标"更稳 */
+.auth__point { display: flex; gap: 11px; align-items: flex-start; font-size: 13.5px; color: var(--ink-600); line-height: 1.75; }
+.auth__point strong { color: var(--ink-900); }
 .auth__point-ico {
   flex: 0 0 26px; height: 26px; border-radius: 8px;
-  background: rgba(255, 255, 255, .16);
-  border: 1px solid rgba(255, 255, 255, .28);
-  color: #fff;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--brand-500);
   display: grid; place-items: center;
-  box-shadow: none;
+  box-shadow: var(--sh-1);
 }
 .auth__point-ico svg { width: 14px; height: 14px; }
-.auth__foot { margin-top: auto; font-size: var(--fs-xs); color: rgba(255, 255, 255, .55); padding-top: 30px; }
+.auth__foot { margin-top: auto; font-size: var(--fs-xs); color: var(--ink-400); padding-top: 30px; }
 
 /* 登录页首次进入：左栏文案自上而下依次浮现，右栏表单稍后跟上。
    纯 CSS 实现，不依赖 JS，也不影响表单可用性。 */
@@ -1528,30 +1434,9 @@ body::after {
 .auth__foot { animation-delay: 170ms; }
 .auth__form { animation-delay: 70ms; }
 
-/* 右半屏保持纯白，只在右上角压一团极淡的黄绿光 ——
-   与左栏的海报呼应，又不干扰表单阅读。 */
-.auth__panel {
-  position: relative; overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
-  padding: 40px 28px; background: var(--surface);
-}
-.auth__panel::before {
-  content: "";
-  position: absolute; right: -100px; top: -110px;
-  width: 300px; height: 300px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(214, 249, 75, .38), transparent 70%);
-  pointer-events: none;
-}
-.auth__form { width: min(400px, 100%); position: relative; z-index: 1; }
+.auth__panel { display: flex; align-items: center; justify-content: center; padding: 40px 28px; background: var(--surface); }
+.auth__form { width: min(400px, 100%); }
 .auth__title { font-size: 24px; font-weight: 750; color: var(--ink-950); letter-spacing: -.01em; }
-/* v7：标题前一块 4px 的品牌色条，与侧栏选中块同色 —— 登录框因此有了"起点" */
-.auth__title::before {
-  content: "";
-  display: inline-block; vertical-align: middle;
-  width: 4px; height: 19px; margin-right: 9px;
-  border-radius: 2px;
-  background: var(--gradient-block);
-}
 .auth__lead { font-size: 13.5px; color: var(--ink-500); margin: 6px 0 26px; }
 
 .login-stack { display: flex; flex-direction: column; gap: 16px; }
@@ -1572,22 +1457,13 @@ body::after {
 .demo-accounts { margin-top: 22px; }
 .demo-accounts__title { font-size: var(--fs-xs); font-weight: 650; color: var(--ink-500); letter-spacing: .04em; margin-bottom: 9px; }
 .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-/* v7：演示账号卡左缘一道品牌竖条，hover 时整块浮起并换成品牌描边。
-   这五张卡是登录页最常被点击的区域，之前是纯白 + 灰边，完全没有"可点"的暗示。 */
 .demo-card {
-  position: relative;
   text-align: left;
-  padding: 10px 12px 10px 16px;
+  padding: 10px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
   background: var(--surface);
   transition: all var(--transition);
-}
-.demo-card::before {
-  content: "";
-  position: absolute; left: 0; top: 9px; bottom: 9px;
-  width: 3px; border-radius: 0 3px 3px 0;
-  background: var(--gradient-rail);
 }
 .demo-card:hover {
   border-color: var(--brand-400);
@@ -2117,10 +1993,9 @@ html[data-theme="dark"] {
 /* 背景三色光晕：暗色下提亮、点阵反过来 */
 html[data-theme="dark"] body::before {
   background:
-    radial-gradient(44rem 30rem at 6% -8%, rgba(125, 135, 255, .20), transparent 60%),
-    radial-gradient(34rem 26rem at 98% 2%, rgba(45, 212, 191, .13), transparent 58%),
-    radial-gradient(46rem 32rem at 72% 106%, rgba(214, 249, 75, .10), transparent 60%),
-    radial-gradient(9rem 9rem at 94% 94%, rgba(214, 249, 75, .14), rgba(214, 249, 75, 0) 70%);
+    radial-gradient(46rem 30rem at 8% -6%, rgba(125, 135, 255, .13), transparent 62%),
+    radial-gradient(40rem 28rem at 96% 4%, rgba(45, 212, 191, .09), transparent 60%),
+    radial-gradient(52rem 34rem at 74% 108%, rgba(214, 249, 75, .08), transparent 62%);
 }
 html[data-theme="dark"] body::after {
   background-image: radial-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px);
@@ -2138,16 +2013,11 @@ html[data-theme="dark"] .topbar { background: #161d27; }
   html[data-theme="dark"] .topbar { background: rgba(22, 29, 39, .78); }
 }
 html[data-theme="dark"] .nav-item:hover { background: rgba(125, 135, 255, .12); }
-/* v7：暗色下选中项同样走实底块（--gradient-block 是写死色值，两套主题一致），
-   不再用半透明蓝 —— 否则暗底 + 淡蓝会糊成一团，看不出哪页是当前的。 */
 html[data-theme="dark"] .nav-item.is-active {
-  background: var(--gradient-block);
-  color: #fff;
-  box-shadow: var(--shadow-brand);
+  background: linear-gradient(90deg, rgba(125, 135, 255, .22), rgba(125, 135, 255, .06));
 }
 html[data-theme="dark"] .nav-glider {
-  background: var(--gradient-block);
-  box-shadow: var(--shadow-brand);
+  background: linear-gradient(90deg, rgba(125, 135, 255, .22), rgba(125, 135, 255, .06));
 }
 html[data-theme="dark"] .nav-item__tag { background: rgba(125, 135, 255, .18); }
 html[data-theme="dark"] .sidebar__user { background: rgba(255, 255, 255, .05); }
@@ -2157,29 +2027,21 @@ html[data-theme="dark"] .msg--ai .msg__avatar,
 html[data-theme="dark"] .empty__ico { color: #0b1626; }
 
 /* 图标底：浅色版末尾的 rgba(255,255,255,.4) 在暗底上会变成一块亮斑 */
+html[data-theme="dark"] .stat__ico,
 html[data-theme="dark"] .material-card__ico,
 html[data-theme="dark"] .empty__ico {
   background: linear-gradient(150deg, var(--brand-50), rgba(255, 255, 255, .04));
 }
-/* v7：统计图标块在暗色下也保持实底（宝蓝压深一档，避免在暗底上过亮），
-   白图标对 #3540e2 是 6.3 ✅ */
-html[data-theme="dark"] .stat__ico {
-  background: linear-gradient(140deg, #3644c2 0%, #2f3ca1 100%);
-  color: #fff;
-}
-html[data-theme="dark"] .stat__ico--ok { background: linear-gradient(140deg, #047857 0%, #065f46 100%); color: #fff; }
-html[data-theme="dark"] .stat__ico--warn { background: linear-gradient(140deg, #b45309 0%, #92400e 100%); color: #fff; }
-html[data-theme="dark"] .stat__ico--info { background: linear-gradient(140deg, #0369a1 0%, #075985 100%); color: #fff; }
+html[data-theme="dark"] .stat__ico--ok { border-color: rgba(52, 211, 153, .34); }
+html[data-theme="dark"] .stat__ico--warn { border-color: rgba(251, 191, 36, .34); }
+html[data-theme="dark"] .stat__ico--info { border-color: rgba(56, 189, 248, .34); }
 
 /* 语义描边：浅色下的淡彩描边在暗底上要换成半透明语义色 */
 html[data-theme="dark"] .btn--danger { border-color: rgba(232, 120, 124, .34); }
 html[data-theme="dark"] .btn--ok { border-color: rgba(52, 211, 153, .34); }
-/* 暗色下提示条的边框换成半透明语义色，但左侧那条实色条要跟着翻成暗色版语义色，
-   否则一条高饱和实色会在这里显得比正文还重。 */
-html[data-theme="dark"] .note { border-color: rgba(56, 189, 248, .30); border-left-color: var(--info-500); }
-html[data-theme="dark"] .note--warn { border-color: rgba(251, 191, 36, .30); border-left-color: var(--warn-500); }
-html[data-theme="dark"] .note--danger { border-color: rgba(232, 120, 124, .30); border-left-color: var(--danger-500); }
-html[data-theme="dark"] .note--brand { border-left-color: var(--brand-400); }
+html[data-theme="dark"] .note { border-color: rgba(56, 189, 248, .30); }
+html[data-theme="dark"] .note--warn { border-color: rgba(251, 191, 36, .30); }
+html[data-theme="dark"] .note--danger { border-color: rgba(232, 120, 124, .30); }
 html[data-theme="dark"] .login-err { border-color: rgba(232, 120, 124, .32); }
 html[data-theme="dark"] .mk-card--match {
   background: linear-gradient(180deg, rgba(52, 211, 153, .10), rgba(255, 255, 255, 0) 42%);
@@ -2199,20 +2061,15 @@ html[data-theme="dark"] .toast--err { background: rgba(232, 120, 124, .96); colo
 html[data-theme="dark"] .toast--warn { background: rgba(251, 191, 36, .96); color: #241a08; }
 html[data-theme="dark"] .check-item__ico { color: #101828; }
 
-/* 登录页左栏：暗色下同样是实底海报，只是底色更深（深蓝 → 近黑），
-   两团光晕的作用是让它不至于"死黑"。 */
+/* 登录页左栏的淡色渐变面板与网格线 */
 html[data-theme="dark"] .auth__art {
   background:
-    radial-gradient(90% 70% at 8% 4%, rgba(67, 83, 255, .48) 0%, rgba(67, 83, 255, 0) 60%),
-    radial-gradient(60% 50% at 96% 92%, rgba(23, 201, 168, .26) 0%, rgba(23, 201, 168, 0) 62%),
-    linear-gradient(155deg, #1b2350 0%, #101a3d 52%, #070d1f 100%);
+    radial-gradient(120% 90% at 0% 0%, rgba(125, 135, 255, .14) 0%, rgba(255, 255, 255, 0) 58%),
+    radial-gradient(110% 110% at 100% 100%, rgba(45, 212, 191, .10) 0%, rgba(255, 255, 255, 0) 62%),
+    linear-gradient(160deg, #0f172a 0%, #020617 100%);
 }
 html[data-theme="dark"] .auth__art::after {
-  background: radial-gradient(circle, rgba(214, 249, 75, .20), transparent 68%);
-}
-/* 右半屏的黄绿光在暗底上会发脏，换成品牌蓝的淡光 */
-html[data-theme="dark"] .auth__panel::before {
-  background: radial-gradient(circle, rgba(125, 135, 255, .22), transparent 70%);
+  background: radial-gradient(circle, rgba(214, 249, 75, .14), transparent 68%);
 }
 html[data-theme="dark"] .auth__grid-lines {
   background-image: linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
@@ -2310,13 +2167,11 @@ html[data-theme="dark"] .tile-note { color: var(--ink-700); }
 }
 
 /* ---------------------------------------------------- 2. 卡片层级 */
-/* v7：卡片头竖色条从"淡蓝 + 85% 透明"改成实底 蓝→青 渐变（--gradient-rail）。
-   卡片之间原本只靠 1px 灰线分隔，一屏六七张卡时几乎分不出块；
-   这道 3px 的色条不占布局、不碰文字，却让每张卡有了"头"。 */
 .card__head { position: relative; }
 .card__head::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-  background: var(--gradient-rail);
+  background: linear-gradient(180deg, var(--brand-400), var(--brand-600));
+  opacity: .85;
 }
 .card__head h3 { letter-spacing: .01em; }
 .card--hover:hover {
@@ -2327,7 +2182,12 @@ html[data-theme="dark"] .tile-note { color: var(--ink-700); }
   border-color: var(--brand-300);
   box-shadow: 0 10px 24px -12px rgba(67, 83, 255, .30), var(--sh-3);
 }
-/* v7：统计卡图标块已在第 9 节升级为实底渐变 + 白图标，此处不再覆盖冲淡。 */
+/* 统计卡：图标块是这一层的"锚点"，让它更实一点 */
+.stat__ico {
+  background: linear-gradient(150deg, var(--brand-100), rgba(255, 255, 255, .55));
+  border-color: var(--brand-200);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .85);
+}
 .stat:hover {
   border-color: var(--brand-300);
   box-shadow: 0 10px 22px -12px rgba(67, 83, 255, .38), var(--sh-2);
@@ -2619,15 +2479,14 @@ html[data-theme="dark"] body::after {
     linear-gradient(to bottom, rgba(165, 173, 255, .055) 1px, transparent 1px);
 }
 .topbar { position: relative; }
-/* 顶栏底部三色细线：三个主色在这里走一遍（宝蓝 → 青绿 → 荧光黄绿）。
+/* 顶栏底部 1px 细线：三个主色在这里走一遍（宝蓝 → 青绿 → 荧光黄绿）。
    它是全站唯一"三色同时出现"的地方 —— 不承载任何文字，所以可以把最亮的
-   荧光黄绿放进去当收尾，视觉上像一道清新的光带，又不会碰到可读性问题。
-   v7：从 1px 提到 2px、透明度从 .4 一档提到 .85，白底上要"看得见色"。 */
+   荧光黄绿放进去当收尾，视觉上像一道清新的光带，又不会碰到可读性问题。 */
 .topbar::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
-  background: linear-gradient(90deg, rgba(67, 83, 255, .85) 0%,
-              rgba(67, 83, 255, .82) 22%, rgba(23, 201, 168, .78) 52%,
-              rgba(214, 249, 75, .90) 78%, rgba(214, 249, 75, .30) 100%);
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent 0%,
+              rgba(67, 83, 255, .40) 22%, rgba(23, 201, 168, .38) 52%,
+              rgba(214, 249, 75, .55) 78%, transparent 100%);
 }
 
 /* ③ 更细腻的 hover：通用卡片只改边框与阴影，**不做位移**，
