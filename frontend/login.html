@@ -114,22 +114,39 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   PF.theme.sync();
   PF.$("#pf-theme").addEventListener("click", PF.theme.toggle);
 
-  // 演示账号
+  /* 演示账号。学生只保留两个：一个学业型、一个事业型。
+     卡片上的「学业型 / 事业型」绝不是写死的文案 —— 由后端按真实画像生成
+     （GET /api/auth/demos），否则会出现卡片写一种、登录后画像另一种的不一致。
+     这里这份只是接口没回时的兜底，断网也能演示。 */
   const DEMO = [
     { u: "teacher",  name: "张明远", role: "教师 · 计算机学院", tag: "teacher" },
     { u: "teacher2", name: "李文静", role: "教师 · 软件工程", tag: "teacher2" },
     { u: "teacher3", name: "王海涛", role: "教师 · 人工智能", tag: "teacher3" },
-    { u: "stu01", name: "陈嘉禾", role: "学生 · 学业型 A", tag: "stu01" },
-    { u: "stu02", name: "林思远", role: "学生 · 学业型 A", tag: "stu02" },
-    { u: "stu06", name: "郑雅琳", role: "学生 · 事业型", tag: "stu06" },
+    { u: "stu01", name: "陈嘉禾", role: "学生 · 学业型 · A 层", tag: "stu01" },
+    { u: "stu04", name: "周雨桐", role: "学生 · 事业型 · B 层", tag: "stu04" },
   ];
-  PF.$("#demo-grid").innerHTML = DEMO.map((d) =>
-    '<button class="demo-card" type="button" data-u="' + PF.esc(d.u) + '">' +
-      '<div class="demo-card__name">' + PF.esc(d.name) + '</div>' +
-      '<div class="demo-card__meta">' + PF.esc(d.u) + '</div>' +
-      '<div class="t-xs" style="margin-top:2px">' + PF.esc(d.role) + '</div>' +
-    '</button>'
-  ).join("");
+
+  function paintDemos(list) {
+    PF.$("#demo-grid").innerHTML = list.map((d) =>
+      '<button class="demo-card" type="button" data-u="' + PF.esc(d.u) + '">' +
+        '<div class="demo-card__name">' + PF.esc(d.name) + '</div>' +
+        '<div class="demo-card__meta">' + PF.esc(d.u) + '</div>' +
+        '<div class="t-xs" style="margin-top:2px">' + PF.esc(d.role) + '</div>' +
+      '</button>'
+    ).join("");
+  }
+  paintDemos(DEMO);
+
+  // 以服务端真实画像为准覆盖兜底列表（拿不到就保持兜底，断网也能演示）
+  (async function () {
+    try {
+      const data = await PF.get("/api/auth/demos", { quiet: true });
+      const list = PF.arr(data && data.accounts).map(function (a) {
+        return { u: a.username, name: a.name, role: a.label };
+      }).filter(function (a) { return a.u && a.name; });
+      if (list.length) paintDemos(list);
+    } catch (e) { /* 保持兜底列表 */ }
+  })();
 
   const userEl = PF.$("#username");
   const passEl = PF.$("#password");

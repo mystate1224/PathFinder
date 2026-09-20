@@ -287,6 +287,63 @@ def api_login(payload: dict = Body(default={})):
     return response
 
 
+# 登录页演示账号。写死在后端而不是前端，是为了让「卡片上写的类型」和
+# 「登录后画像里的类型」同源：学生的主标签一律由 student_profiles 实时判定，
+# 前端不再自己维护一份文案（曾经出现过卡片写"事业型"、进去是"学业型"的不一致）。
+# 学生只保留两个：一个学业型、一个事业型。
+DEMO_TEACHERS: list[tuple[str, str]] = [
+    ("teacher", "教师 · 计算机学院"),
+    ("teacher2", "教师 · 软件工程"),
+    ("teacher3", "教师 · 人工智能"),
+]
+DEMO_TRACKS: tuple[str, ...] = ("学业型", "事业型")
+
+
+def _demo_accounts() -> list[dict]:
+    """按真实画像挑演示账号：每种主标签各取一个（账号序最小、每次演示都是同一批人）。"""
+    accounts: list[dict] = []
+    for username, label in DEMO_TEACHERS:
+        row = db.user_by_username(username)
+        if row:
+            accounts.append({
+                "username": row.get("username"),
+                "name": row.get("name"),
+                "role": "teacher",
+                "label": label,
+            })
+
+    rows = db.query(
+        "SELECT u.username, u.name, p.track, p.grade_level "
+        "FROM users u JOIN student_profiles p ON p.user_id = u.id "
+        "WHERE u.role = 'student' ORDER BY u.username"
+    )
+    picked: dict[str, dict] = {}
+    for row in rows:
+        track = str(row.get("track") or "")
+        if track not in DEMO_TRACKS:
+            track = "学业型"
+        picked.setdefault(track, row)
+    for track in DEMO_TRACKS:
+        row = picked.get(track)
+        if not row:
+            continue
+        accounts.append({
+            "username": row.get("username"),
+            "name": row.get("name"),
+            "role": "student",
+            "track": track,
+            "grade_level": str(row.get("grade_level") or "B"),
+            "label": f"学生 · {track} · {row.get('grade_level') or 'B'} 层",
+        })
+    return accounts
+
+
+@app.get(f"{API}/auth/demos")
+def api_auth_demos():
+    """登录页演示账号（无需登录）。学生的类型文案取自真实画像，前端只做兜底。"""
+    return ok({"accounts": _demo_accounts()})
+
+
 @app.get(f"{API}/account/profile")
 def api_account_profile(user: dict = Depends(current_user)):
     """个人中心：账号信息 + 画像 + 统计（教师/学生两套字段）。"""

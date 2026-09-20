@@ -910,6 +910,37 @@ def test_guards(c: Client) -> None:
     ))
 
 
+def test_demo_accounts(c: Client) -> None:
+    """登录页演示账号：卡片上写的类型必须等于登录后的真实画像（曾经不一致过）。"""
+    print("\n=== 登录页演示账号一致性 ===")
+    c.logout()
+
+    data = c.api("GET", "/api/auth/demos")
+    accounts = data.get("accounts") or []
+    students = [a for a in accounts if a.get("role") == "student"]
+    teachers = [a for a in accounts if a.get("role") == "teacher"]
+
+    c.check("未登录也能取到演示账号", lambda:
+            f"{len(teachers)} 个教师 + {len(students)} 个学生")
+
+    c.check("学生恰好两个：学业型一个、事业型一个", lambda: (
+        lambda ts: (ts == ["学业型", "事业型"] and "各 1 个") or
+        (_ for _ in ()).throw(AssertionError(f"实际主标签 {ts}"))
+    )([s.get("track") for s in students]))
+
+    def _verify(s: dict):
+        stu = Client(c.base)
+        stu.login(s["username"])
+        prof = stu.api("GET", "/api/student/profile").get("profile") or {}
+        need(prof.get("track") == s.get("track"),
+             f"{s['username']} 卡片写 {s.get('track')}，画像实际 {prof.get('track')}")
+        stu.logout()
+        return f"{s['username']} 卡片与画像一致（{prof.get('track')} · {prof.get('grade_level')} 层）"
+
+    for _s in students:
+        c.check(f"演示账号 {_s.get('username')} 类型一致", lambda _x=_s: _verify(_x))
+
+
 def _raw_no_redirect(url: str, cookie: str = ""):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *a, **kw):  # noqa: D102
@@ -1001,6 +1032,7 @@ def main() -> int:
         test_agent_rag(client)
         test_isolation(client)
         test_guards(client)
+        test_demo_accounts(client)
 
         total = client.passes + len(client.fails)
         print("\n" + "=" * 68)
@@ -1019,7 +1051,7 @@ def main() -> int:
         print("=" * 68)
         if args.keep_open:
             print(f"服务保持运行：http://127.0.0.1:{port}   （Ctrl+C 结束）")
-            print("账号：teacher / stu01 / stu06，密码均为 123456")
+            print("账号：teacher / stu01（学业型）/ stu04（事业型），密码均为 123456")
             try:
                 while True:
                     time.sleep(1)
