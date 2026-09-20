@@ -35,3 +35,4 @@ data/browser/
 # 临时验证产物
 .tmp/
 .tmppf/
+data/tmp-*
