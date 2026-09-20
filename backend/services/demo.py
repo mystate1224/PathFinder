@@ -208,6 +208,35 @@ SAMPLES: list[dict[str, Any]] = [
 # ================================================================ 测试用例
 # expected 全部写死；runner 指向真实实现入口 —— live=True 时才会真的执行。
 CASES: list[dict[str, Any]] = [
+    # ---- 学生智能体三类高频需求（v7.5）：演示与验收都从这三类开始 ----
+    {
+        "id": "qa-agent-note",
+        "ability": "qa",
+        "title": "学生 · 上传手写笔记 → 解析知识点",
+        "input": {"question": "我上传了一份手写笔记，帮我解析里面的知识点", "side": "student"},
+        "expected": {"intent_type": "material"},
+        "runner": "interaction.classify",
+        "note": "三类高频需求之一。应归入「资料解析」意图并触发上传解析链路"
+                "（读图 / 去杂 → 抽知识点 → 入索引），而不是当成闲聊。",
+    },
+    {
+        "id": "qa-agent-doc",
+        "ability": "qa",
+        "title": "学生 · 上传计算机网络文档 → 总结要点",
+        "input": {"question": "我上传了一份计算机网络的文档，帮我总结一下要点", "side": "student"},
+        "expected": {"intent_type": "material"},
+        "runner": "interaction.classify",
+        "note": "总结要点必须可溯源：要点应能在原文找到出处，材料之外的延伸要标明是推理。",
+    },
+    {
+        "id": "qa-agent-career",
+        "ability": "qa",
+        "title": "学生 · 应聘前端 → 就业信息规划问答",
+        "input": {"question": "我想应聘前端开发岗，结合我的情况给我一份求职规划", "side": "student"},
+        "expected": {"intent_type": "path"},
+        "runner": "interaction.classify",
+        "note": "就业类路径规划：应对照前端岗位的任职要求与学生画像找差距，给分阶段计划。",
+    },
     {
         "id": "parse-denoise",
         "ability": "parse",
@@ -305,6 +334,38 @@ CASES: list[dict[str, Any]] = [
         "expected": {"need_clarify": True},
         "runner": "interaction.needs_clarify",
         "note": "宁可多问一句，也不编一个看起来像答案的东西。",
+    },
+    # ---- 批改建议分（链路 E 的演示用例，v7.5）：图片在前、文字在后 ----
+    {
+        "id": "grade-image",
+        "ability": "grade",
+        "title": "批改 · 图片作业应给出 AI 建议分（手写作业）",
+        "input": {"image_sample": "img-homework", "course": "机器学习",
+                  "title": "作业三 · 梯度下降", "full_score": 20},
+        "expected": {
+            "score": "0~20 分（配了视觉模型真读图）；未配置时 = -1 并如实提示人工批改",
+            "level": "A / B / C（仅真读图时有）",
+            "comment": "非空，说明给分依据或转人工原因",
+        },
+        "runner": "homework.suggest_image_bytes",
+        "note": "图片是仓库自带素材（手写作业.png）。两种结果都算 PASS：真读图给分，"
+                "或未配视觉模型时如实转人工 —— 唯独不许没读图还编一个分数。",
+    },
+    {
+        "id": "grade-text",
+        "ability": "grade",
+        "title": "批改 · 文字作业应给出 AI 建议分（试批）",
+        "input": {"sample": "md-homework", "course": "机器学习", "full_score": 100},
+        "expected": {
+            "score_in": [0, 100],
+            "level_in": ["A", "B", "C"],
+            "has_comment": True,
+            "has_highlights": True,
+            "full_score": 100,
+        },
+        "runner": "homework.suggest_text",
+        "note": "试批不落库：输入是仓库里的作业样本（优），要点覆盖 + 结构 + 篇幅三路给分，"
+                "双引擎返回结构一致。",
     },
     # ---- RAG 路由（能力⑦）：五种架构各一条，判据就是"该走哪种"
     {
@@ -634,6 +695,37 @@ def run_case(cid: str, live: bool = False) -> dict[str, Any]:
         good = count >= expected.get("min_items", 1)
         checks.append({"name": f"知识点数 ≥ {expected.get('min_items')}", "pass": good, "actual": count})
         ok = ok and good
+    elif ability == "grade":
+        # 建议分不能断言"等于某个分数"——双引擎与模型都会让分数浮动，
+        # 这里验的是**结构诚实**：给分有依据、越界不允许、没配视觉模型时如实转人工。
+        def add(name: str, good: bool, value: Any) -> None:
+            nonlocal ok
+            checks.append({"name": name, "pass": bool(good), "actual": value})
+            ok = ok and bool(good)
+
+        score = float(actual.get("score") or 0)
+        level = str(actual.get("level") or "")
+        comment = str(actual.get("comment") or "").strip()
+        inp = case.get("input") or {}
+        if "image_sample" in inp:
+            full = float(inp.get("full_score") or 20)
+            if score < 0:
+                add("未配视觉模型时如实转人工（score = -1）", bool(actual.get("manual")),
+                    actual.get("manual"))
+                add("转人工时说明原因", ("人工" in comment) or ("视觉" in comment), comment[:30])
+            else:
+                add(f"0 ≤ 建议分 ≤ {full}", 0 <= score <= full, score)
+                add("层次 ∈ A/B/C", level in ("A", "B", "C"), level)
+            add("有评语", bool(comment), comment[:30])
+            add("引擎标识存在", actual.get("engine") in ("llm", "rule"), actual.get("engine"))
+        else:
+            full = float(inp.get("full_score") or 100)
+            add(f"0 ≤ 建议分 ≤ {full}", 0 <= score <= full, score)
+            add("层次 ∈ A/B/C", level in ("A", "B", "C"), level)
+            add("有评语", bool(comment), comment[:30])
+            hl, ms = actual.get("highlights") or [], actual.get("missing") or []
+            add("有亮点与缺漏项", bool(hl) and bool(ms), f"亮点 {len(hl)} / 缺漏 {len(ms)}")
+            add("满分口径一致", float(actual.get("full_score") or 0) == full, actual.get("full_score"))
     else:
         for key, want in expected.items():
             value = actual.get(key)
@@ -720,6 +812,21 @@ def _execute(case: dict[str, Any]) -> dict[str, Any]:
                 _synth.infer_of(str(inp.get("intent") or "")),)),
             "answer": text,
         }
+    if ability == "grade":
+        # 批改建议分：图片用例直接读仓库自带素材的字节，文字用例读样本文件，
+        # 都走 homework 的真实实现（与批改中心同一条代码路径）。
+        from services import homework as hw
+        if inp.get("image_sample"):
+            sample = _sample_by_id(str(inp["image_sample"])) or {}
+            path = SAMPLES_DIR / str(sample.get("file") or "")
+            raw = path.read_bytes() if path.exists() else b""
+            hwk = {"course": str(inp.get("course") or ""), "title": str(inp.get("title") or "")}
+            return hw.suggest_image_bytes(raw, "image/png", hwk,
+                                          float(inp.get("full_score") or 20), [])
+        sample = _sample_by_id(str(inp.get("sample") or "")) or {}
+        _, text = _read_sample(sample)
+        return hw.suggest_text(text, course=str(inp.get("course") or ""),
+                               full_score=float(inp.get("full_score") or 100))
     if str(inp.get("side")) == "teacher":
         from services import copilot
         return {"intent_type": copilot.detect_intent(str(inp.get("question") or ""), "")}
@@ -740,6 +847,7 @@ def overview() -> dict[str, Any]:
             "rag": sum(1 for c in CASES if c["ability"] == "rag"),
             "synth": sum(1 for c in CASES if c["ability"] == "synth"),
             "teach": sum(1 for c in CASES if c["ability"] == "teach"),
+            "grade": sum(1 for c in CASES if c["ability"] == "grade"),
         },
         "llm_mode": llm.describe(),
     }

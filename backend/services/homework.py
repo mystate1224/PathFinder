@@ -630,12 +630,23 @@ def suggest_text(text: str, course: str = "", topic: str = "",
 def suggest_image(file_info: dict, mime: str, homework: dict, full: float,
                   terms: Sequence[str]) -> dict:
     """图片作业的建议分（需要视觉模型）。"""
-    import llm  # 局部导入，避免与 teaching 形成顶部循环
-
     try:
         raw = (config.UPLOAD_DIR / str(file_info.get("path") or "").lstrip("/\\")).read_bytes()
     except OSError:
         raw = b""
+    return suggest_image_bytes(raw, mime, homework, full, terms)
+
+
+def suggest_image_bytes(raw: bytes, mime: str, homework: dict, full: float,
+                        terms: Sequence[str]) -> dict:
+    """图片建议分的内核：直接吃图片字节。
+
+    从 :func:`suggest_image` 拆出来 —— 批改走上传文件，演示用例（demo.py 的
+    grade-image）直接读仓库自带的 ``samples/手写作业.png``，两条路共用同一套
+    评分逻辑，不因为入口不同而长出两份实现。
+    """
+    import llm  # 局部导入，避免与 teaching 形成顶部循环
+
     if not raw:
         return {
             "score": -1, "level": "", "level_text": "",

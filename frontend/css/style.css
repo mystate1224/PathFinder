@@ -1359,12 +1359,13 @@ body::after {
   font-size: 12.5px; line-height: 1.65;
   background: var(--info-50); color: var(--info-700);
   border: 1px solid #d3e2ef;
-  border-left: 3px solid var(--info-500);
+  /* v7.5：去掉左侧 3px 彩色描边 —— note 总是嵌在卡片里（框中框），
+     内层再来一条竖色带视觉太重；统一回 1px 描边，靠底色区分语义。 */
 }
 .note svg { width: 15px; height: 15px; flex: 0 0 15px; margin-top: 2px; }
-.note--warn { background: var(--warn-50); color: var(--warn-700); border-color: #ecd9b8; border-left-color: var(--warn-500); }
-.note--brand { background: var(--brand-50); color: var(--brand-700); border-color: var(--brand-200); border-left-color: var(--brand-500); }
-.note--danger { background: var(--danger-50); color: var(--danger-700); border-color: #f2d2d3; border-left-color: var(--danger-500); }
+.note--warn { background: var(--warn-50); color: var(--warn-700); border-color: #ecd9b8; }
+.note--brand { background: var(--brand-50); color: var(--brand-700); border-color: var(--brand-200); }
+.note--danger { background: var(--danger-50); color: var(--danger-700); border-color: #f2d2d3; }
 
 /* ---------------------------------------------------------------- 15. 对话气泡 */
 /* 答疑页与 Copilot 页共用同一套；msg--me 与 msg--user 是同义别名，两页都能用。 */
@@ -2173,12 +2174,10 @@ html[data-theme="dark"] .stat__ico--info { background: linear-gradient(140deg, #
 /* 语义描边：浅色下的淡彩描边在暗底上要换成半透明语义色 */
 html[data-theme="dark"] .btn--danger { border-color: rgba(232, 120, 124, .34); }
 html[data-theme="dark"] .btn--ok { border-color: rgba(52, 211, 153, .34); }
-/* 暗色下提示条的边框换成半透明语义色，但左侧那条实色条要跟着翻成暗色版语义色，
-   否则一条高饱和实色会在这里显得比正文还重。 */
-html[data-theme="dark"] .note { border-color: rgba(56, 189, 248, .30); border-left-color: var(--info-500); }
-html[data-theme="dark"] .note--warn { border-color: rgba(251, 191, 36, .30); border-left-color: var(--warn-500); }
-html[data-theme="dark"] .note--danger { border-color: rgba(232, 120, 124, .30); border-left-color: var(--danger-500); }
-html[data-theme="dark"] .note--brand { border-left-color: var(--brand-400); }
+/* 暗色下提示条的边框换成半透明语义色（v7.5 起不再有左侧实色条，只留描边）。 */
+html[data-theme="dark"] .note { border-color: rgba(56, 189, 248, .30); }
+html[data-theme="dark"] .note--warn { border-color: rgba(251, 191, 36, .30); }
+html[data-theme="dark"] .note--danger { border-color: rgba(232, 120, 124, .30); }
 html[data-theme="dark"] .login-err { border-color: rgba(232, 120, 124, .32); }
 html[data-theme="dark"] .mk-card--match {
   background: linear-gradient(180deg, rgba(52, 211, 153, .10), rgba(255, 255, 255, 0) 42%);
