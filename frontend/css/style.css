@@ -363,7 +363,7 @@ body::after {
   position: relative;
 }
 /* v7：品牌区下缘换掉原来的发丝灰线，改成一条渐隐的品牌短条 ——
-   与顶栏那条三色线同语汇，但短得多，只做"抬头见色"的一点提示。 */
+   只做"抬头见色"的一点提示（顶栏三色线已按反馈移除，此条保留）。 */
 .sidebar__brand::after {
   content: "";
   position: absolute; left: 20px; bottom: -1px;
@@ -518,9 +518,8 @@ body::after {
   top: 0;
   z-index: 30;
 }
-/* v7：顶栏三色细线统一收在文件后部 v2.4「顶部品牌轨」一节维护
-   （.shell::before 是视口顶的品牌轨，.topbar::after 是顶栏底的三色线），
-   这里不再重复定义，避免两处同属性互相覆盖。 */
+/* v7.1：顶栏底部的三色渐变细线已按用户反馈整体移除；视口顶的品牌轨
+   （.shell::before）仍在文件后部 v2.4 一节维护，这里不重复定义。 */
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .topbar {
     background: rgba(255, 255, 255, .72);
@@ -2619,16 +2618,8 @@ html[data-theme="dark"] body::after {
     linear-gradient(to bottom, rgba(165, 173, 255, .055) 1px, transparent 1px);
 }
 .topbar { position: relative; }
-/* 顶栏底部三色细线：三个主色在这里走一遍（宝蓝 → 青绿 → 荧光黄绿）。
-   它是全站唯一"三色同时出现"的地方 —— 不承载任何文字，所以可以把最亮的
-   荧光黄绿放进去当收尾，视觉上像一道清新的光带，又不会碰到可读性问题。
-   v7：从 1px 提到 2px、透明度从 .4 一档提到 .85，白底上要"看得见色"。 */
-.topbar::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
-  background: linear-gradient(90deg, rgba(67, 83, 255, .85) 0%,
-              rgba(67, 83, 255, .82) 22%, rgba(23, 201, 168, .78) 52%,
-              rgba(214, 249, 75, .90) 78%, rgba(214, 249, 75, .30) 100%);
-}
+/* v7.1：顶栏底部的三色渐变细线按用户反馈移除（被标记为"渐变色条"），
+   顶栏与正文之间回归干净的 1px 分隔线（见 .topbar 基础样式的 border-bottom）。 */
 
 /* ③ 更细腻的 hover：通用卡片只改边框与阴影，**不做位移**，
    否则一屏卡片会同时起伏，反而躁。可点卡片继续用 .card--hover 的抬升。 */
