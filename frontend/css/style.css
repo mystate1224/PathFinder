@@ -486,10 +486,19 @@ body::after {
 .content--wide { max-width: none; }
 
 .page-head { margin-bottom: var(--s-6); display: flex; align-items: flex-start; gap: var(--s-5); flex-wrap: wrap; }
+/* 页头必须保持"无 transform / 非 fixed 子元素包含块 / 非层叠上下文"：
+   头部 actions 里有绝对定位下拉（班级切换器 .cls-menu），一旦页头形成层叠上下文
+   （比如带 transform 的入场动画），菜单的 z-index 就被困在页头里，
+   后渲染的卡片 / 标签条会盖住下拉 —— 表现为"看得见点不着"。
+   页头的浮入动画在下面第 4 节改成了 fade-in（见 .content > .page-head）。 */
 .page-head__main { flex: 1; min-width: 260px; }
 .page-head__title { font-size: var(--fs-h1); font-weight: 700; letter-spacing: -.01em; color: var(--ink-950); line-height: 1.35; }
 .page-head__desc { font-size: 13.5px; color: var(--ink-600); margin-top: 6px; max-width: 72ch; line-height: 1.7; }
-.page-head__actions { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+/* actions 区自带下拉（如驾驶舱的班级切换器），必须整体浮在正文之上：
+   .page-head 挂着 anim-in 入场动画，fill-mode 会留下恒等 transform 从而创建
+   层叠上下文，把菜单的 z-index 困在头部里；不给 actions 提层的话，
+   DOM 顺序更靠后的卡片 / 标签条会把下拉盖住（表现为"看得见点不着"）。 */
+.page-head__actions { display: flex; gap: var(--s-2); flex-wrap: wrap; position: relative; z-index: 40; }
 /* 标题旁边一条极细的品牌渐隐线，把"页"和"内容"轻轻分开 */
 .page-head__title::after {
   content: ""; display: block; width: 42px; height: 2px; margin-top: 10px;
@@ -1747,7 +1756,7 @@ mark { background: var(--mark-bg); padding: 0 2px; border-radius: 3px; }
 /* 统一由 common.js 的 PF.reveal() 触发：新渲染出来的卡片/列表项错峰淡入。
    只动 opacity + transform，不触发重排；--i 由 JS 写入，决定错峰次序。 */
 .anim-in {
-  animation: pf-in var(--dur-4) var(--ease-out) both;
+  animation: pf-in var(--dur-4) var(--ease-out) backwards;
   /* --i 是序号、--stagger 是步长，都由 JS 写入：
      列表很长时把步长压到 10ms，总时长才不会失控。 */
   animation-delay: calc(var(--i, 0) * var(--stagger, 34ms));
@@ -1758,7 +1767,7 @@ mark { background: var(--mark-bg); padding: 0 2px; border-radius: 3px; }
 }
 
 /* 标签面板切换 */
-.tab-panel.is-entering { animation: pf-panel var(--dur-3) var(--ease-out) both; }
+.tab-panel.is-entering { animation: pf-panel var(--dur-3) var(--ease-out) backwards; }
 @keyframes pf-panel {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
@@ -1854,7 +1863,8 @@ body.nav-open::after { animation: fade-in var(--dur-2) var(--ease-out); }
   body.has-dock .page-head__actions.fab-bar { width: auto; }
   body.has-dock .content { padding-bottom: 96px; }
   /* 页头的入场动效在手机上只留淡入：位移动画会让 .page-head 成为 fixed 子元素的
-     包含块，贴底条会在入场的那 380ms 里被"钉"在页头的位置上。 */
+     包含块，贴底条会在入场的那 380ms 里被"钉"在页头的位置上。
+     （全端统一后这条手机端规则冗余了，保留作说明。） */
   .page-head.anim-in { animation-name: fade-in; }
 }
 
@@ -2245,11 +2255,18 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) { background: rgba(255, 
   to   { opacity: 1; transform: none; }
 }
 /* 内容区直接子块错峰浮入：60ms 递进，到第 5 块收住，不拖沓 */
-.content > *:not(.modal):not(.dock) { animation: pf-rise var(--dur-4) var(--ease-out) both; }
+.content > *:not(.modal):not(.dock) { animation: pf-rise var(--dur-4) var(--ease-out) backwards; }
 .content > *:nth-child(1) { animation-delay: 0ms; }
 .content > *:nth-child(2) { animation-delay: 55ms; }
 .content > *:nth-child(3) { animation-delay: 105ms; }
 .content > *:nth-child(4) { animation-delay: 150ms; }
+/* 例外：页头只淡入不位移。pf-rise 的 fill-mode 会在结束后留下恒等 transform，
+   让页头永远是个层叠上下文，把头部下拉（班级切换器）的 z-index 困在里面，
+   后渲染的卡片会盖住下拉 —— 表现为"看得见点不着"。
+   特异性要 >= 0-3-0（:not 会计入特异性）且写在后面才能盖过上一条。
+   手机端贴底条（.fab-bar）的 fixed 定位同样受益。 */
+.content > .page-head.anim-in,
+.page-head.anim-in { animation-name: fade-in; }
 .content > *:nth-child(n + 5) { animation-delay: 195ms; }
 /* 尊重系统"减少动效"：关掉位移与错峰，只留颜色过渡 */
 @media (prefers-reduced-motion: reduce) {
