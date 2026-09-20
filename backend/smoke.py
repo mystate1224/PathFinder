@@ -507,6 +507,29 @@ def test_student(c: Client) -> None:
                   f"{d['profile']['layer']}｜任务 {len(d['tasks'])} 条｜材料 {len(d['materials'])} 份"
     )(c.api("GET", "/api/student/profile")))
 
+    def reason_branches():
+        """画像理由必须写清判定依据。
+
+        曾经出现过「科研倾向 3.6 / 就业倾向 3.4，却判为事业型」的画像 —— 逻辑没错
+        （两者接近时改由兴趣方向定夺），但理由里不说，页面上就自相矛盾。
+        因此两种分支都要锁住：悬殊写「明显高于」，接近写「按兴趣方向定夺」。
+        """
+        def _set(res: float, job: float) -> dict:
+            c.api("POST", "/api/student/profile",
+                  {"research_intent": res, "job_intent": job})
+            return c.api("GET", "/api/student/profile")["profile"]
+
+        far = _set(4.2, 2.6)
+        need(far.get("track") == "学业型", f"4.2/2.6 应判学业型，实际 {far.get('track')}")
+        need("明显高于" in str(far.get("reason") or ""),
+             f"倾向悬殊却没写明依据：{far.get('reason')}")
+        near = _set(3.2, 3.0)
+        need("两项倾向接近" in str(near.get("reason") or ""),
+             f"倾向接近却没说明按兴趣方向定夺：{near.get('reason')}")
+        _set(4.2, 2.6)  # 复原，避免影响后续用例
+        return "悬殊 → 「明显高于」；接近 → 「两项倾向接近，按兴趣方向定夺」（已复原 4.2/2.6）"
+    c.check("画像理由写清判定依据（数字与结论不自相矛盾）", reason_branches)
+
     def intent_update():
         before = c.api("GET", "/api/student/profile")["profile"]
         d = c.api("POST", "/api/student/profile", {

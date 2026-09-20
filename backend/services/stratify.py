@@ -161,10 +161,21 @@ def rule_stratify(
         level_hint = "，建议按当前节奏巩固"
     else:
         level_hint = "，建议先补前置概念"
+
+    # 判定依据必须写进理由：否则会出现「科研倾向 3.6 / 就业倾向 3.4，却判为事业型」
+    # 这种读起来自相矛盾的画像 —— 实际是两者接近时改由兴趣方向属性定夺。
+    diff = float(research_intent or 0) - float(job_intent or 0)
+    if abs(diff) >= 0.5:
+        track_hint = "科研倾向明显高于就业倾向" if diff > 0 else "就业倾向明显高于科研倾向"
+    else:
+        track_hint = (
+            f"两项倾向接近（相差 {abs(diff):.1f}），"
+            f"因此按兴趣方向的属性（{flavour}）定夺"
+        )
     reason = (
         f"学业成绩 {float(gpa or 0):.1f} 分，评为 {level} 层（{grade_level_text(level)}{level_hint}）；"
         f"科研倾向 {float(research_intent or 0):.1f} / 就业倾向 {float(job_intent or 0):.1f}，"
-        f"兴趣方向为 {interests_text}（{flavour}），综合判定为{track}。"
+        f"{track_hint}；兴趣方向为 {interests_text}（{flavour}），综合判定为{track}。"
         "本结论用于推荐内容深度与任务难度，不用于分班，且会随成绩与兴趣动态更新。"
     )
 
