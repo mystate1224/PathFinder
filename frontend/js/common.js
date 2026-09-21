@@ -260,6 +260,13 @@
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
 
+  /** 打开资料库里的文件本体（一键备课生成的 PPT 就存在「课件」分类下）。
+   *  走 fetch 而不是裸链接，是为了带上 Bearer 头；浏览器拿到 pptx 会交给本机
+   *  PowerPoint / WPS 打开，效果与双击文件一样。 */
+  PF.openMaterial = function (materialId, filename) {
+    PF.download("/api/materials/" + materialId + "/download", filename || "");
+  };
+
   /* ============================================================ 提示与弹窗 */
   function toastHost() {
     let host = PF.$(".toast-host");
@@ -1127,7 +1134,8 @@
   PF.noteSaverHtml = function (demo, folders, side) {
     const d = demo || {};
     const isT = side === "teacher";
-    const all = ["课程资料", "教学备课", "科研成果", "个人材料", "未分类"];
+    // 「课件」是 v7.18 新增的分类：一键备课生成的 PPT 本体存在这里（与后端 extract.CATEGORIES 同步）
+    const all = ["课件", "课程资料", "教学备课", "科研成果", "个人材料", "未分类"];
     let cats = PF.arr(folders && folders.length ? folders : all);
     if (!isT) cats = cats.filter(function (c) { return c !== "教学备课"; });
     if (!cats.length) cats = isT ? all : all.filter(function (c) { return c !== "教学备课"; });
@@ -1189,7 +1197,7 @@
               "」：" + PF.esc(d.filename || note.title || "") +
               (d.knowledge_points ? "，抽出 " + PF.num(d.knowledge_points, 0) + " 个知识点" : "") +
               (d.indexed ? "、建索引 " + PF.num(d.indexed, 0) + " 片" : "") +
-              "。去 <a href=\"/library#/tab=materials\">我的资料库</a> 看看。";
+              "。去 <a href=\"/library#/tab=mats\">我的资料库</a> 看看。";
           }
           bar.classList.add("is-done");
           if (typeof o.onSaved === "function") o.onSaved(d, category);
@@ -1619,7 +1627,9 @@
         kind: "PPT", ext: "pptx", icon: "presentation", title: base + " PPT",
         engine: sl.engine, sizeText: size((sl.artifact || {}).size),
         pages: n + " 页",
-        note: await save(base + " PPT 大纲", PF.slidesToText(sl.outline)),
+        // v7.18：PPT 本体由后端直接存进资料库「课件」，不必再另存一份大纲笔记 ——
+        // 老师要的是那个能打开放映的文件，不是它的文字提纲。
+        material: ((sl.artifact || {}).material || {}).id ? sl.artifact.material : null,
         slides: sl.outline.slides,
       });
     } else { out.errors.push("PPT"); }
@@ -1656,7 +1666,8 @@
     let html = '<div class="dm-lead">三件事都做完了：正课教案、' +
       PF.esc(PF.TEACHER_DEMOS.prep.pages) + " 页以内的 PPT、课后作业。" +
       "产物按课题命名归到备课文件夹「" + PF.esc(r.folder || "") +
-      "」，同时各存了一份进「资料与知识库 / 教学备课」。</div>";
+      "」，教案与作业各存一份进「资料与知识库 / 教学备课」；PPT 本体存进「课件」，" +
+      "以后直接在课件库里打开放映，不用再来产物里翻。</div>";
     if (!items.length) {
       return html + '<div class="dm-warn">' + PF.icon("alert", 13) +
         "<div>三步都没跑通（后端不可达？）—— 可以到备课助手里手动再生成一次。</div></div>";
@@ -1669,13 +1680,23 @@
           '<div class="dm-prod__meta">' + PF.esc(it.kind) + " · " + PF.esc(it.ext) +
             (it.sizeText ? " · " + PF.esc(it.sizeText) : "") +
             (it.pages ? " · " + PF.esc(it.pages) : "") + "</div>" +
-          (it.note
-            ? '<div class="dm-prod__meta">已存资料库：' + PF.esc(it.note.filename || it.title) +
-              (Number(it.note.knowledge_points) > 0
-                ? "，抽出 " + PF.num(it.note.knowledge_points, 0) + " 个知识点" : "") +
-              (Number(it.note.indexed) > 0 ? "、建索引 " + PF.num(it.note.indexed, 0) + " 片" : "") +
+          (it.material && it.material.id
+            // 课件本体：给一个能直接打开的链接，而不是再挂一份文字提纲
+            ? '<div class="dm-prod__meta">' + PF.icon("folder", 12) +
+              ' 已存课件库：' +
+              '<a href="#" onclick="PF.openMaterial(' + PF.esc(it.material.id) + ', \'' +
+              PF.esc(String(it.material.filename || "").replace(/'/g, "")) + '\'); return false;">' +
+              PF.esc(it.material.filename || it.title) + "</a>" +
+              (Number(it.material.knowledge_points) > 0
+                ? "，按页抽出 " + PF.num(it.material.knowledge_points, 0) + " 个知识点" : "") +
               "</div>"
-            : '<div class="dm-prod__meta t-dim">这份没能存进资料库</div>') +
+            : (it.note
+              ? '<div class="dm-prod__meta">已存资料库：' + PF.esc(it.note.filename || it.title) +
+                (Number(it.note.knowledge_points) > 0
+                  ? "，抽出 " + PF.num(it.note.knowledge_points, 0) + " 个知识点" : "") +
+                (Number(it.note.indexed) > 0 ? "、建索引 " + PF.num(it.note.indexed, 0) + " 片" : "") +
+                "</div>"
+              : '<div class="dm-prod__meta t-dim">这份没能存进资料库</div>')) +
         "</div></div>";
     }).join("") + "</div>";
     if (PF.arr(r.errors).length) {
@@ -1684,8 +1705,10 @@
     }
     html += '<div class="dm-note">' + PF.icon("folder", 13) +
       "<div><b>去哪儿看：</b>教案与 PPT 在 <a href=\"/teach#/tab=artifacts\">备课助手 · 我的产物</a>" +
-      "（已按课题命名归档到同一个文件夹），三份资料在 " +
-      "<a href=\"/library#/tab=materials\">资料与知识库 · 资料列表</a>，作业在 " +
+      "（已按课题命名归档到同一个文件夹）；PPT 还能在 " +
+      "<a href=\"/library?category=" + encodeURIComponent("课件") + "#/tab=mats\">资料与知识库 · 课件</a>" +
+      "里直接打开放映，教案与作业在 " +
+      "<a href=\"/library#/tab=mats\">资料列表</a>，作业在 " +
       "<a href=\"/grade\">批改中心</a>。</div></div>";
     html += PF.demoGuides({ key: r.key || "prep", guides: PF.teacherGuidesOf("prep") }, "teacher");
     return html;

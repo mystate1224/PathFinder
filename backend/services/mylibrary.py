@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 import config
@@ -58,7 +59,7 @@ def shared_materials(viewer_id: int) -> list[dict]:
         "       EXISTS(SELECT 1 FROM material_imports mi "
         "              WHERE mi.material_id = m.id AND mi.user_id = ?) AS imported "
         "FROM materials m JOIN users u ON u.id = m.owner_id "
-        "WHERE u.role = 'teacher' ORDER BY m.id DESC",
+        "WHERE u.role = 'teacher' AND COALESCE(m.shared, 1) = 1 ORDER BY m.id DESC",
         (int(viewer_id),),
     )
     for row in rows:
@@ -72,7 +73,7 @@ def shared_materials(viewer_id: int) -> list[dict]:
 def import_material(user_id: int, material_id: int) -> tuple[bool, str]:
     """把教师公用资料导入自己的检索库。返回 (ok, message)。"""
     row = db.query_one(
-        "SELECT m.id, u.role AS owner_role FROM materials m "
+        "SELECT m.id, m.shared, u.role AS owner_role FROM materials m "
         "JOIN users u ON u.id = m.owner_id WHERE m.id = ?",
         (material_id,),
     )
@@ -80,6 +81,9 @@ def import_material(user_id: int, material_id: int) -> tuple[bool, str]:
         return False, "资料不存在"
     if str(row.get("owner_role")) != "teacher":
         return False, "只能导入教师上传的公用资料"
+    # 教师一键备课生成的 PPT 只进自己的课件库（shared=0），学生不该把它导进自己的库
+    if row.get("shared") is not None and int(row.get("shared") or 0) == 0:
+        return False, "这份资料教师尚未共享"
     db.execute(
         "INSERT OR IGNORE INTO material_imports (user_id, material_id, created_at) VALUES (?,?,?)",
         (int(user_id), int(material_id), db.now()),
@@ -221,6 +225,118 @@ def save_note(user: dict, title: str, content: str, category: str = "未分类",
         "indexed": int(indexed or 0),
         "knowledge_points": int(kps or 0),
     }
+
+
+def save_courseware(user: dict, title: str, blob: bytes, text: str, course: str = "",
+                    topic: str = "", pages: int = 0, material_id: int = 0) -> dict:
+    """把「一键备课生成的 PPT」存进资料库 —— 分类固定「课件」。
+
+    与 ``save_note`` 的区别是这里存的是**真实可打开的 .pptx**，不是 md 笔记：
+    ``text`` 只作为配套的大纲全文（建索引、抽知识点用），这样课件在答疑检索里
+    也能被翻出来，而老师要的是那个能直接放映的文件本身。
+
+    ``material_id`` 非空时**覆盖**同一条记录（教师改完大纲重新出 PPT 会走到这里），
+    不新建条目，避免课件库里堆一堆同名旧版本。
+    """
+    owner_id = int(user["id"])
+    name = str(title or "").strip() or "未命名课件"
+    body = str(text or "").strip() or name
+
+    # 每页标题就是一个知识点：课件在知识点视图里能按页找回来
+    points: list[dict] = []
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line.startswith("## "):
+            continue
+        head = re.sub(r"^第\s*\d+\s*页\s*[·•\-]?\s*", "", line.lstrip("#").strip())[:40]
+        if len(head) >= 2:
+            points.append({"name": head, "difficulty": "B", "keywords": []})
+        if len(points) >= 8:
+            break
+
+    parsed: dict[str, Any] = {
+        "title": name,
+        "summary": f"{course}　{topic or name}　共 {pages or 0} 页"[:120],
+        "directions": [course] if course else [],
+        "knowledge_points": points,
+    }
+    if course:
+        parsed["course"] = course
+
+    old = (db.query_one("SELECT * FROM materials WHERE id=? AND owner_id=?",
+                        (int(material_id or 0), owner_id)) if material_id else None)
+    if old:
+        # 覆盖：沿用原来的文件位置与文件名，只换内容与索引
+        target = config.DATA_DIR / str(old.get("stored") or "")
+        filename = str(old.get("filename") or "")
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob)
+        except OSError as exc:  # noqa: BLE001 - 落盘失败要如实告诉前端
+            return {"error": f"课件更新失败：{exc}"}
+        db.execute(
+            "UPDATE materials SET raw_text=?, parsed=?, created_at=? WHERE id=?",
+            (body, db.jdump(parsed), db.now(), int(old["id"])),
+        )
+        material_id = int(old["id"])
+    else:
+        stem = re.sub(r"_{2,}", "_", _SAFE_RE.sub("_", name))[:60].strip("._") or "课件"
+        filename = f"{stem}.pptx"
+        try:
+            folder = extract.ensure_upload_dir(owner_id)
+            target = folder / filename
+            seq = 1
+            while target.exists():
+                target = folder / f"{stem}_{seq}.pptx"
+                filename = target.name
+                seq += 1
+            target.write_bytes(blob)
+        except OSError as exc:  # noqa: BLE001
+            return {"error": f"课件落盘失败：{exc}"}
+        material_id = extract.save_material(
+            owner_id, "courseware", "课件", filename,
+            str(target.relative_to(config.DATA_DIR)).replace("\\", "/"),
+            body, parsed, "rule",
+            shared=0,   # 教师自己的备课产物：进课件库，但不进学生的「教师共享」池
+        )
+
+    indexed = rag.index_material(material_id, owner_id, course or name, filename, body)
+    embedding.index_vectors(material_id, extract.split_chunks(body))
+    kps = extract.replace_knowledge_points(
+        material_id, owner_id, course or name, parsed, body, filename
+    )
+    return {
+        "material_id": material_id,
+        "filename": filename,
+        "title": name,
+        "category": "课件",
+        "course": course or "",
+        "chars": len(body),
+        "indexed": int(indexed or 0),
+        "knowledge_points": int(kps or 0),
+    }
+
+
+def material_file(material_id: int, owner_id: int) -> Path | None:
+    """资料在磁盘上的真实路径（不存在 / 没落盘 / 越权一律 None）。
+
+    可见范围与检索一致：自己的资料，或者**已导入**的教师公用资料。
+    """
+    row = db.query_one(
+        "SELECT m.stored FROM materials m "
+        "LEFT JOIN material_imports mi ON mi.material_id = m.id AND mi.user_id = ? "
+        "WHERE m.id = ? AND (m.owner_id = ? OR mi.user_id IS NOT NULL)",
+        (int(owner_id), int(material_id), int(owner_id)),
+    )
+    stored = str((row or {}).get("stored") or "").strip()
+    if not stored:
+        return None
+    path = (config.DATA_DIR / stored).resolve()
+    try:  # 防目录穿越：解析后必须还在 DATA_DIR 里
+        path.relative_to(config.DATA_DIR.resolve())
+    except ValueError:
+        return None
+    return path if path.exists() else None
 
 
 def delete(owner_id: int, material_id: int) -> bool:

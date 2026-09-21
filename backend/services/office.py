@@ -2,8 +2,12 @@
 """office.py —— 把「教案 / PPT 大纲」落成**真实可打开的** docx / pptx 文件。
 
 设计取舍：
-* 只用标准库 ``zipfile`` 手写 OOXML 包，**零新增依赖**（不引入 python-pptx / python-docx）。
-* 只实现一个版式（标题 + 内容），够用且稳：教案要的是内容骨架，不是主题皮肤。
+* docx 只用标准库 ``zipfile`` 手写 OOXML 包，**零新增依赖**。
+* pptx 有两条路（v7.18 起）：
+  - ``_build_pptx_rich()``：**装了 python-pptx 时的默认路径**，按「寻径」视觉规范排版
+    （品牌蓝封面页、要点卡片、讲法提示条、页脚页码），这才是给老师看的课件；
+  - ``_build_pptx_plain()``：**零依赖兜底**，只用标准库手写 OOXML，一个版式（标题 + 内容）。
+    没装 python-pptx（或 rich 版中途出错）时自动回退，保证断网、缺依赖也能出文件。
 * 生成的包必须自洽：每个 ``Override PartName`` 都要有实体，每个关系目标都要能解析。
   这一点由 ``validate_package()`` 在写盘前自检，避免"文件生成了但打不开"。
 """
@@ -13,7 +17,20 @@ import io
 import re
 import zipfile
 from datetime import datetime
+from math import ceil
 from typing import Iterable, Sequence
+
+# 可选依赖：python-pptx 只用于「精美课件」那条路，没装也能跑（回退零依赖版式）。
+try:  # pragma: no cover - 取决于运行环境
+    from pptx import Presentation as _PptxPresentation
+    from pptx.dml.color import RGBColor as _RGBColor
+    from pptx.enum.shapes import MSO_SHAPE as _SHAPE
+    from pptx.enum.text import MSO_ANCHOR as _ANCHOR, PP_ALIGN as _ALIGN
+    from pptx.util import Inches as _Inches, Pt as _Pt
+
+    _PPTX_OK = True
+except Exception:  # pragma: no cover - 没装就走兜底
+    _PPTX_OK = False
 
 # ================================================================ 公共
 _ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -244,12 +261,197 @@ def validate_package(parts: dict[str, bytes]) -> list[str]:
     return problems
 
 
-# ================================================================ PPTX
-def build_pptx(title: str, slides: Iterable[dict], subtitle: str = "") -> bytes:
-    """由 PPT 大纲生成 .pptx 字节流。
+# ================================================================ PPTX（精美版 · python-pptx）
+# 视觉规范照抄项目根 ppt制作提示词.txt：白底大量留白，主色宝蓝、辅色青绿、点缀黄绿，
+# 大圆角实色卡片承载要点，统一页脚「左下品牌 + 右下页码」。
+_BRAND = "4353FF"      # 宝蓝：标题强调、卡片竖条
+_TEAL = "17C9A8"       # 青绿：交替卡片的次级色
+_LIME = "D6F94B"       # 荧光黄绿：封面小圆点、讲法提示条
+_INK = "111111"
+_GRAY = "555555"
+_MUTE = "9AA0AE"
+_CARD_A = "F4F6FF"     # 极淡蓝卡
+_CARD_B = "EEFBF7"     # 极淡青卡
+_NOTE_BG = "F8FEE3"    # 极淡黄绿
+_FONT = "Microsoft YaHei"
 
-    ``slides`` 每项：``{"title": str, "bullets": [str], "note": str}``。
-    """
+# 16:9 画布（英寸）：左/右边距 0.75，内容宽 11.833
+_PW, _PH = 13.333, 7.5
+_MX = 0.75
+_MW = _PW - _MX * 2
+
+
+def _style(font, size: float, color: str, bold: bool = False) -> None:
+    """统一字形：字号 / 颜色 / 粗体 / 字体名（中西文都要指定，否则汉字会掉回宋体）。"""
+    font.size = _Pt(size)
+    font.bold = bold
+    font.name = _FONT
+    font.color.rgb = _RGBColor.from_string(color)
+    try:  # 补齐 a:ea，PowerPoint 才知道汉字用哪个字体
+        from pptx.oxml.ns import qn
+
+        rPr = getattr(font, "_rPr", None)
+        if rPr is None:
+            return
+        for tag in ("a:latin", "a:ea", "a:cs"):
+            found = rPr.find(qn(tag))
+            if found is not None:
+                found.set("typeface", _FONT)
+        if rPr.find(qn("a:ea")) is None:
+            latin = rPr.find(qn("a:latin"))
+            ea = rPr.makeelement(qn("a:ea"), {"typeface": _FONT})
+            latin.addnext(ea) if latin is not None else rPr.append(ea)
+    except Exception:  # pragma: no cover - 字体细节不影响出文件
+        pass
+
+
+def _textbox(slide, x: float, y: float, w: float, h: float, text: str,
+             size: float = 16, color: str = _INK, bold: bool = False,
+             align=None, middle: bool = False, line: float = 1.0):
+    """放一段文字。返回文本框，方便调用方继续微调。"""
+    box = slide.shapes.add_textbox(_Inches(x), _Inches(y), _Inches(w), _Inches(h))
+    tf = box.text_frame
+    tf.word_wrap = True
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    tf.vertical_anchor = _ANCHOR.MIDDLE if middle else _ANCHOR.TOP
+    para = tf.paragraphs[0]
+    para.alignment = align or _ALIGN.LEFT
+    para.line_spacing = line
+    run = para.add_run()
+    run.text = text
+    _style(run.font, size, color, bold)
+    return box
+
+
+def _lines(slide, x: float, y: float, w: float, h: float, items: Sequence[str],
+           size: float = 14, color: str = _GRAY, bullet: str = "· ", line: float = 1.45):
+    """多行文字（比 add_textbox 多一个「按行分段」的能力，用于封面要点）。"""
+    box = slide.shapes.add_textbox(_Inches(x), _Inches(y), _Inches(w), _Inches(h))
+    tf = box.text_frame
+    tf.word_wrap = True
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    for index, item in enumerate(items):
+        para = tf.paragraphs[0] if index == 0 else tf.add_paragraph()
+        para.line_spacing = line
+        run = para.add_run()
+        run.text = f"{bullet}{item}"
+        _style(run.font, size, color)
+    return box
+
+
+def _rect(slide, shape, x: float, y: float, w: float, h: float, color: str,
+          round_rate: float = 0.0):
+    """一个纯色块（矩形 / 圆角矩形），无描边无阴影。"""
+    sp = slide.shapes.add_shape(shape, _Inches(x), _Inches(y), _Inches(w), _Inches(h))
+    sp.shadow.inherit = False
+    sp.line.fill.background()
+    sp.fill.solid()
+    sp.fill.fore_color.rgb = _RGBColor.from_string(color)
+    if round_rate and len(sp.adjustments):
+        sp.adjustments[0] = round_rate
+    return sp
+
+
+def _cover_slide(slide, title: str, subtitle: str, bullets: Sequence[str], total: int) -> None:
+    """封面页：品牌细条 + 标签 + 超大主标题 + 副标题 + 要点 + 底部信息。"""
+    _rect(slide, _SHAPE.RECTANGLE, 0, 0, _PW, 0.1, _BRAND)
+    _textbox(slide, _MX, 0.34, 6, 0.3, "PathFinder · 寻径教育", 9.5, _MUTE)
+
+    # 黄绿小圆点 + 全大写引导词（照规范里的「小节标签」样式）
+    _rect(slide, _SHAPE.OVAL, _MX, 2.12, 0.14, 0.14, _LIME)
+    _textbox(slide, _MX + 0.3, 2.02, 8, 0.34, "ONE-CLICK LESSON PREP", 11, _MUTE)
+
+    size = 40 if len(title) <= 12 else 34 if len(title) <= 20 else 28 if len(title) <= 30 else 24
+    _textbox(slide, _MX, 2.5, _MW - 1.6, 1.85, title, size, _BRAND, bold=True, line=1.15)
+    if subtitle:
+        _textbox(slide, _MX, 4.5, _MW - 1.6, 0.5, subtitle, 17, _GRAY)
+    if bullets:
+        _lines(slide, _MX, 5.25, _MW - 2.4, 1.1, list(bullets)[:3], 14, _GRAY)
+
+    _textbox(slide, _MX, 6.6, _MW, 0.3, datetime.now().strftime("%Y-%m-%d") + " · 一键备课生成", 11, _MUTE)
+    _rect(slide, _SHAPE.OVAL, _PW - 1.55, 6.05, 0.52, 0.52, _LIME)
+    _footer(slide, 1, total)
+
+
+def _content_slide(slide, index: int, total: int, title: str,
+                   bullets: Sequence[str], note: str) -> None:
+    """内容页：左侧竖条大标题 + 要点卡片 + 讲法提示条 + 页脚页码。"""
+    _rect(slide, _SHAPE.RECTANGLE, 0, 0, _PW, 0.1, _BRAND)
+    _textbox(slide, _MX, 0.34, 6, 0.3, "PathFinder · 寻径教育", 9.5, _MUTE)
+
+    _rect(slide, _SHAPE.RECTANGLE, _MX, 1.05, 0.075, 0.92, _BRAND)
+    size = 28 if len(title) <= 14 else 24 if len(title) <= 22 else 20 if len(title) <= 32 else 18
+    _textbox(slide, _MX + 0.28, 0.92, _MW - 0.28, 1.2, title, size, _INK, bold=True,
+             line=1.15, middle=True)
+
+    items = [str(b).strip() for b in bullets if str(b).strip()]
+    note = str(note or "").strip()
+    top, bottom = 2.35, 6.05 if note else 6.6
+    avail = bottom - top
+    gap = 0.2
+    cols = 1 if len(items) <= 1 else 2
+    rows = max(1, ceil(len(items) / cols))
+    cap = 1.5 if cols == 2 else 2.6
+    card_h = min((avail - gap * (rows - 1)) / rows, cap)
+    start_y = top + (avail - (rows * card_h + gap * (rows - 1))) / 2
+    card_w = (_MW - gap * (cols - 1)) / cols
+
+    if not items:
+        _textbox(slide, _MX, start_y + 0.4, _MW, 0.5, "（本页无要点）", 14, _MUTE)
+    for i, item in enumerate(items):
+        row, col = divmod(i, cols)
+        cx = _MX + col * (card_w + gap)
+        cy = start_y + row * (card_h + gap)
+        # 卡片底色与左侧竖条按列交替（蓝 / 青），有节奏但不花
+        tint, bar = (_CARD_A, _BRAND) if i % 2 == 0 else (_CARD_B, _TEAL)
+        _rect(slide, _SHAPE.ROUNDED_RECTANGLE, cx, cy, card_w, card_h, tint, round_rate=0.05)
+        _rect(slide, _SHAPE.RECTANGLE, cx, cy + 0.18, 0.055, card_h - 0.36, bar)
+        fsize = 16 if len(item) <= 26 else 14 if len(item) <= 50 else 12
+        _textbox(slide, cx + 0.3, cy + 0.14, card_w - 0.55, card_h - 0.28, item,
+                 fsize, _INK, middle=True, line=1.3)
+
+    if note:
+        _rect(slide, _SHAPE.ROUNDED_RECTANGLE, _MX, 6.2, _MW, 0.62, _NOTE_BG, round_rate=0.12)
+        _rect(slide, _SHAPE.RECTANGLE, _MX, 6.2, 0.055, 0.62, _LIME)
+        shown = note if len(note) <= 96 else note[:95] + "…"
+        _textbox(slide, _MX + 0.28, 6.2, _MW - 0.5, 0.62, "讲法提示：" + shown,
+                 12, _GRAY, middle=True)
+
+    _footer(slide, index, total)
+
+
+def _footer(slide, index: int, total: int) -> None:
+    """统一页脚：左下品牌，右下页码。"""
+    _textbox(slide, _MX, 6.98, 6, 0.28, "PathFinder · 寻径教育", 9.5, _MUTE)
+    _textbox(slide, _PW - _MX - 3, 6.98, 3, 0.28, f"{index:02d} / {total:02d}",
+             9.5, _MUTE, align=_ALIGN.RIGHT)
+
+
+def _build_pptx_rich(title: str, slides: list[dict], subtitle: str = "") -> bytes:
+    """用 python-pptx 排出「能直接拿去上课」的课件。"""
+    prs = _PptxPresentation()
+    prs.slide_width = _Inches(_PW)
+    prs.slide_height = _Inches(_PH)
+    prs.core_properties.title = title
+    prs.core_properties.author = "寻径教育 PathFinder · LearnBuddy"
+    blank = prs.slide_layouts[6]  # 空白版式：所有元素自己画，不继承模板占位符
+
+    total = len(slides)
+    for i, slide in enumerate(slides, start=1):
+        sp = prs.slides.add_slide(blank)
+        if i == 1:
+            _cover_slide(sp, slide["title"], subtitle, slide["bullets"], total)
+        else:
+            _content_slide(sp, i, total, slide["title"], slide["bullets"], slide["note"])
+
+    buffer = io.BytesIO()
+    prs.save(buffer)
+    return buffer.getvalue()
+
+
+# ================================================================ PPTX（零依赖兜底）
+def _build_pptx_plain(title: str, slides: Iterable[dict], subtitle: str = "") -> bytes:
+    """只用标准库手写 OOXML：一个版式（标题 + 内容），够用且稳。"""
     slides = [
         {
             "title": str(s.get("title") or f"第 {i + 1} 页"),
@@ -354,6 +556,48 @@ def build_pptx(title: str, slides: Iterable[dict], subtitle: str = "") -> bytes:
         for name, blob in parts.items():
             zf.writestr(name, blob)
     return buffer.getvalue()
+
+
+def _plain(text: str) -> str:
+    """把一行「可能是 Markdown」的文本洗成幻灯片上的纯文字。
+
+    检索回来的参考资料片段经常带着 ``# 标题``、``- 要点``、``**加粗**`` 这类记号，
+    直接画到卡片上会很脏（甚至出现「# 第3讲 梯度下降与优化」这种页面标题）。
+    这里只做最保守的清洗：去行首记号、去加粗星号、压空白，不动正文内容。
+    """
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"^#{1,6}\s*", "", s)          # ## 标题
+    s = re.sub(r"^>\s*", "", s)               # > 引用
+    s = re.sub(r"^[-*•·]\s+", "", s)          # - 要点 / * 要点
+    s = re.sub(r"^\d+[.、)]\s*", "", s)       # 1. 要点（编号由版式统一给）
+    s = s.replace("**", "").replace("`", "")  # 加粗 / 行内代码
+    s = re.sub(r"\s+", " ", s).strip(" -—–·")
+    return s
+
+
+def build_pptx(title: str, slides: Iterable[dict], subtitle: str = "") -> bytes:
+    """由 PPT 大纲生成 .pptx 字节流（优先精美排版，缺依赖时回退零依赖版式）。
+
+    ``slides`` 每项：``{"title": str, "bullets": [str], "note": str}``。
+    """
+    clean = [
+        {
+            "title": _plain(str(s.get("title") or f"第 {i + 1} 页")),
+            "bullets": [_plain(str(b)) for b in (s.get("bullets") or [])
+                        if _plain(str(b))],
+            "note": _plain(str(s.get("note") or "")),
+        }
+        for i, s in enumerate(slides)
+    ] or [{"title": _plain(title), "bullets": [], "note": ""}]
+
+    if _PPTX_OK:
+        try:
+            return _build_pptx_rich(title, clean, subtitle)
+        except Exception:  # pragma: no cover - 兜底路径
+            pass
+    return _build_pptx_plain(title, clean, subtitle)
 
 
 # ================================================================ DOCX
@@ -465,6 +709,27 @@ def build_docx(title: str, blocks: Iterable[Sequence[str]] | Iterable[str]) -> b
 
 
 # ================================================================ 组合导出
+def slides_to_text(outline: dict) -> str:
+    """PPT 大纲 → 纯文本（与前端 ``PF.slidesToText`` 同形，存资料库 / 建索引用）。
+
+    pptx 本体是二进制，检索不到里面写了什么，所以入库时同时存这份大纲文本：
+    老师按关键词能搜到课件，知识点也按「第 N 页 · 标题」逐条切出来。
+    """
+    outline = outline or {}
+    slides = outline.get("slides") or []
+    lines = [f"# {outline.get('title') or 'PPT 大纲'}", "", f"共 {len(slides)} 页", ""]
+    for index, slide in enumerate(slides, start=1):
+        if not isinstance(slide, dict):
+            continue
+        lines.append(f"## 第 {index} 页 · {str(slide.get('title') or '')}")
+        for bullet in slide.get("bullets") or []:
+            lines.append(f"- {bullet}")
+        if slide.get("note"):
+            lines.append(f"> 讲法提示：{slide.get('note')}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def lesson_to_blocks(plan: dict) -> list[tuple[str, str]]:
     """把 ``teaching.lesson_plan()['plan']`` 转成 docx 段落块序列。
 

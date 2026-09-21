@@ -44,7 +44,9 @@ KINDS: dict[str, str] = {
     "other": "其它材料",
 }
 
-CATEGORIES: list[str] = ["未分类", "课程资料", "科研成果", "教学备课", "个人材料"]
+# 「课件」= 系统生成的 PPT（一键备课 / 教案转 PPT / 资料转 PPT），单独成一类，
+# 是为了让老师备完课不用带 U 盘 —— 直接在资料库里按「课件」找回来打开。
+CATEGORIES: list[str] = ["未分类", "课程资料", "课件", "科研成果", "教学备课", "个人材料"]
 
 TEXT_EXTS = {".txt", ".md", ".markdown", ".csv", ".json"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
@@ -464,12 +466,18 @@ def save_material(
     raw_text: str,
     parsed: dict,
     engine: str,
+    shared: int = 1,
 ) -> int:
+    """入一条资料。``shared=0`` = 只进自己的资料库，不进「教师共享」池。
+
+    一键备课生成的 PPT 就是这一类：老师存它是为了自己随时打开放映，
+    不等于要发给学生，所以默认不出现在学生的共享列表里。
+    """
     return db.execute(
-        "INSERT INTO materials (owner_id, kind, category, filename, stored, raw_text, parsed, engine, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO materials (owner_id, kind, category, filename, stored, raw_text, parsed, engine, created_at, shared) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
         (owner_id, kind, category, filename, stored, raw_text,
-         db.jdump(parsed), engine, db.now()),
+         db.jdump(parsed), engine, db.now(), 1 if shared else 0),
     )
 
 

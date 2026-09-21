@@ -665,6 +665,25 @@ def api_material_unimport(material_id: int, user: dict = Depends(current_user)):
     return ok(message="已移除导入：这份资料不再进入你的检索范围")
 
 
+@app.get(f"{API}/materials/{{material_id}}/download")
+def api_material_download(material_id: int, user: dict = Depends(current_user)):
+    """打开资料本体（课件 / 讲义 / 图片…）。
+
+    一键备课生成的 PPT 会存成「课件」分类，老师要放映时直接在这里打开，
+    不用再回到备课产物里翻，也不必拷 U 盘。
+    """
+    path = mylibrary.material_file(material_id, int(user["id"]))
+    if path is None:
+        return fail("资料文件不存在，或你还没有导入这份资料", 404)
+    row = db.query_one("SELECT filename FROM materials WHERE id=?", (material_id,)) or {}
+    name = str(row.get("filename") or "").strip() or path.name
+    return FileResponse(
+        str(path),
+        media_type=extract.MIME_BY_EXT.get(path.suffix.lower(), "application/octet-stream"),
+        filename=name,
+    )
+
+
 @app.get(f"{API}/materials/knowledge")
 def api_knowledge(course: str = "", difficulty: str = "", keyword: str = "",
                   user: dict = Depends(current_user)):
@@ -1073,10 +1092,12 @@ def _folder_dir(user: dict, folder: str) -> Any:
 
 def _save_artifact(user: dict, kind: str, title: str, course: str,
                    blob: bytes | None, ext: str, content: dict,
-                   folder: str = "") -> tuple[int, str]:
+                   folder: str = "", material_id: int = 0) -> tuple[int, str]:
     """把生成的教案/PPT 落盘并登记，返回 ``(artifact_id, 可下载文件名)``。
 
     ``folder`` 非空时落进对应备课文件夹，同一课题的教案与 PPT 天然聚在一起。
+    ``material_id`` 记下同步存进资料库的那条记录（目前只有 PPT 会存），
+    教师改大纲重新出文件时才知道该覆盖哪一条，而不是又新增一个课件。
     """
     user_id = int(user["id"])
     filename = office.safe_filename(title, ext)
@@ -1088,9 +1109,10 @@ def _save_artifact(user: dict, kind: str, title: str, course: str,
         target.write_bytes(blob)
         path = str(target)
     artifact_id = db.execute(
-        "INSERT INTO artifacts (user_id, kind, title, course, file_path, content, created_at, folder) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (user_id, kind, title, course, path, db.jdump(content), db.now(), (folder or "").strip()),
+        "INSERT INTO artifacts (user_id, kind, title, course, file_path, content, created_at, folder, material_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (user_id, kind, title, course, path, db.jdump(content), db.now(),
+         (folder or "").strip(), int(material_id or 0)),
     )
     return artifact_id, filename
 
@@ -1184,22 +1206,56 @@ def api_teacher_artifact_update(artifact_id: int, payload: dict = Body(default={
         (title, course, str(target), db.jdump(content), artifact_id),
     )
 
+    # PPT 同步覆盖资料库里那份课件：改完大纲，课件库里打开的也得是新版
+    material = None
+    if kind == "pptx":
+        saved = mylibrary.save_courseware(
+            user, title, blob, office.slides_to_text(content),
+            course=course, topic=title.replace(" PPT", ""),
+            pages=len(content.get("slides") or []),
+            material_id=int(row.get("material_id") or 0),
+        )
+        if not saved.get("error"):
+            db.execute("UPDATE artifacts SET material_id=? WHERE id=?",
+                       (int(saved["material_id"]), artifact_id))
+            material = {"id": saved["material_id"], "filename": saved["filename"],
+                        "category": "课件"}
+        else:
+            material = {"error": saved["error"]}
+
     return ok({"artifact": {"id": artifact_id, "filename": filename, "size": len(blob)},
-               "folder": folder},
+               "folder": folder, "material": material},
               message="修改已保存，文件已按新内容重新生成")
 
 
 def _save_slides(user: dict, topic: str, course: str, outline: dict,
-                 folder: str = "") -> dict:
-    """把大纲导出成 pptx 并登记（教案转 PPT / 资料转 PPT / 课题直出三条路共用）。"""
+                 folder: str = "", material_id: int = 0) -> dict:
+    """把大纲导出成 pptx 并登记（教案转 PPT / 资料转 PPT / 课题直出三条路共用）。
+
+    除了落进备课文件夹，还会**同步存一份进资料库「课件」**：老师备完课不用再拿
+    U 盘拷，直接在「资料与知识库 · 课件」里打开放映。
+    """
     slides = outline.get("slides") or []
     folder = folder or _default_folder(topic)
     title = f"{topic} PPT"
     subtitle = f"{course}　共 {len(slides)} 页" if course else f"共 {len(slides)} 页"
     pptx = office.build_pptx(topic, slides, subtitle=subtitle)
     artifact_id, filename = _save_artifact(user, "pptx", title, course, pptx, ".pptx",
-                                           outline, folder=folder)
-    return {"id": artifact_id, "filename": filename, "size": len(pptx)}, folder
+                                           outline, folder=folder, material_id=material_id)
+    saved = mylibrary.save_courseware(
+        user, title, pptx, office.slides_to_text(outline),
+        course=course, topic=topic, pages=len(slides), material_id=material_id,
+    )
+    # 入库发生在登记产物之后，这里回写 id；入库失败不影响产物本身（原因如实带回前端）
+    if not saved.get("error"):
+        db.execute("UPDATE artifacts SET material_id=? WHERE id=?",
+                   (int(saved["material_id"]), artifact_id))
+    material = ({
+        "id": saved["material_id"], "filename": saved["filename"], "category": "课件",
+        "knowledge_points": saved.get("knowledge_points", 0), "indexed": saved.get("indexed", 0),
+    } if not saved.get("error") else {"error": saved["error"]})
+    return {"id": artifact_id, "filename": filename, "size": len(pptx),
+            "material": material}, folder
 
 
 @app.post(f"{API}/teacher/slides")
@@ -1556,9 +1612,26 @@ def api_teacher_slides_save(payload: dict = Body(default={}), user: dict = Depen
     # 改完大纲重新导出时，默认留在原文件夹里，不另开一份，避免产物库越改越散。
     # 认原文件夹的方式：前端直接带 folder，或带 artifact_id 由后端查。
     folder = _str(payload, "folder") or _artifact_folder_of(user, _int(payload, "artifact_id", 0) or 0)
+    material_id = 0
+    prev_artifact = _int(payload, "artifact_id", 0) or 0
+    if prev_artifact:
+        prow = db.query_one("SELECT material_id FROM artifacts WHERE id=? AND user_id=?",
+                            (prev_artifact, int(user["id"])))
+        material_id = int((prow or {}).get("material_id") or 0)
     artifact_id, filename = _save_artifact(user, "pptx", title, course, pptx, ".pptx", outline,
-                                           folder=folder)
-    return ok({"artifact": {"id": artifact_id, "filename": filename}, "folder": folder},
+                                           folder=folder, material_id=material_id)
+    # 与「教案转 PPT」同一口径：课件库里也要有一份能直接打开的同名 PPT
+    material = None
+    saved = mylibrary.save_courseware(
+        user, f"{topic} PPT", pptx, office.slides_to_text(outline),
+        course=course, topic=topic, pages=len(slides), material_id=material_id,
+    )
+    if not saved.get("error"):
+        db.execute("UPDATE artifacts SET material_id=? WHERE id=?",
+                   (int(saved["material_id"]), artifact_id))
+        material = {"id": saved["material_id"], "filename": saved["filename"], "category": "课件"}
+    return ok({"artifact": {"id": artifact_id, "filename": filename, "material": material},
+               "folder": folder},
               message="已导出 PPT")
 
 

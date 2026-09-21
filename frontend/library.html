@@ -15,7 +15,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=14"></script>
+<script src="/static/js/common.js?v=16"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -324,7 +324,13 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       const d = res[0], m = res[1] || {};
       const cats = PF.arr(d.categories);
       const courses = isTeacher ? PF.arr(m.courses) : PF.arr(m.my_courses);
-      let filter = { category: "", course: "", keyword: "" };
+      // 从别的页面跳进来时带上筛选（例如 Copilot 里「课件库打开」直达课件分类）
+      const preset = new URLSearchParams(location.search);
+      let filter = {
+        category: preset.get("category") || "",
+        course: preset.get("course") || "",
+        keyword: preset.get("keyword") || "",
+      };
 
       box.innerHTML =
         '<div class="card mb-5"><div class="card__body card__body--tight"><div class="row">' +
@@ -424,7 +430,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               { label: "引擎", cls: "w-md", render: function (r) { return PF.engineBadge(r.engine); } },
               { label: "上传时间", cls: "w-md", render: function (r) { return PF.esc(PF.when(r.created_at)); } },
               { label: "", cls: "w-md nowrap", render: function (r) {
-                  return '<button class="btn btn--sm" data-view="' + r.id + '">解析详情</button> ' +
+                  // 有落盘文件的才给「打开」：课件（含一键备课生成的 PPT）点开即可放映，
+                  // 不必再回备课产物里翻，也不用拷来拷去。
+                  return (r.stored
+                    ? '<button class="btn btn--sm" data-open="' + r.id + '">打开</button> '
+                    : "") +
+                    '<button class="btn btn--sm" data-view="' + r.id + '">解析详情</button> ' +
                     '<button class="btn btn--sm btn--danger" data-del="' + r.id + '">删除</button>'; } },
             ], list, { empty: { icon: "layers", title: "没有匹配的资料", desc: "换个筛选条件，或先上传。" } }) +
             "</div></div>";
@@ -436,6 +447,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                 invalidate();
                 PF.toast("分类已更新", "ok");
               } catch (e) { /* 已提示 */ }
+            });
+          });
+          PF.$$("[data-open]", body).forEach(function (b) {
+            b.addEventListener("click", function () {
+              const r = list.filter(function (x) { return String(x.id) === String(b.dataset.open); })[0];
+              PF.openMaterial(b.dataset.open, (r && r.filename) || "");
             });
           });
           PF.$$("[data-view]", body).forEach(function (b) {
@@ -488,6 +505,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               PF.arr(p.directions).map(function (x) { return '<span class="chip chip--brand">' + PF.esc(x) + "</span>"; }).join("") + "</div></div>" : ""),
         });
       }
+
+      // 预选值回写到筛选控件上，否则列表已筛过、下拉框却还显示「全部分类」
+      PF.$("#m-cat", box).value = filter.category;
+      PF.$("#m-course", box).value = filter.course;
+      PF.$("#m-key", box).value = filter.keyword;
 
       PF.$("#m-cat", box).addEventListener("change", function (e) { filter.category = e.target.value; paint(); });
       PF.$("#m-course", box).addEventListener("change", function (e) { filter.course = e.target.value; paint(); });

@@ -155,7 +155,8 @@ CREATE TABLE IF NOT EXISTS materials (
     raw_text  TEXT NOT NULL DEFAULT '',
     parsed    TEXT NOT NULL DEFAULT '{}',
     engine    TEXT NOT NULL DEFAULT 'rule',
-    created_at TEXT NOT NULL DEFAULT ''
+    created_at TEXT NOT NULL DEFAULT '',
+    shared    INTEGER NOT NULL DEFAULT 1     -- 教师资料默认进「教师共享」池；0 = 仅自己可见
 );
 
 CREATE TABLE IF NOT EXISTS knowledge_points (
@@ -287,7 +288,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
     file_path  TEXT NOT NULL DEFAULT '',
     content    TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT '',
-    folder     TEXT NOT NULL DEFAULT ''       -- 备课文件夹名，'' = 未归档
+    folder     TEXT NOT NULL DEFAULT '',      -- 备课文件夹名，'' = 未归档
+    material_id INTEGER NOT NULL DEFAULT 0    -- 同步存进资料库的那条记录，0 = 没存
 );
 
 CREATE TABLE IF NOT EXISTS kp_mastery (
@@ -352,11 +354,15 @@ _COLUMN_UPGRADES: dict[str, list[tuple[str, str]]] = {
         ("category", "TEXT NOT NULL DEFAULT '未分类'"),
         ("stored", "TEXT NOT NULL DEFAULT ''"),
         ("engine", "TEXT NOT NULL DEFAULT 'rule'"),
+        # v7.18：一键备课生成的 PPT 存进课件库但**不进**教师共享池（那是教师的私人备课产物）
+        ("shared", "INTEGER NOT NULL DEFAULT 1"),
     ],
     "knowledge_points": [("owner_id", "INTEGER NOT NULL DEFAULT 0")],
     "homework": [("status", "TEXT NOT NULL DEFAULT 'open'")],
     # 备课产物归档：教案与 PPT 可以归到同一个备课文件夹里，空串 = 未归档。
-    "artifacts": [("folder", "TEXT NOT NULL DEFAULT ''")],
+    # v7.18：PPT 会同步存一份进资料库「课件」，material_id 记住是哪一条，改大纲后好覆盖。
+    "artifacts": [("folder", "TEXT NOT NULL DEFAULT ''"),
+                  ("material_id", "INTEGER NOT NULL DEFAULT 0")],
     "homework_submissions": [
         ("attempt", "INTEGER NOT NULL DEFAULT 1"),
         ("late", "INTEGER NOT NULL DEFAULT 0"),
