@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=21">
+<link rel="stylesheet" href="/static/css/style.css?v=22">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -19,7 +19,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=12"></script>
+<script src="/static/js/common.js?v=13"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -35,17 +35,21 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     desc: "用一句话把日常动作做完：查学生、备课、讲知识点、定评分标准。结果会如实标注是「AI 生成」还是「规则生成」。",
     wide: true,
     actions:
-      '<button class="btn" id="btn-demo-text">' + PF.icon("file", 15) + "文本例子演示</button>" +
-      '<button class="btn" id="btn-demo-image">' + PF.icon("image", 15) + "图片例子演示</button>" +
-      '<button class="btn btn--primary" id="btn-demo-prep">' + PF.icon("presentation", 15) + "备课例子演示</button>" +
-      '<button class="btn btn--primary" id="btn-demo-coach">' + PF.icon("users", 15) + "指导学生演示</button>" +
-      '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
-      '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
+      PF.demoMenuHtml([
+        { key: "text", icon: "file", label: "文本素材例子", hint: "课件 / 论文：解析 + 抽知识点 + 溯源" },
+        { key: "image", icon: "image", label: "图片素材例子", hint: "手写作业图：去水印 + 读图 + 答疑" },
+        { key: "prep", icon: "presentation", label: "备课例子", hint: "教案 + PPT（≤10 页）+ 作业，真生成并入库" },
+        { key: "coach", icon: "users", label: "指导学生例子", hint: "取真实画像画雷达图 + 画像解读 + 建议" },
+        { key: "review", icon: "briefcase", label: "项目申请例子", hint: "待处理申请列表 + 建议 + 真批复" },
+      ], { label: "例子演示", tip: "挑一个，跑一遍完整流程（会真的调用接口）" }) +
+      PF.chatActionsHtml(),
   });
-  PF.$("#btn-demo-text").addEventListener("click", function () { runDemo("text"); });
-  PF.$("#btn-demo-image").addEventListener("click", function () { runDemo("image"); });
-  PF.$("#btn-demo-prep").addEventListener("click", function () { runPrep(); });
-  PF.$("#btn-demo-coach").addEventListener("click", function () { runCoach(); });
+  PF.bindDemoMenu(PF.$("[data-dm-menu]"), function (k) {
+    if (k === "prep") { runPrep(); return; }
+    if (k === "coach") { runCoach(); return; }
+    if (k === "review") { runReview(); return; }
+    runDemo(k);
+  });
 
   const SKILLS_FALLBACK = [
     { value: "student", label: "查学生", hint: "看看 stu03 的成绩如何" },
@@ -198,6 +202,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         (!isUser && m.guide ? PF.demoGuideBody(m.guide, m.guideKey, FOLDERS, "teacher") : "") +
         (!isUser && m.prep ? PF.prepResultHtml(m.prep) : "") +
         (!isUser && m.coach ? PF.coachResultHtml(m.coach) : "") +
+        (!isUser && m.review ? PF.reviewResultHtml(m.review) : "") +
         (!isUser && m.tguide ? PF.teacherGuideBody(m.tguide, FOLDERS) : "") +
         (!isUser && m.intent === "student" ? studentBlock(data) : "") +
         (!isUser && m.intent === "lesson" ? lessonBlock(data) : "") +
@@ -316,17 +321,19 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       el.scrollTop = el.scrollHeight;
       return;
     }
-    // v7.9 教师演示：备课（真生成三件产物）/ 指导学生（真取画像画雷达图）/ 演示之后的引导
-    if (r.prep || r.coach || r.tguide) {
+    // v7.9 教师演示：备课（真生成三件产物）/ 指导学生（真取画像画雷达图）/
+    // 项目申请（真批复）/ 演示之后的引导
+    if (r.prep || r.coach || r.review || r.tguide) {
       const label = r.tguide ? (r.tguide.label || "教师演示")
-        : (r.prep ? "备课" : "指导学生");
+        : (r.review ? "项目申请" : (r.prep ? "备课" : "指导学生"));
       chat.innerHTML =
         renderMsg({ role: "user", content: r.q, created_at: r.at, attach: r.attach }) +
         renderMsg({ role: "assistant", content: "", created_at: r.at,
                     intent: "", intent_label: r.intent_label || label, engine: "rule",
                     data: {}, refs: [],
-                    prep: r.prep, coach: r.coach, tguide: r.tguide });
+                    prep: r.prep, coach: r.coach, review: r.review, tguide: r.tguide });
       PF.bindGuides(chat, { onPick: runGuide });
+      PF.bindReviewDecide(chat, { onDone: function () { sess.refresh(); } });
       paintDock();
       const el = PF.$("#chat");
       el.scrollTop = el.scrollHeight;
@@ -489,6 +496,17 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     paintRound(CURRENT);
   }
 
+  async function runReview() {
+    if (DEMO_BUSY) return;
+    const cfg = PF.TEACHER_DEMOS.review;
+    const r = pushRound(cfg.title, { intent_label: "项目申请", review: null });
+    paintWaiting(cfg.title, "项目申请", "正在读你发布的资源与收到的申请…");
+    DEMO_BUSY = true;
+    try { r.review = await PF.runReviewDemo({}, setStep); }
+    finally { DEMO_BUSY = false; }
+    paintRound(CURRENT);
+  }
+
   /** 教师演示之后的引导：每条都真的去做一件事（生成拓展教案 / 存一份资料）。 */
   async function runTeacherGuide(gkey) {
     if (DEMO_BUSY) return;
@@ -508,7 +526,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   /* 引导问答（教师侧）：文案用 askT（讲评/课堂练习视角），流程与学生侧同构；
      "prep.*" / "coach.*" 是教师演示的引导，走另一条真跑接口的路径。 */
   function runGuide(gkey) {
-    if (/^(prep|coach)\./.test(String(gkey))) { runTeacherGuide(gkey); return; }
+    if (/^(prep|coach|review)\./.test(String(gkey))) { runTeacherGuide(gkey); return; }
     PF.runCopilotGuide(gkey, {
       side: "teacher",
       push: function (guide, k) {

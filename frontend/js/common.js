@@ -1426,6 +1426,64 @@
     if (typeof ctx.done === "function") ctx.done();
   };
 
+  /* 页头的「例子演示」下拉：演示条目会越加越多，平铺按钮会把页头挤成三行。
+     收进一个菜单后，加演示只动 items 数组。items: [{key, icon, label, hint}] */
+  PF.demoMenuHtml = function (items, opts) {
+    const o = opts || {};
+    const list = PF.arr(items);
+    return '<div class="dm-menu" data-dm-menu>' +
+      '<button class="btn btn--primary" data-dm-btn aria-haspopup="true" aria-expanded="false">' +
+        PF.icon("play", 15) + PF.esc(o.label || "例子演示") +
+        '<span class="dm-menu__chev">' + PF.icon("chevronDown", 13) + "</span></button>" +
+      '<div class="dm-menu__panel" style="display:none">' +
+        '<div class="dm-menu__tip">' + PF.esc(o.tip || "挑一个跑一遍完整流程") + "</div>" +
+        list.map(function (it) {
+          return '<button class="dm-menu__item" data-dm-key="' + PF.esc(it.key) + '">' +
+            '<span class="dm-menu__ic">' + PF.icon(it.icon || "file", 14) + "</span>" +
+            '<span class="dm-menu__tx"><b>' + PF.esc(it.label) + "</b>" +
+            (it.hint ? '<span class="t-xs t-dim">' + PF.esc(it.hint) + "</span>" : "") +
+            "</span></button>";
+        }).join("") +
+      "</div></div>";
+  };
+
+  /** 绑定演示菜单：点选项回调 onPick(key)，点外部或 Esc 收起。 */
+  PF.bindDemoMenu = function (el, onPick) {
+    const root = typeof el === "string" ? PF.$(el) : el;
+    if (!root) return;
+    const btn = PF.$("[data-dm-btn]", root);
+    const panel = PF.$(".dm-menu__panel", root);
+    if (!btn || !panel) return;
+    const close = function () {
+      panel.style.display = "none";
+      btn.setAttribute("aria-expanded", "false");
+    };
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      if (panel.style.display !== "none") { close(); return; }
+      panel.style.display = "";
+      btn.setAttribute("aria-expanded", "true");
+    });
+    PF.$$("[data-dm-key]", panel).forEach(function (b) {
+      b.addEventListener("click", function () {
+        close();
+        if (typeof onPick === "function") onPick(b.dataset.dmKey);
+      });
+    });
+    document.addEventListener("click", function (e) {
+      if (!root.contains(e.target)) close();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") close();
+    });
+  };
+
+  /** 页头的「历史对话 / 清空对话」：两个对话页共用，省得各写一遍。 */
+  PF.chatActionsHtml = function () {
+    return '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
+           '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>";
+  };
+
   /* ------------------------------------------------- 教师 Copilot 演示（v7.9）
      与上面写死的素材演示不同，这两个**真跑接口**：
        ① 备课 —— 教案 → PPT（≤10 页）→ 作业，三步真实生成，产物进「教学备课」，
@@ -1791,6 +1849,201 @@
     }).join("") + "</div>";
   };
 
+  /* -------------------------------------------- 教师演示 ③ 项目申请批复（v7.9 闭环）
+     学生那边点「帮我申请」落的是一条 pending，这里把它捡起来：
+     给一句按真实字段说的建议，然后真的 decide 一次 —— 演示才能首尾相接。 */
+  PF.TEACHER_DEMOS.review = {
+    key: "review",
+    icon: "briefcase",
+    title: "我有哪些待处理的项目申请？",
+  };
+
+  /** 读待处理申请：GET /api/resources 对教师返回的是 teacher_view（每条申请自带学生画像字段）。 */
+  PF.runReviewDemo = async function (cfg, onStep) {
+    const step = typeof onStep === "function" ? onStep : function () {};
+    step("正在读你发布的资源与收到的申请…");
+    const board = await PF.try(function () {
+      return PF.get("/api/resources", { quiet: true });
+    }, null);
+    let total = 0;
+    const items = [];
+    PF.arr(board && board.resources).forEach(function (r) {
+      PF.arr(r && r.applications).forEach(function (a) {
+        total += 1;
+        if (String(a.status || "") !== "pending") return;
+        items.push({
+          id: a.id, resource_id: r.id,
+          resource_title: r.title || "", rtype_label: r.rtype_label || "资源",
+          capacity: Number(r.capacity || 0), accepted: Number(r.accepted || 0),
+          deadline: r.deadline || "",
+          student: a.student_name || "", username: a.student_username || "",
+          klass: a.class_name || a.class_id || "",
+          track: a.track || "", grade_level: a.grade_level || "",
+          gpa: a.gpa === undefined ? null : Number(a.gpa),
+          message: a.message || "", at: a.created_at || "",
+        });
+      });
+    });
+    PF.TEACHER_DEMOS.review._items = items;
+    return { key: "review", items: items, total: total,
+             resources: PF.arr(board && board.resources).length };
+  };
+
+  /** 每条申请怎么回：只用真实字段（名额余量 / 绩点 / 倾向 / 层次）下判断，不编数字。
+   *  名额用完时不建议直接婉拒 —— 一句「排候补」比一句「不合适」有用。 */
+  PF.reviewAdviceOf = function (it) {
+    const x = it || {};
+    const left = Number(x.capacity) > 0 ? Number(x.capacity) - Number(x.accepted || 0) : -1;
+    if (left === 0) {
+      return {
+        tag: "名额已满",
+        name: "先回一句「列候补」，别直接婉拒",
+        desc: "《" + x.resource_title + "》的 " + PF.num(x.capacity, 0) + " 个名额已经用完" +
+          "（已通过 " + PF.num(x.accepted, 0) + " 人）。直接婉拒会让他以为是自己不合适 —— " +
+          "回一句「你排候补第一位，有名额优先通知」，后面有人退出时他还能直接顶上。",
+      };
+    }
+    const bits = [];
+    // 注意：库里的 gpa 是**百分制**（满分 100，见 student_profiles），别按 4 分制判。
+    if (x.gpa !== null && Number(x.gpa) > 0) {
+      bits.push(Number(x.gpa) >= 85
+        ? "绩点 " + PF.num(x.gpa, 1) + "，在班里排得上"
+        : (Number(x.gpa) >= 75
+          ? "绩点 " + PF.num(x.gpa, 1) + "（中等，看完成时的执行力）"
+          : "绩点 " + PF.num(x.gpa, 1) + " 不算好看，但留言里写清了自己想补哪一块"));
+    }
+    if (x.track) bits.push("画像是" + x.track);
+    if (x.grade_level) bits.push("内容深度走" + x.grade_level + "层");
+    return {
+      tag: left > 0 ? "还剩 " + left + " 个名额" : "名额未设上限",
+      name: "建议通过，并在回复里写明第一步",
+      desc: (bits.length ? bits.join("，") + "；" : "") +
+        "留言里说清了他现在会什么、想承担哪一块，属于能立刻上手的那类 —— " +
+        "通过时把「第一周跟一次完整迭代，之后独立负责一个子模块」写进回复，比只说欢迎有用。",
+    };
+  };
+
+  /** 批复的回复语：点按钮就照这个提交（不是装饰，学生会真的看到这句话）。 */
+  PF.reviewReply = function (it, act) {
+    const who = ((it && it.student) || "同学");
+    const title = (it && it.resource_title) || "该项目";
+    if (act === "accepted") {
+      return who + "同学：你的申请通过了，欢迎进组。第一周先跟一次完整迭代（看需求 → 提 PR → 过评审），"
+        + "之后独立负责《" + title + "》里的一个子模块，每周同步一次进度。卡住直接在平台上问我。";
+    }
+    return who + "同学：《" + title + "》这轮名额已经排满，我把你放在候补第一位，"
+      + "有名额空出或开新项目时第一时间通知你。这段时间可以先把手上的任务收尾，"
+      + "把之前的项目整理成一份可交付的成果 —— 下次有位置的时候这就是材料。";
+  };
+
+  /** 批复演示结果：每条一张卡（谁、申请什么、留言、怎么建议、两个真按钮）。 */
+  PF.reviewResultHtml = function (res) {
+    const r = res || {};
+    const items = PF.arr(r.items);
+    if (!items.length) {
+      return '<div class="dm-lead">你现在没有待处理的申请' +
+        (Number(r.total) ? "（共 " + PF.num(r.total, 0) + " 条都已处理完）" : "") +
+        "。想看这条链路怎么走：用学生账号在 Copilot 里点「就业例子演示 → 帮我申请」，"
+        + "那条申请会立刻出现在这里。</div>" +
+        '<div class="dm-note">' + PF.icon("info", 13) +
+        "<div><b>演示顺序：</b>学生端提交 → 教师端在这里批复 → 学生的「我的申请」状态变了，" +
+        "并自动给他建一条跟进任务。两侧是同一份数据。</div></div>";
+    }
+    let html = '<div class="dm-lead">你发布的 ' + PF.num(Number(r.resources) || 0, 0) +
+      " 项资源上，有 <b>" + PF.num(items.length, 0) + " 条待你处理</b> —— " +
+      "每条都附了这个学生的真实画像字段，并给了一句建议。点「同意加入」就是真的批，不是演示按钮。</div>";
+    html += '<div class="dm-apps">' + items.map(function (it) {
+      const ad = PF.reviewAdviceOf(it);
+      return '<div class="dm-app" data-app="' + PF.esc(it.id) + '">' +
+        '<div class="dm-app__head">' +
+          '<div class="dm-app__who">' + PF.esc(it.student) +
+            ' <span class="t-xs t-dim">' + PF.esc(it.username) + " · " + PF.esc(it.klass) + "</span></div>" +
+          '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+            PF.trackBadge(it.track) + PF.levelTag(it.grade_level, true) +
+            (it.gpa !== null ? '<span class="badge">绩点 ' + PF.num(it.gpa, 2) + "</span>" : "") +
+            '<span class="badge">' + PF.esc(it.rtype_label) + "</span>" +
+          "</div>" +
+        "</div>" +
+        '<div class="dm-app__meta">申请《' + PF.esc(it.resource_title) + "》" +
+          (it.capacity > 0 ? " · 名额 " + PF.num(it.capacity, 0) + "（已通过 " + PF.num(it.accepted, 0) + "）" : "") +
+          (it.deadline ? " · 截止 " + PF.esc(it.deadline) : "") + "</div>" +
+        (it.message ? '<div class="dm-snip">「' + PF.esc(PF.trunc(it.message, 120)) + "」</div>" : "") +
+        '<div class="dm-item" style="padding:0;border:none">' +
+          '<div class="dm-item__body">' +
+            '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+              '<span class="dm-via">' + PF.esc(ad.tag) + "</span>" +
+              '<span class="dm-kp">' + PF.esc(ad.name) + "</span>" +
+            "</div>" +
+            '<div class="dm-sub">' + PF.esc(ad.desc) + "</div>" +
+          "</div>" +
+        "</div>" +
+        '<div class="dm-app__acts">' +
+          '<button class="btn btn--sm btn--primary" data-decide="' + PF.esc(it.id) +
+            '" data-act="accepted">' + PF.icon("check", 13) + "同意加入</button>" +
+          '<button class="btn btn--sm" data-decide="' + PF.esc(it.id) +
+            '" data-act="declined">' + PF.icon("x", 13) + "排候补并说明</button>" +
+        "</div>" +
+        '<div class="dm-app__done" style="display:none"></div>' +
+        "</div>";
+    }).join("") + "</div>";
+    html += '<div class="dm-note">' + PF.icon("link", 13) +
+      "<div><b>批完之后：</b>学生那边「我的申请」会立刻变成已通过/已婉拒，并带上你写的回复；" +
+      "通过的话还会顺手给他建一条跟进任务（" +
+      '<a href="/resources">资源管理</a> 里能看到同一份名单）。</div></div>';
+    html += PF.demoGuides({ key: "review", guides: PF.teacherGuidesOf("review") }, "teacher");
+    return html;
+  };
+
+  /** 绑定批复按钮：一次性的，点完就地显示结果，不整轮重画。 */
+  PF.bindReviewDecide = function (scope, opts) {
+    const o = opts || {};
+    PF.$$("[data-decide]", scope).forEach(function (b) {
+      if (b.dataset.decideBound) return;
+      b.dataset.decideBound = "1";
+      b.addEventListener("click", async function () {
+        const card = b.closest(".dm-app");
+        const id = b.dataset.decide;
+        const act = b.dataset.act === "declined" ? "declined" : "accepted";
+        const list = PF.arr(PF.TEACHER_DEMOS.review && PF.TEACHER_DEMOS.review._items);
+        const it = list.filter(function (x) { return String(x.id) === String(id); })[0] || {};
+        const acts = PF.$(".dm-app__acts", card);
+        const done = PF.$(".dm-app__done", card);
+        if (acts) acts.style.display = "none";
+        PF.busy(b, true, "提交中");
+        const d = await PF.try(function () {
+          return PF.post("/api/teacher/applications/" + id + "/decide", {
+            action: act, reply: PF.reviewReply(it, act),
+          });
+        }, null);
+        PF.busy(b, false);
+        if (!d) {
+          if (acts) acts.style.display = "";
+          if (done) {
+            done.style.display = "";
+            done.innerHTML = PF.icon("alert", 13) + " 这次没能提交成功，稍后再试一次。";
+          }
+          return;
+        }
+        const rec = { student: it.student, resource_title: it.resource_title, action: act,
+                      reply: PF.reviewReply(it, act) };
+        // 记住批过谁，引导那条「入组须知」要用
+        PF.TEACHER_DEMOS.review._decided = PF.arr(PF.TEACHER_DEMOS.review._decided).concat([rec]);
+        if (done) {
+          done.style.display = "";
+          done.innerHTML = PF.icon("check", 14) +
+            (act === "accepted"
+              ? " 已通过《" + PF.esc(it.resource_title) + "》 —— " + PF.esc(it.student) +
+                " 那边立刻能看到，并自动给他建了一条跟进任务" +
+                (Number(d.task_created) ? "（已建）" : "")
+              : " 已回复《" + PF.esc(it.resource_title) + "》 —— " + PF.esc(it.student) +
+                " 那边会看到候补说明");
+        }
+        if (card) card.classList.add(act === "accepted" ? "is-ok" : "is-no");
+        if (typeof o.onDone === "function") o.onDone(rec, d);
+      });
+    });
+  };
+
   /** 一组 blocks → 可存的纯文本（引导里「顺手存一份」用）。 */
   PF.blocksToText = function (title, blocks, lead) {
     const L = ["# " + (title || "整理结果"), ""];
@@ -1957,6 +2210,46 @@
           desc: "用 10 分钟讲清「做了什么、结论是什么、哪里还不确定」，讲不清的地方就是下一步要补的地方。" },
       ],
       advice: "四周只有一个目标：让他把一件事做完并能讲清楚。做完了再往上加，别一次排满。",
+      adviceLabel: "用法",
+    },
+    "review.brief": {
+      icon: "briefcase",
+      ask: "要不要把这次的批复结果与进组安排，整理成一份入组须知存进资料库？",
+      label: "入组须知",
+      lead: "已按你刚才的批复整理成一份能直接发给学生看的须知，并存进「资料与知识库 / 教学备课」：",
+      run: async function () {
+        const D = PF.TEACHER_DEMOS.review || {};
+        const recs = PF.arr(D._decided);
+        const rec = recs[recs.length - 1] || PF.arr(D._items)[0] || null;
+        const self = PF.TEACHER_GUIDES["review.brief"];
+        const title = (rec && rec.resource_title)
+          ? rec.resource_title + " · 入组须知" : "项目申请 · 入组须知";
+        const lead = rec
+          ? "面向本轮《" + rec.resource_title + "》的进组同学（批复内容：" +
+            (rec.action === "accepted" ? "已通过" : "排候补") + "）："
+          : "";
+        const note = await PF.try(function () {
+          return PF.post("/api/materials/note", {
+            title: title, content: PF.blocksToText(title, self.blocks, lead),
+            category: "教学备课", course: "",
+          });
+        }, null);
+        return note ? { note: note, title: title } : null;
+      },
+      statusText: function (st) {
+        return "已存入「资料与知识库 / 教学备课」：" + PF.esc(st.note.filename || st.title || "");
+      },
+      blocks: [
+        { tag: "第 1 周", name: "① 先跟一次完整迭代，别急着接任务",
+          desc: "完整看一遍：需求从哪来 → 代码怎么提（提 PR）→ 评审时看什么。跟完一次再开工，后面的返工少一半。" },
+        { tag: "每周同步", name: "② 每周三句话：进度、卡点、下周计划",
+          desc: "不用写周报，三句话就够：做到哪了、卡在哪、下周打算怎么办。卡点越早说越好，攒到月底没人救得了。" },
+        { tag: "交付标准", name: "③ 什么叫「做完了」",
+          desc: "有可见产物（一个页面、一张图、一个能跑的脚本），并且别人能照着跑出来 —— 这两条满足才算完成。" },
+        { tag: "退出机制", name: "④ 中途跟不上怎么办",
+          desc: "连续两周没产出就主动说，调子模块的规模或换个方向，比硬扛到学期末强。候补的同学随时按这个标准顶上。" },
+      ],
+      advice: "须知是直接给学生看的口径：写清「第一周做什么、什么叫做完」，比口头交代省事得多。",
       adviceLabel: "用法",
     },
   };

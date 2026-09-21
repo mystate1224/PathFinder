@@ -3132,3 +3132,60 @@ html[data-theme="dark"] .dm-total { border-color: var(--brand-300, #3d4ce2); }
 
 html[data-theme="dark"] .dm-prod { background: var(--surface-2, #1b2333); }
 html[data-theme="dark"] .dm-coach { border-color: var(--brand-300, #3d4ce2); }
+
+/* ============================================================ v7.9 补（2026-09-21）
+   ① 页头「例子演示」下拉（演示条目多了不能平铺）；② 项目申请批复卡。
+   延续既有取舍：要区分度不要大色块，卡片用边框 + 小图标，不写满底色。 */
+.dm-menu { position: relative; }
+.dm-menu__chev { display: inline-flex; margin-left: 2px; opacity: .75; }
+.dm-menu__panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;
+  min-width: 268px; padding: 6px; border-radius: 12px;
+  border: 1px solid var(--border, #dce6f2);
+  background: var(--surface, #fff);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .14);
+}
+.dm-menu__tip {
+  padding: 5px 8px 7px; font-size: 11px; line-height: 1.5;
+  color: var(--ink-500, #64748b); border-bottom: 1px dashed var(--border, #dce6f2);
+}
+.dm-menu__item {
+  display: flex; gap: 9px; align-items: flex-start; width: 100%;
+  padding: 8px; margin-top: 4px; border: 0; border-radius: 9px; cursor: pointer;
+  text-align: left; background: transparent;
+  font: inherit; color: var(--ink-800, #1e293b);
+  transition: background .16s ease;
+}
+.dm-menu__item:hover { background: var(--brand-50, #f0f1ff); }
+.dm-menu__ic {
+  flex: 0 0 26px; width: 26px; height: 26px; border-radius: 8px;
+  display: grid; place-items: center;
+  background: var(--brand-50, #f0f1ff); color: var(--brand-600, #3d4ce2);
+}
+.dm-menu__tx { display: grid; gap: 2px; min-width: 0; }
+.dm-menu__tx b { font-size: 13px; font-weight: 600; }
+.dm-menu__tx .t-xs { line-height: 1.45; }
+
+/* —— 项目申请批复：一人一张卡，卡内自带两个真按钮 —— */
+.dm-apps { margin-top: 10px; display: grid; gap: 10px; }
+.dm-app {
+  padding: 10px 11px; border-radius: 12px;
+  border: 1px solid var(--border, #dce6f2); background: var(--surface, #fff);
+  border-left: 3px solid var(--brand-300, #8b93ff);
+}
+.dm-app.is-ok { border-left-color: var(--accent-500, #17c9a8); }
+.dm-app.is-no { border-left-color: var(--warn-500, #f59e0b); }
+.dm-app__head { display: grid; gap: 5px; margin-bottom: 5px; }
+.dm-app__who { font-size: 13.5px; font-weight: 700; color: var(--ink-800, #1e293b); }
+.dm-app__meta { font-size: 11.5px; color: var(--ink-500, #64748b); line-height: 1.6; }
+.dm-app__acts { display: flex; gap: 8px; margin-top: 9px; }
+.dm-app__done {
+  margin-top: 8px; padding: 7px 9px; border-radius: 9px; font-size: 12px;
+  line-height: 1.6; background: var(--brand-50, #f0f1ff);
+  color: var(--ink-700, #334155);
+}
+
+html[data-theme="dark"] .dm-menu__panel { background: var(--surface-2, #1b2333); }
+html[data-theme="dark"] .dm-menu__item:hover { background: rgba(122, 132, 255, .16); }
+html[data-theme="dark"] .dm-app { background: var(--surface-2, #1b2333); }
+html[data-theme="dark"] .dm-app__done { background: rgba(122, 132, 255, .14); }

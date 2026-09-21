@@ -784,6 +784,45 @@ def test_student(c: Client) -> None:
                 f" → 重复提交被拒")
     c.check("就业演示 · 项目可真实申请（含重复拦截）", demo_apply)
 
+    # --- v7.9 闭环：学生在 Copilot 里提交 → 教师在 Copilot 里批复 → 学生看到通过 + 跟进任务 ---
+    def demo_decide():
+        """前端教师演示「项目申请例子」会真的调 decide，这条链路必须双向都成立：
+        教师批复后，学生的「我的申请」状态与教师回复要立刻变，并且自动多一条跟进任务。
+        断掉任意一环，演示就变成「点了没反应」。"""
+        title = "学业导航平台前端可视化（校企共建）"
+        t = Client(c.base)
+        t.login("teacher")
+        board = t.api("GET", "/api/resources")
+        target = None
+        for r in board["resources"]:
+            for a in r.get("applications") or []:
+                if (a.get("status") == "pending"
+                        and (r.get("title") or "") == title):
+                    target = (r, a)
+                    break
+            if target:
+                break
+        need(target, f"《{title}》上没有待处理申请 —— 教师侧的批复演示会空列表")
+        _, app = target
+        reply = "冒烟：欢迎进组，第一周先跟一次完整迭代。"
+        d = t.api("POST", f"/api/teacher/applications/{app['id']}/decide",
+                  {"action": "accepted", "reply": reply})
+        need(d.get("status") == "accepted", f"批复未生效：{d}")
+        need(d.get("task_created"), "通过后应自动给学生建一条跟进任务")
+        mine = c.api("GET", "/api/resources/applications/mine")
+        hit = [a for a in mine["applications"] if (a.get("resource_title") or "") == title]
+        need(hit and hit[0].get("status") == "accepted",
+             f"学生侧没看到通过：{[ (a.get('resource_title'), a.get('status')) for a in mine['applications'] ]}")
+        need(reply[:8] in (hit[0].get("teacher_reply") or ""), "学生侧没收到教师回复原文")
+        rows = (c.api("GET", "/api/student/tasks").get("tasks") or [])
+        follow = [x for x in rows if "前端可视化" in str(x.get("title") or "")]
+        need(follow, f"自动跟进任务没出现在学生任务里：{[x.get('title') for x in rows][:5]}")
+        need(str(follow[0].get("status")) == "todo",
+             f"跟进任务应为待办，实际 {follow[0].get('status')}")
+        return (f"教师批复通过 → 学生侧「{hit[0].get('status_text')}」+ 收到回复，"
+                f"并自动生成跟进任务《{follow[0].get('title')}》")
+    c.check("申请闭环（学生提交 → 教师批复 → 状态与跟进任务）", demo_decide)
+
     # --- 作业 ---
     def homework():
         d = c.api("GET", "/api/homework/mine")

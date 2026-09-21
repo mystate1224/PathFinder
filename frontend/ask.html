@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>学生 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=21">
+<link rel="stylesheet" href="/static/css/style.css?v=22">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -20,7 +20,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=12"></script>
+<script src="/static/js/common.js?v=13"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -36,15 +36,17 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     desc: "又能问答，又能整理：问卡住的知识点，或把图文素材交给它 —— 解析、抽知识点、给溯源，还能存成笔记放进「我的资料库」。",
     wide: true,
     actions:
-      '<button class="btn" id="btn-demo-text">' + PF.icon("file", 15) + "文本例子演示</button>" +
-      '<button class="btn" id="btn-demo-image">' + PF.icon("image", 15) + "图片例子演示</button>" +
-      '<button class="btn" id="btn-demo-job">' + PF.icon("briefcase", 15) + "就业例子演示</button>" +
-      '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
-      '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
+      PF.demoMenuHtml([
+        { key: "text", icon: "file", label: "文本素材例子", hint: "课件 / 论文：解析 + 抽知识点 + 溯源" },
+        { key: "image", icon: "image", label: "图片素材例子", hint: "手写作业图：去水印 + 读图 + 答疑" },
+        { key: "job", icon: "briefcase", label: "就业规划例子", hint: "问路线 → 给建议 → 帮你提交项目申请" },
+      ], { label: "例子演示", tip: "挑一个，跑一遍完整流程（会真的调用接口）" }) +
+      PF.chatActionsHtml(),
   });
-  PF.$("#btn-demo-text").addEventListener("click", function () { runDemo("text"); });
-  PF.$("#btn-demo-image").addEventListener("click", function () { runDemo("image"); });
-  PF.$("#btn-demo-job").addEventListener("click", function () { runDemo("job"); });
+  PF.bindDemoMenu(PF.$("[data-dm-menu]"), function (k) {
+    if (k === "job") { runDemo("job"); return; }
+    runDemo(k);
+  });
 
   const META = (await PF.try(function () { return PF.get("/api/meta", { quiet: true }); }, {})) || {};
   const COURSES = PF.arr(META.my_courses);
