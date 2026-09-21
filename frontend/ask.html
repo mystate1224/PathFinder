@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>学生 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=26">
+<link rel="stylesheet" href="/static/css/style.css?v=27">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -65,8 +65,17 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         '<div class="qa-main__scroll" id="chat">' + PF.loading("正在读取对话") + "</div>" +
         '<div class="qa-main__foot">' +
           '<div class="row" style="gap:8px;margin-bottom:8px">' +
-            '<select class="select select--sm" id="c-course" style="width:160px"><option value="">全部课程</option>' +
-              COURSES.map(function (c) { return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>"; }).join("") +
+            /* 范围下拉：学业（按课程收窄）与事业（就业与发展）两条路都要能选，
+               只给课程会让人以为这里只能问课内的东西。
+               值用前缀区分类型：course:<课程名> 限定课程，career 切到事业取向。 */
+            '<select class="select select--sm" id="c-scope" style="width:172px">' +
+              '<option value="">不限范围</option>' +
+              (COURSES.length
+                ? '<optgroup label="学业 · 课程">' + COURSES.map(function (c) {
+                    return '<option value="course:' + PF.esc(c) + '">课程 · ' + PF.esc(c) + "</option>";
+                  }).join("") + "</optgroup>"
+                : "") +
+              '<option value="career">事业 · 就业与发展</option>' +
             "</select>" +
             '<select class="select select--sm" id="c-top" style="width:110px">' +
               '<option value="4">引用 4 段</option><option value="6">引用 6 段</option>' +
@@ -199,10 +208,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     if (i < 0 || !ROUNDS[i]) {
       chat.innerHTML =
         '<div class="msg msg--ai"><div class="msg__avatar">AI</div>' +
-          '<div class="msg__bubble">你好，我是这门课的 AI 助教。' +
+          '<div class="msg__bubble">' +
+          PF.esc((me && me.name) ? me.name + "同学你好，我是助教小寻。" : "你好，我是助教小寻。") +
+          "学业上的问题、就业与发展的打算，都可以问我。" +
           "提问时我会先看你的画像，再决定从哪里讲起、讲多深；" +
-          "答案只引用教师上传的课件原文，没有依据的地方会直接说明。\n\n" +
-          "可以先问一个你最近卡住的知识点。左侧「对话」里能新开一次，也能回到以前某一次继续问。</div></div>";
+          "答案只引用库里能溯源的材料，没有依据的地方会直接说明。\n\n" +
+          "可以先问一个你最近卡住的知识点，也可以问问简历和岗位准备。左侧「对话」里能新开一次，也能回到以前某一次继续问。</div></div>";
       paintDock();
       return;
     }
@@ -308,9 +319,13 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     paintDock();
 
     try {
+      const scopeVal = PF.$("#c-scope").value;
       const d = await PF.post("/api/tutor/ask", {
         question: q,
-        course: PF.$("#c-course").value,
+        course: scopeVal.indexOf("course:") === 0 ? scopeVal.slice(7) : "",
+        /* 选了「事业 · 就业与发展」就按事业取向组织这一轮（不按课程收窄检索，
+           简历 / 岗位 / 项目这类不带课程名的材料才检索得到） */
+        focus: scopeVal === "career" ? "事业型" : "",
         top_k: Number(PF.$("#c-top").value),
         session_id: sess.current,          // 不传后端会新开一次；传了就续上这一轮
         strategy: strategy,                // auto = 按问题自动选五种架构之一

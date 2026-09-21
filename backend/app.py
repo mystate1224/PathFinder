@@ -535,6 +535,7 @@ def api_tutor_ask(payload: dict = Body(default={}), user: dict = Depends(require
         top_k=_int(payload, "top_k", 4) or 4,
         session_id=_str(payload, "session_id"),
         strategy=_str(payload, "strategy") or "auto",
+        focus=_str(payload, "focus"),
     )
     return ok(result)
 

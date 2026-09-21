@@ -183,11 +183,16 @@ def ask(
     top_k: int = 4,
     session_id: str = "",
     strategy: str = "auto",
+    focus: str = "",
 ) -> dict:
     """分层答疑。返回 ``{answer, refs, layer, style, engine, hits, rag, session_id}``。
 
     ``strategy``：``auto`` 走 RAG 路由（按问题选五种架构之一），也可显式指定
     ``hybrid / graph / agentic / corrective / multimodal`` 供演示对比。
+
+    ``focus``：学生在本轮选择的取向——``学业型``（按课程问）或 ``事业型``
+    （就业与发展）。给了就**只覆盖这一轮**的答疑口吻与下一步建议，不改画像；
+    留空则仍按画像里的主标签走。
     """
     question = (question or "").strip()
     if not question:
@@ -200,6 +205,9 @@ def ask(
 
     profile = db.student_profile(user_id) or {}
     track = str(profile.get("track") or "学业型")
+    if focus in ("学业型", "事业型"):
+        # 本轮取向：学生既能问学业也能问事业，选了就按选的讲（不落库、不改画像）
+        track = focus
     level = str(profile.get("grade_level") or "B")
     interests = profile.get("interests") or []
 
