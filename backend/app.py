@@ -1739,7 +1739,7 @@ def api_selfcheck(user: dict = Depends(current_user)):
         return f"engine={res.get('engine')}，层级={res.get('layer') or '未定'}，" \
                f"引用 {len(res.get('refs') or [])} 条"
 
-    run("分层答疑", _tutor)
+    run("学生 Copilot", _tutor)
 
     # --- 能力④备课 ---
     def _lesson() -> str:

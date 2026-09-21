@@ -1801,7 +1801,7 @@
     student: [
       { group: "我的成长", items: [
         { key: "student", href: "/student", label: "我的画像", icon: "compass" },
-        { key: "ask", href: "/ask", label: "分层答疑", icon: "message" },
+        { key: "ask", href: "/ask", label: "学生 Copilot", icon: "message" },
         { key: "match", href: "/match", label: "团队匹配", icon: "users" },
       ]},
       { group: "学习事务", items: [

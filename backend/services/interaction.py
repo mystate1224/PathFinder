@@ -66,7 +66,7 @@ QUESTION_TYPES: dict[str, list[dict[str, Any]]] = {
 # ================================================================ 与谁交互
 COUNTERPART: dict[str, dict[str, Any]] = {
     "student": {
-        "agent": "学生 AI 分层答疑智能体",
+        "agent": "学生 Copilot 智能体",
         "who": "学生本人（一对一，不公开、不进班级排行）",
         "escalate_to": "授课教师（答不上来或需要人工判定时，给出「转问老师」动作）",
         "memory": "多轮上下文 + 学生画像（主标签 / 学业层次 / 兴趣方向）",

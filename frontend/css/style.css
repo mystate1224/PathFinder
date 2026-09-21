@@ -2897,15 +2897,13 @@ html[data-theme="dark"] .mk-pct--orange, html[data-theme="dark"] .mk-score--oran
 html[data-theme="dark"] .mk-pct--vivid,  html[data-theme="dark"] .mk-score--vivid .mk-score__n,  html[data-theme="dark"] .mk-cell--vivid  { color: #a78bfa; }
 html[data-theme="dark"] .mk-pct--danger, html[data-theme="dark"] .mk-score--danger .mk-score__n, html[data-theme="dark"] .mk-cell--danger { color: #f87171; }
 
-/* ============================================================ v7.4 统计卡点缀区分（2026-09-20）
-   用户反馈：整卡实底分色（v7.2 棋盘）太重已撤，但仍希望同一网格里
-   不同格子之间有区分度。方案：只在卡片顶部压一条 3px 细色条 ——
-   奇数卡宝蓝渐变、偶数卡荧光黄绿，面积几乎为零，蓝黄两色都来自现有系统色。
-   黄绿只做块面不承载文字（对白对比 1.20 的老规矩）；色值写死不引令牌（原因同 v7）。 */
+/* ============================================================ 统计卡顶部 3px 点缀色条（v7.4 引入，v7.6 统一为蓝）
+   只在卡片顶部压一条 3px 细色条，面积几乎为零。最初是奇数宝蓝 / 偶数黄绿做区分，
+   v7.6 按用户反馈统一成同一条宝蓝渐变（黄绿版已撤）；
+   色值写死不引令牌（原因同 v7）。 */
 .stat { position: relative; overflow: hidden; }
 .stat::before {
   content: "";
   position: absolute; top: 0; left: 0; right: 0; height: 3px;
   background: linear-gradient(90deg, #4353ff, #6366f1);
 }
-.stat:nth-child(even)::before { background: #d6f94b; }

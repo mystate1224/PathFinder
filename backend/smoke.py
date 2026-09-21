@@ -569,7 +569,7 @@ def test_student(c: Client) -> None:
         need(d["layer"], "答疑没有带出分层标签")
         need(d["hits"], "答疑没有引用来源")
         return f"层级「{d['layer']}」，引用 {len(d['refs'])} 条，engine={d['engine']}"
-    c.check("分层答疑", tutor)
+    c.check("学生 Copilot", tutor)
 
     def tutor_scope():
         d = c.api("POST", "/api/tutor/ask", {"question": "卷积的池化有什么用？", "course": "深度学习"})
