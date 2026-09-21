@@ -76,6 +76,29 @@ def paper(w: int, h: int, tint=PAPER) -> Image.Image:
     return Image.new("RGB", (w, h), tint)
 
 
+def hand_lines(img: Image.Image, x: int, y: int, lines: list[str], fnt, seed: int = 3,
+               gap: int = 48) -> int:
+    """逐字轻微抖动 + 旋转地写几行字，模拟真实手写（含英文与代码也能排）。
+
+    单独抽出来是因为「手写作业 / C 语言实验」两张图都要用，
+    复制两遍迟早会改歪一边。
+    """
+    rnd = random.Random(seed)
+    for line in lines:
+        if not line:
+            y += gap // 2
+            continue
+        cx = float(x)
+        for ch in line:
+            ch_img = Image.new("RGBA", (60, 60), (0, 0, 0, 0))
+            ImageDraw.Draw(ch_img).text((6, 4), ch, font=fnt, fill=(34, 48, 74, 255))
+            ch_img = ch_img.rotate(rnd.uniform(-2.8, 2.8), resample=Image.BICUBIC)
+            img.paste(ch_img, (int(cx), int(y) + rnd.randint(-2, 2)), ch_img)
+            cx += fnt.getlength(ch) + rnd.uniform(-1.0, 1.4)
+        y += gap
+    return y
+
+
 def watermark(img: Image.Image, text: str) -> None:
     """斜向半透明水印 —— 演示时会被「水印」去杂规则命中。"""
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -350,9 +373,144 @@ def make_c_notes() -> Path:
     return path
 
 
+# ================================================================ 图五：矩阵作业（Copilot 引导演示）
+def make_matrix_hw() -> Path:
+    """学生 Copilot「引导问答」点开后自动上传的那份作业：第 3 章矩阵，红笔已批。
+
+    三道题刻意在**得分与错因**上和前端写死的批改演示一一对应：
+    第 1 题全对 30/30、第 2 题代数余子式符号错 27/35、第 3 题零因子结论错 25/35，
+    合计 82/100 —— 界面上写的建议分就是这张图上的分，别让两处对不上。
+    """
+    W, H = 1100, 1000
+    img = paper(W, H)
+    d = ImageDraw.Draw(img)
+    f_title, f_body, f_hand, f_red = (font("bold", 32), font("regular", 23),
+                                      font("hand", 27), font("hand", 25))
+
+    d.text((70, 44), "线性代数 · 作业三（第 3 章 矩阵）", font=f_title, fill=INK)
+    d.text((70, 94), "姓名：林思远    学号：stu02    班级：CS2301", font=f_body, fill=INK_SOFT)
+    d.line([(70, 132), (W - 70, 132)], fill=(214, 224, 238), width=2)
+
+    y = 158
+    y = paragraph(d, (70, y), "第 1 题（30 分）用初等行变换求 A 的秩：A = [1 2 3; 2 4 6; 1 0 1]",
+                  f_body, W - 150, 34)
+    y = hand_lines(img, 84, y + 6, [
+        "解：r2 - 2r1,  r3 - r1  得  [1 2 3; 0 0 0; 0 -2 -2]",
+        "交换 r2 与 r3 -> [1 2 3; 0 -2 -2; 0 0 0]",
+        "非零行 2 行，故 rank(A) = 2",
+    ], f_hand, seed=3, gap=46)
+    d = ImageDraw.Draw(img)
+    d.text((100, y + 4), "批：步骤清楚，结论正确   30 / 30", font=f_red, fill=RED)
+    y += 82
+
+    y = paragraph(d, (70, y), "第 2 题（35 分）判断 B = [1 2; 3 4] 是否可逆；若可逆，用伴随矩阵求 B 的逆。",
+                  f_body, W - 150, 34)
+    y = hand_lines(img, 84, y + 6, [
+        "解：|B| = 1*4 - 2*3 = -2  不等于 0，故 B 可逆。",
+        "代数余子式：A11 = 4, A12 = 2, A21 = 3, A22 = 1",
+        "B* = [4 2; 3 1]，故 B^-1 = B*/|B| = [-2 -1; -1.5 -0.5]",
+    ], f_hand, seed=17, gap=46)
+    d = ImageDraw.Draw(img)
+    d.text((100, y + 4), "批：A12、A21 漏了 (-1)^(i+j) 的负号   -8   27 / 35", font=f_red, fill=RED)
+    y += 82
+
+    y = paragraph(d, (70, y), "第 3 题（35 分）设 AB = O，能否推出 A = O 或 B = O？请举例或证明。",
+                  f_body, W - 150, 34)
+    y = hand_lines(img, 84, y + 6, [
+        "答：可以。若 AB = O，当 A 不等于 O 时 A 可逆，",
+        "两边左乘 A^-1 即得 B = O，故两者必有一个为零矩阵。",
+    ], f_hand, seed=29, gap=46)
+    d = ImageDraw.Draw(img)
+    d.text((100, y + 4), "批：结论错，矩阵乘法有零因子，上课讲过反例   -10   25 / 35", font=f_red, fill=RED)
+    y += 70
+
+    watermark(img, "作业三  矩阵")
+    grain(img, 5, seed=23)
+    img = img.rotate(-1.0, resample=Image.BICUBIC, fillcolor=PAPER, expand=False)
+    d = ImageDraw.Draw(img)
+    d.line([(70, H - 104), (W - 70, H - 104)], fill=(214, 224, 238), width=2)
+    d.text((70, H - 82), "合计：82 / 100    订正第 2、3 题后重交", font=f_red, fill=RED)
+    d.text((W - 190, H - 82), "第 3 页", font=f_body, fill=INK_SOFT)
+
+    target = ROOT / "frontend" / "img"
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / "matrix-hw.png"
+    img.save(path, quality=92)
+    return path
+
+
+# ================================================================ 图六：C 语言实验作业
+def make_c_hw() -> Path:
+    """图片演示（C 语言指针）点开引导后自动上传的那份上机作业。
+
+    同样与前端写死的建议分对齐：30 分题得 28、35 分题得 24、35 分题得 23，合计 75/100；
+    两个错因（越界、缺 '\\0'）就是演示里给出的改进建议。
+    """
+    W, H = 1100, 1160
+    img = paper(W, H)
+    d = ImageDraw.Draw(img)
+    f_title, f_body, f_hand, f_red = (font("bold", 32), font("regular", 23),
+                                      font("hand", 26), font("hand", 25))
+
+    d.text((70, 44), "C 语言程序设计 · 实验八（指针）", font=f_title, fill=INK)
+    d.text((70, 94), "姓名：林思远    学号：stu02    机位：A-17", font=f_body, fill=INK_SOFT)
+    d.line([(70, 132), (W - 70, 132)], fill=(214, 224, 238), width=2)
+
+    y = 158
+    y = paragraph(d, (70, y), "第 1 题（30 分）用指针实现 swap，并说明为什么传值版本交换失败。",
+                  f_body, W - 150, 34)
+    y = hand_lines(img, 84, y + 6, [
+        "void swap(int *x, int *y) {",
+        "    int t = *x;  *x = *y;  *y = t;",
+        "}",
+        "原因：C 只有值传递，传值改的是副本，函数返回后实参没变。",
+    ], f_hand, seed=5, gap=44)
+    d = ImageDraw.Draw(img)
+    d.text((100, y + 2), "批：正确；实参为空指针时会崩，建议判 NULL   28 / 30", font=f_red, fill=RED)
+    y += 74
+
+    y = paragraph(d, (70, y), "第 2 题（35 分）用指针把数组 a[n] 原地逆序（不得另开数组）。",
+                  f_body, W - 150, 34)
+    y = hand_lines(img, 84, y + 6, [
+        "void rev(int *a, int n) {",
+        "    for (int i = 0; i <= n; i++) {",
+        "        int t = *(a+i); *(a+i) = *(a+n-i); *(a+n-i) = t;",
+        "    }",
+        "}",
+    ], f_hand, seed=19, gap=44)
+    d = ImageDraw.Draw(img)
+    d.text((100, y + 2), "批：i <= n 越界，i=0 时 *(a+n) 越界   -11   24 / 35", font=f_red, fill=RED)
+    y += 74
+
+    y = paragraph(d, (70, y), "第 3 题（35 分）用指针实现字符串拷贝 my_cpy(char *d, const char *s)。",
+                  f_body, W - 150, 34)
+    y = hand_lines(img, 84, y + 6, [
+        "void my_cpy(char *d, const char *s) {",
+        "    while (*s) { *d = *s; d++; s++; }",
+        "}",
+    ], f_hand, seed=31, gap=44)
+    d = ImageDraw.Draw(img)
+    d.text((100, y + 2), "批：末尾未写 '\\0'，输出会带脏数据   -12   23 / 35", font=f_red, fill=RED)
+    y += 64
+
+    grain(img, 5, seed=41)
+    img = img.rotate(0.9, resample=Image.BICUBIC, fillcolor=PAPER, expand=False)
+    d = ImageDraw.Draw(img)
+    d.line([(70, H - 104), (W - 70, H - 104)], fill=(214, 224, 238), width=2)
+    d.text((70, H - 82), "合计：75 / 100    越界与终止符是本实验两个高频错", font=f_red, fill=RED)
+    d.text((W - 190, H - 82), "实验 8", font=f_body, fill=INK_SOFT)
+
+    target = ROOT / "frontend" / "img"
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / "c-hw.png"
+    img.save(path, quality=92)
+    return path
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for fn in (make_courseware, make_homework, make_paper, make_c_notes):
+    for fn in (make_courseware, make_homework, make_paper, make_c_notes,
+               make_matrix_hw, make_c_hw):
         p = fn()
         print("生成", p, f"{p.stat().st_size / 1024:.0f} KB")
 

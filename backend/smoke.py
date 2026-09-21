@@ -662,6 +662,26 @@ def test_student(c: Client) -> None:
                 f"{d['knowledge_points']} 个知识点、索引 {d['indexed']} 片 → 可被检索 → 清理")
     c.check("Copilot 整理结果存成笔记（可选择保存路径）", note)
 
+    def guide_upload():
+        """v7.8 引导问答里「我帮你批改作业」那一步：前端把 /static/img 下的演示作业图
+        真的 POST 给上传接口。这里验证两件事 —— 静态素材可达，且上传链路跑得通；
+        否则点了引导按钮只会看到「未真实入库」的降级文案，演示就假了。"""
+        for name in ("matrix-hw.png", "c-hw.png"):
+            c.raw("GET", f"/static/img/{name}", expect=200)
+        blob = (HERE.parent / "frontend" / "img" / "matrix-hw.png").read_bytes()
+        need(len(blob) > 5000, "演示作业图缺失或过小（先跑 tools/make_samples.py 生成）")
+        body, ctype = multipart(
+            fields={"category": "课程资料", "save": "true"},
+            files=[("files", "线性代数-第3章作业-矩阵.png", blob)],
+        )
+        data = c.form("/api/materials/upload", body, ctype)
+        item = (data.get("files") or [{}])[0]
+        need(item.get("material_id"), f"演示作业图上传失败：{item}")
+        c.api("DELETE", f"/api/materials/{item['material_id']}")
+        return (f"演示作业图（{len(blob) // 1024} KB）→ 上传入库 #{item['material_id']}"
+                f"（engine={item.get('engine')}）→ 清理")
+    c.check("引导问答 · 演示作业图可真实上传入库", guide_upload)
+
     # --- 资源广场 ---
     def hub():
         d = c.api("GET", "/api/resources")

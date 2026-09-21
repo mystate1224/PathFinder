@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=19">
+<link rel="stylesheet" href="/static/css/style.css?v=20">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -19,7 +19,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=10"></script>
+<script src="/static/js/common.js?v=11"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -190,7 +190,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         "</div>" +
         PF.esc(m.content || "") +
         (m.attach || "") +
-        (!isUser && m.demo ? PF.demoAnswerBody(m.demo, FOLDERS) : "") +
+        (!isUser && m.demo ? PF.demoAnswerBody(m.demo, FOLDERS, "teacher") : "") +
+        (!isUser && m.guide ? PF.demoGuideBody(m.guide, m.guideKey, FOLDERS) : "") +
         (!isUser && m.intent === "student" ? studentBlock(data) : "") +
         (!isUser && m.intent === "lesson" ? lessonBlock(data) : "") +
         (!isUser && m.intent === "explain" ? explainBlock(data) : "") +
@@ -290,6 +291,19 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                     data: {}, refs: [], demo: r.demo });
       bindFollowups(chat);
       PF.bindNoteSaver(chat, { onSaved: function () { sess.refresh(); } });
+      PF.bindGuides(chat, { onPick: runGuide });
+      paintDock();
+      const el = PF.$("#chat");
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    if (r.guide) {
+      chat.innerHTML =
+        renderMsg({ role: "user", content: r.q, created_at: r.at, attach: r.attach }) +
+        renderMsg({ role: "assistant", content: "", created_at: r.at,
+                    intent: "", intent_label: r.layer || "作业讲评", engine: "rule",
+                    data: {}, refs: [], guide: r.guide, guideKey: r.guideKey });
+      PF.bindNoteSaver(chat, { onSaved: function () { sess.refresh(); } });
       paintDock();
       const el = PF.$("#chat");
       el.scrollTop = el.scrollHeight;
@@ -387,6 +401,37 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     const chatEl = PF.$("#chat");
     chatEl.scrollTop = chatEl.scrollHeight;
     setTimeout(function () { paintRound(CURRENT); }, 650);
+  }
+
+  /* 引导问答（教师侧）：文案用 askT（讲评/课堂练习视角），流程与学生侧同构。 */
+  function runGuide(gkey) {
+    PF.runCopilotGuide(gkey, {
+      side: "teacher",
+      push: function (guide, k) {
+        const at = new Date().toISOString();
+        const ask = guide.askT || guide.ask;
+        const layer = guide.labelT || guide.label || "资料解析";
+        const attach = guide.attach ? PF.demoAttach(guide.attach) : "";
+        ROUNDS.push({ q: ask, a: "", refs: [], data: null, intent: "",
+                      intent_label: layer, engine: "rule",
+                      at: at, qa: null, rag: null,
+                      guide: guide, guideKey: k, attach: attach });
+        CURRENT = ROUNDS.length - 1;
+        paintDock();
+        PF.$("#chat").innerHTML =
+          renderMsg({ role: "user", content: ask, created_at: at, attach: attach }) +
+          '<div class="msg msg--ai"><div class="msg__avatar">AI</div><div class="msg__bubble">' +
+            '<div class="msg__meta"><span class="t-xs t-strong">Copilot</span>' +
+            '<span class="badge badge--brand">' + PF.esc(layer) + "</span>" +
+            PF.engineBadge("rule") + "</div>" +
+            '<span class="spin"></span> <span class="t-sm t-dim">' +
+            (guide.upload ? "正在调取作业图并逐题解析…" : "正在生成结果…") + "</span></div></div>";
+        const chatEl = PF.$("#chat");
+        chatEl.scrollTop = chatEl.scrollHeight;
+        setTimeout(function () { paintRound(CURRENT); }, 650);
+        return { chat: chatEl, side: "teacher" };
+      },
+    });
   }
 
   /* ---------------------------------------------------------- 发送 */

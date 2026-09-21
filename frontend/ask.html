@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>学生 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=19">
+<link rel="stylesheet" href="/static/css/style.css?v=20">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -20,7 +20,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=10"></script>
+<script src="/static/js/common.js?v=11"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -90,13 +90,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             "</dl>" +
             '<div id="s-caveat"></div>' +
           "</div></div>" +
-        '<div class="card mt-4"><div class="card__head"><h3>引用依据</h3>' +
-          '<div class="card__head-actions"><span class="t-xs" id="ref-cnt">0 条</span></div></div>' +
-          '<div class="card__body" id="refs">' +
-            '<span class="t-dim t-sm">提问后显示命中的课件原文片段。</span>' +
-          "</div></div>" +
-        '<div class="card mt-4"><div class="card__head"><h3>试试这些问题</h3></div>' +
-          '<div class="card__body stack-sm" id="suggest">' + PF.loading("加载中") + "</div></div>" +
       "</div>" +
     "</div>";
 
@@ -186,7 +179,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         "</div>" +
         PF.esc(m.content || "") +
         (m.attach || "") +
-        (!isUser && m.demo ? PF.demoAnswerBody(m.demo, FOLDERS) : "") +
+        (!isUser && m.demo ? PF.demoAnswerBody(m.demo, FOLDERS, "student") : "") +
+        (!isUser && m.guide ? PF.demoGuideBody(m.guide, m.guideKey, FOLDERS) : "") +
         (refs.length ? '<div class="t-xs mt-3" style="color:var(--ink-500)">依据：' +
           refs.slice(0, 3).map(function (r) { return "[" + PF.esc(r) + "]"; }).join(" ") + "</div>" : "") +
         (!isUser && m.rag ? PF.ragCard(m.rag) : "") +
@@ -215,7 +209,18 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         renderMsg({ role: "assistant", content: "", created_at: r.at,
                     layer: "资料解析", engine: "rule", refs: [], demo: r.demo });
       bindFollowups(chat);
-      paintRefs([]);
+      PF.bindNoteSaver(chat, { onSaved: function () { sess.refresh(); } });
+      PF.bindGuides(chat, { onPick: runGuide });
+      paintDock();
+      scrollBottom();
+      return;
+    }
+    if (r.guide) {
+      chat.innerHTML =
+        renderMsg({ role: "user", content: r.q, created_at: r.at, attach: r.attach }) +
+        renderMsg({ role: "assistant", content: "", created_at: r.at,
+                    layer: r.layer, engine: "rule", refs: [],
+                    guide: r.guide, guideKey: r.guideKey });
       PF.bindNoteSaver(chat, { onSaved: function () { sess.refresh(); } });
       paintDock();
       scrollBottom();
@@ -227,7 +232,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                          created_at: r.at, refs: r.refs, qa: r.qa, rag: r.rag,
                          synth: r.synth }) : "");
     bindFollowups(chat);
-    setStyle(r.layer, r.engine, r.refs);
+    setStyle(r.layer, r.engine);
     paintDock();
     scrollBottom();
   }
@@ -248,7 +253,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   }
 
   /* ---------------------------------------------------------- 右侧面板 */
-  function setStyle(layer, engine, refs) {
+  function setStyle(layer, engine) {
     const parts = String(layer || "").split("·").map(function (s) { return s.trim(); });
     PF.$("#s-track").innerHTML = parts[0] ? PF.trackBadge(parts[0]) : "—";
     PF.$("#s-level").innerHTML = parts[1] ? PF.levelTag(parts[1].replace("级", "").trim()) +
@@ -258,32 +263,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     PF.$("#s-caveat").innerHTML = PF.caveat(META.caveats && META.caveats.layer
       ? META.caveats.layer
       : "分层只用于决定推荐内容深度与任务难度，不用于分班、不产生标签。");
-    paintRefs(refs);
-  }
-
-  function paintRefs(refs) {
-    const list = PF.arr(refs);
-    PF.$("#ref-cnt").textContent = list.length + " 条";
-    PF.$("#refs").innerHTML = list.length
-      ? list.map(function (r, i) {
-          return '<div class="ref-item"><div class="ref-item__idx">' + (i + 1) + "</div>" +
-            '<div class="ref-item__text">' + PF.esc(r) + "</div></div>";
-        }).join("")
-      : '<span class="t-dim t-sm">本次未命中课件原文，答案会明确说明这一点。</span>';
-  }
-
-  function paintHits(hits) {
-    const VIA = { "bm25": "关键词", "vec": "语义", "bm25+vec": "双路" };
-    PF.$("#ref-cnt").textContent = PF.arr(hits).length + " 条";
-    PF.$("#refs").innerHTML = PF.arr(hits).map(function (h, i) {
-      return '<div class="ref-item"><div class="ref-item__idx">' + (i + 1) + "</div>" +
-        '<div class="ref-item__text">' +
-          '<div class="row" style="gap:6px"><span class="badge badge--brand">' + PF.esc(VIA[h.via] || h.via || "命中") + "</span>" +
-          '<span class="t-xs t-mono">' + PF.num(h.score, 5) + "</span></div>" +
-          '<div class="t-mono mt-2" style="font-size:11px">' + PF.esc(h.ref || "") + "</div>" +
-          '<div class="mt-2">' + PF.esc(PF.trunc(h.snippet || "", 120)) + "</div>" +
-        "</div></div>";
-    }).join("");
   }
 
   /* ---------------------------------------------------------- 智能体简介卡 */
@@ -339,7 +318,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       sess.current = d.session_id || sess.current;
       await sess.refresh();
       paintRound(CURRENT);
-      if (PF.arr(d.hits).length) paintHits(d.hits);
     } catch (e) {
       ROUNDS[CURRENT].a = "生成失败：" + e.message;
       paintRound(CURRENT);
@@ -373,6 +351,35 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     setTimeout(function () { paintRound(CURRENT); }, 650);
   }
 
+  /* 引导问答：点溯源下方的浅色按钮 → 自动上传作业图 / 出题 / 整理清单，
+     650ms 后由 paintRound 画出写死的结果（上传那一步是真接口）。 */
+  function runGuide(gkey) {
+    PF.runCopilotGuide(gkey, {
+      side: "student",
+      push: function (guide, k) {
+        const at = new Date().toISOString();
+        const layer = guide.label || "资料解析";
+        const attach = guide.attach ? PF.demoAttach(guide.attach) : "";
+        ROUNDS.push({ q: guide.ask, a: "", refs: [], layer: layer, engine: "rule",
+                      at: at, qa: null, rag: null,
+                      guide: guide, guideKey: k, attach: attach });
+        CURRENT = ROUNDS.length - 1;
+        paintDock();
+        PF.$("#chat").innerHTML =
+          renderMsg({ role: "user", content: guide.ask, created_at: at, attach: attach }) +
+          '<div class="msg msg--ai"><div class="msg__avatar">AI</div><div class="msg__bubble">' +
+            '<div class="msg__meta"><span class="t-xs t-strong">AI 助教</span>' +
+            '<span class="badge badge--brand">' + PF.esc(layer) + "</span>" +
+            PF.engineBadge("rule") + "</div>" +
+            '<span class="spin"></span> <span class="t-sm t-dim">' +
+            (guide.upload ? "正在上传作业图并逐题解析…" : "正在生成结果…") + "</span></div></div>";
+        scrollBottom();
+        setTimeout(function () { paintRound(CURRENT); }, 650);
+        return { chat: PF.$("#chat"), side: "student" };
+      },
+    });
+  }
+
   /* ---------------------------------------------------------- 历史与推荐问题 */
   async function loadHistory(sid) {
     try {
@@ -386,32 +393,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     paintRound(CURRENT);
   }
 
-  (async function loadSuggest() {
-    const box = PF.$("#suggest");
+  // 支持 /ask?q=… 带着问题进来直接提问（原「试试这些问题」侧栏已移除，入口保留）
+  (async function autoAsk() {
     const preset = new URLSearchParams(location.search).get("q");
-    const staticQ = [
-      "注意力机制为什么要除以根号 d_k？",
-      "梯度下降的学习率该怎么选？",
-      "Dijkstra 为什么不能处理负权边？",
-      "讲讲知识图谱的表示学习",
-    ];
-    const kps = await PF.try(function () {
-      return PF.get("/api/materials/knowledge", { quiet: true });
-    }, null);
-    const fromKp = PF.arr(kps && kps.knowledge).slice(0, 6).map(function (k) { return "讲讲" + k.name; });
-    const list = (fromKp.length ? fromKp : staticQ).slice(0, 6);
-    box.innerHTML = list.map(function (q) {
-      return '<button class="btn btn--sm q-chip" data-q="' + PF.esc(q) + '">' +
-        PF.icon("message", 12) + PF.esc(PF.trunc(q, 26)) + "</button>";
-    }).join("") + (COURSES.length ? '<div class="t-xs t-dim mt-2">课程范围：' + PF.esc(COURSES.join("、")) + "</div>" : "");
-
-    PF.$$("[data-q]", box).forEach(function (b) {
-      b.addEventListener("click", function () {
-        PF.$("#c-input").value = b.dataset.q;
-        send();
-      });
-    });
-
     if (preset) { PF.$("#c-input").value = preset; send(); }
   })();
 
@@ -431,14 +415,14 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     try {
       await PF.post(API_BASE + "/clear", { session_id: sid });
       ROUNDS = []; CURRENT = -1;
-      setStyle("", "", []);
+      setStyle("", "");
       await sess.refresh();
       paintRound(-1);
       PF.toast("对话已清空", "ok");
     } catch (e) { /* 已提示 */ }
   });
 
-  setStyle("", "", []);
+  setStyle("", "");
   await sess.refresh();
   await loadHistory(sess.current);
 })();

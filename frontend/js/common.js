@@ -748,6 +748,86 @@
         title: "线性代数 · 第3章 矩阵知识点整理",
         body: "线性代数 · 第3章 矩阵 —— 知识点整理\n\n来源：Copilot 解析《线性代数-第3章-矩阵.md》，结合李文博老师《线性代数（2026 春）》课件。\n\n1. 矩阵的定义与记法：m×n 个数排成的矩形数表，行数=列数为方阵。\n2. 矩阵的线性运算：加法要求同型，数乘逐元素，满足交换、结合、分配律。\n3. 矩阵乘法：c_ij = Σ a_ik·b_kj；AB 不等于 BA，但结合律与分配律成立。\n4. 转置与对称矩阵：(AB)^T = B^T·A^T；A^T = A 为对称矩阵。\n5. 矩阵的秩：初等行变换不改变秩，行阶梯形非零行数即 rank(A)。\n6. 可逆矩阵：|A| 不等于 0 当且仅当 A 可逆，A⁻¹ = A*/|A|。\n7. 初等变换与初等矩阵：一次初等行变换 = 左乘一个初等矩阵。\n8. 分块矩阵：diag(A,B) 的秩 = rank(A)+rank(B)。\n\n易错：AB=O 推不出 A=O 或 B=O。",
       },
+      /* v7.8 引导问答：溯源/保存之后给两个浅色按钮，点一下就替你把下一件事做掉。
+         ask = 学生侧文案；askT = 教师侧文案。blocks 逐块渲染，score 有值即显示建议分。 */
+      guides: [
+        {
+          key: "hw",
+          icon: "clipboard",
+          ask: "小寻注意到你最近上传了矩阵作业，需要我帮你批改与解析吗？",
+          askT: "这次矩阵作业全班平均 82 分，第 2、3 题错得集中，要我按典型错因出一份讲评要点吗？",
+          label: "作业批改与解析",
+          labelT: "作业讲评",
+          attach: {
+            material: "线性代数-第3章作业-矩阵.png",
+            materialMeta: "图片素材 · 397 KB · 手写作业照片",
+            img: "/static/img/matrix-hw.png",
+          },
+          upload: { url: "/static/img/matrix-hw.png", filename: "线性代数-第3章作业-矩阵.png",
+                    category: "课程资料", categoryT: "教学备课" },
+          lead: "作业图已收到。按「逐题判定 → 建议分 → 改进建议」批改，每处判定都挂到了课件知识点上：",
+          score: "82", scoreFull: "100",
+          saveQ: "要不要把这份<b>批改与订正结论</b>存成一篇学习笔记，放进「我的资料库」？",
+          blocks: [
+            { tag: "30 / 30 · 正确", name: "第 1 题 · 初等行变换求 rank(A)",
+              desc: "阶梯形化得干净，非零行 2 行，rank(A)=2 过程与结论都对，不需要订正。" },
+            { tag: "27 / 35 · 有误", name: "第 2 题 · 伴随矩阵求逆",
+              desc: "可逆判定对（|B| = -2 不等于 0）；但 A12、A21 两处代数余子式漏乘 (-1)^(i+j)，B* 与 B⁻¹ 整体错。—— 对应课件知识点「伴随矩阵法求逆」。" },
+            { tag: "25 / 35 · 有误", name: "第 3 题 · AB=O 的推断",
+              desc: "结论错：AB=O 推不出 A=O 或 B=O，矩阵乘法存在零因子（反例 A=[1 0; 0 0]、B=[0 0; 0 1]）。—— 对应知识点「矩阵的秩与初等变换」里的秩不等式 rank(A)+rank(B) ≤ n。" },
+          ],
+          advice: "先订正第 2、3 题：求逆改用初等行变换 (B|E) → (E|B⁻¹)，绕开伴随矩阵的符号坑；第 3 题把反例抄进错题本。订正完即可进第 4 章线性方程组。",
+          trace: {
+            main: "批改标准与错因判定，主要依据 李文博 老师《线性代数（2026 春）》课件「第3章-矩阵与线性变换.pptx」的两个知识点（按相关度取前 3）：",
+            ranked: [
+              { score: "0.907", via: "语义", teacher: "李文博 老师", course: "线性代数（2026 春）", file: "第3章-矩阵与线性变换.pptx", kp: "伴随矩阵法求逆",
+                snippet: "代数余子式 Aij 带符号 (-1)^(i+j)；用伴随矩阵求逆时漏符号是最常见的失分点。" },
+              { score: "0.852", via: "双路命中", teacher: "李文博 老师", course: "线性代数（2026 春）", file: "第3章-矩阵与线性变换.pptx", kp: "矩阵的秩与初等变换",
+                snippet: "若 AB = O，则 rank(A) + rank(B) ≤ n；当 A 可逆时才可推出 B = O。" },
+              { score: "0.718", via: "关键词", teacher: "王雪 老师", course: "线性代数（2026 春）", file: "习题课03-矩阵运算.pdf", kp: "零因子与反例",
+                snippet: "取 A = [1 0; 0 0]、B = [0 0; 0 1]，AB = O 但两者都不是零矩阵。" },
+            ],
+          },
+          note: {
+            title: "矩阵作业批改与订正清单（82/100）",
+            body: "线性代数 · 第3章 矩阵作业 —— 批改与订正清单\n\n来源：Copilot 解析《线性代数-第3章作业-矩阵.png》，判定依据为李文博老师《线性代数（2026 春）》课件。\n\n建议分：82 / 100\n\n1. 第 1 题（30/30）初等行变换求秩：正确，无需订正。\n2. 第 2 题（27/35）伴随矩阵求逆：A12、A21 漏乘 (-1)^(i+j)；订正时改用初等行变换 (B|E) → (E|B⁻¹)。\n3. 第 3 题（25/35）AB=O 推断：结论错，矩阵乘法有零因子；反例 A=[1 0; 0 0]、B=[0 0; 0 1]；记秩不等式 rank(A)+rank(B) ≤ n。\n\n下一步：订正第 2、3 题后进第 4 章线性方程组。",
+          },
+        },
+        {
+          key: "quiz",
+          icon: "wand",
+          ask: "要不要我按第 3 章的整理，出 3 道自测题看看掌握情况？",
+          askT: "要我按这次作业的错因分布，配 3 道课堂练习题吗？",
+          label: "生成自测题",
+          labelT: "课堂练习",
+          lead: "已按刚整理的 8 个知识点和你第 3 题的错因配好 3 道自测题（先自己做，再对照考查点）：",
+          saveQ: "要不要把这套<b>自测题</b>存成一篇学习笔记，放进「我的资料库」？",
+          blocks: [
+            { tag: "考点 · 矩阵的秩", name: "第 1 题",
+              desc: "设 A 为 4×3 矩阵且 rank(A)=2，齐次方程组 Ax=0 的解空间维数是多少？说明理由。" },
+            { tag: "考点 · 可逆矩阵", name: "第 2 题",
+              desc: "用初等行变换求 B = [2 1; 5 3] 的逆，并写出每一步对应的初等矩阵。" },
+            { tag: "考点 · 分块矩阵", name: "第 3 题",
+              desc: "设 M = [O B; C O]（B、C 均为 n 阶可逆方阵），证明 M 可逆并求 M⁻¹。" },
+          ],
+          advice: "做完把答案拍给我，我按与作业相同的标准批改。第 1 题对应你这次的零因子漏洞，做错说明秩不等式还要再过一遍。",
+          trace: {
+            main: "题目按 李文博 老师课件「第3章-矩阵与线性变换.pptx」的知识点分布配比生成，难度对齐你当前的层次（B：讲清定义与典型例题）：",
+            ranked: [
+              { score: "0.881", via: "语义", teacher: "李文博 老师", course: "线性代数（2026 春）", file: "第3章-矩阵与线性变换.pptx", kp: "矩阵的秩与初等变换",
+                snippet: "Ax=0 解空间维数 = n - rank(A)，这是秩的几何意义最常考的形态。" },
+              { score: "0.826", via: "关键词", teacher: "王雪 老师", course: "线性代数（2026 春）", file: "习题课03-矩阵运算.pdf", kp: "初等变换求逆",
+                snippet: "(A|E) → (E|A⁻¹)：每做一次行变换记下对应的初等矩阵，考试可直接验算。" },
+              { score: "0.694", via: "语义", teacher: "李文博 老师", course: "高等代数（选修）", file: "第5章-线性空间.pdf", kp: "分块矩阵的逆",
+                snippet: "分块对角与反对角结构先猜 M⁻¹ 的形状，再用分块乘法核验。" },
+            ],
+          },
+          note: {
+            title: "第3章 矩阵 · 3 道自测题",
+            body: "线性代数 · 第3章 矩阵 —— 自测题（按作业错因配置）\n\n第 1 题（考点：矩阵的秩）设 A 为 4×3 矩阵且 rank(A)=2，齐次方程组 Ax=0 的解空间维数是多少？\n\n第 2 题（考点：可逆矩阵）用初等行变换求 B=[2 1; 5 3] 的逆，写出每步对应的初等矩阵。\n\n第 3 题（考点：分块矩阵）设 M=[O B; C O]，B、C 均为 n 阶可逆方阵，证明 M 可逆并求 M⁻¹。\n\n提示：第 1 题对应零因子与秩不等式，答案 n - rank(A) = 1。",
+          },
+        },
+      ],
       trace: {
         main: "本次答案主要结合 李文博 老师《线性代数（2026 春）》课件「第3章-矩阵与线性变换.pptx」中的知识点「矩阵的秩与初等变换」，并与下面 3 条资料做了交叉核对后综合而成（共命中 17 条，按相关度排序取前 4）：",
         ranked: [
@@ -786,6 +866,87 @@
         title: "C 语言 · 第8章 指针知识点整理",
         body: "C 语言 · 第8章 指针 —— 知识点整理\n\n来源：Copilot 解析手写笔记《C语言-第8章-指针笔记.png》，结合赵启明老师《C 语言程序设计（2026 春）》课件。\n\n1. 指针的定义：存放变量地址的变量，int *p = &a。\n2. 指针与数组：数组名即首元素地址，a[i] 等价于 *(a+i)。\n3. 指针算术：p+1 向后移动 sizeof(*p) 字节，步长由类型决定。\n4. 指针与函数参数：C 只有值传递，改实参必须传地址。\n5. 二级指针与指针数组：int **pp；char *argv[]。\n6. 常见错误：野指针、空指针解引用、越界访问。\n\n易错：int* p, q; 只有 p 是指针。",
       },
+      guides: [
+        {
+          key: "hw",
+          icon: "clipboard",
+          ask: "你最近上传的指针实验作业还没订正，要我帮你批改并给出建议吗？",
+          askT: "这次指针实验全班平均 75 分，越界与缺终止符错得最多，要我出一份实验讲评要点吗？",
+          label: "作业批改与解析",
+          labelT: "实验讲评",
+          attach: {
+            material: "C语言-实验八-指针作业.png",
+            materialMeta: "图片素材 · 380 KB · 手写上机作业",
+            img: "/static/img/c-hw.png",
+          },
+          upload: { url: "/static/img/c-hw.png", filename: "C语言-实验八-指针作业.png",
+                    category: "课程资料", categoryT: "教学备课" },
+          lead: "作业图已收到。按「逐题判定 → 建议分 → 改进建议」批改完：",
+          score: "75", scoreFull: "100",
+          saveQ: "要不要把这份<b>批改与订正结论</b>存成一篇学习笔记，放进「我的资料库」？",
+          blocks: [
+            { tag: "28 / 30 · 正确", name: "第 1 题 · 指针实现 swap",
+              desc: "传址写法与「C 只有值传递」的原因说明都对；建议实参使用前判 NULL，防空指针崩溃。" },
+            { tag: "24 / 35 · 有误", name: "第 2 题 · 数组原地逆序",
+              desc: "循环条件写成 i <= n，i=0 时 *(a+n-i) 访问 a[n] 越界 —— 正确写法是 i < n/2，只走一半。对应知识点「指针与数组」。" },
+            { tag: "23 / 35 · 有误", name: "第 3 题 · 字符串拷贝 my_cpy",
+              desc: "拷贝循环结束后没写 *d = '\\0'，printf 会一直读到脏数据才停。对应知识点「常见错误」。" },
+          ],
+          advice: "两个失分点都在你笔记的「常见错误」清单里：先修第 2、3 题，再重读一遍那节，然后做指针与数组专项 3 题（swap、数组逆序、字符串拷贝）。",
+          trace: {
+            main: "错因判定依据 赵启明 老师《C 语言程序设计（2026 春）》课件「第8章-指针.pptx」的两个知识点（按相关度取前 3）：",
+            ranked: [
+              { score: "0.921", via: "双路命中", teacher: "赵启明 老师", course: "C 语言程序设计（2026 春）", file: "第8章-指针.pptx", kp: "指针与数组的关系",
+                snippet: "a[i] 与 *(a+i) 完全等价；下标范围是 0 到 n-1，越界访问不报错但行为未定义。" },
+              { score: "0.869", via: "语义", teacher: "赵启明 老师", course: "C 语言程序设计（2026 春）", file: "第8章-指针.pptx", kp: "常见错误清单",
+                snippet: "字符串函数三件套：拷贝、拼接、比较 —— 每个都要自己负责写结尾的 '\\0'。" },
+              { score: "0.733", via: "关键词", teacher: "赵启明 老师", course: "C 语言程序设计", file: "实验指导-指针.pdf", kp: "实验 8-1 评分标准",
+                snippet: "swap 判 NULL 加 2 分；逆序与拷贝题越界或漏终止符各扣 10 分以上。" },
+            ],
+          },
+          note: {
+            title: "指针实验批改与订正清单（75/100）",
+            body: "C 语言 · 实验八（指针）—— 批改与订正清单\n\n来源：Copilot 解析《C语言-实验八-指针作业.png》，判定依据为赵启明老师《C 语言程序设计（2026 春）》课件。\n\n建议分：75 / 100\n\n1. 第 1 题（28/30）swap：正确；建议实参前判 NULL。\n2. 第 2 题（24/35）数组逆序：i <= n 越界，应为 i < n/2。\n3. 第 3 题（23/35）my_cpy：结尾漏写 *d = '\\0'。\n\n下一步：修完两处失分点后，做指针与数组专项 3 题。",
+          },
+        },
+        {
+          key: "list",
+          icon: "shield",
+          ask: "要不要我把指针这一章你踩过的坑，整理成一份避坑清单？",
+          askT: "指针实验错误很集中，要我整理一份避坑清单发到班级资料库吗？",
+          label: "整理避坑清单",
+          lead: "已综合你的实验作业、手写笔记与老师批注，整理出 5 条避坑清单：",
+          saveQ: "要不要把这份<b>避坑清单</b>存进「我的资料库」？",
+          blocks: [
+            { tag: "来源 · 你的作业", name: "① 循环边界先走一遍再写",
+              desc: "逆序、查找类题先在纸上代 i=0 和最后一轮，确认不会碰到 a[n] —— 这次就是 i <= n 越界。" },
+            { tag: "来源 · 你的作业", name: "② 手写字符串函数必写 '\\0'",
+              desc: "拷贝、拼接的最后一行永远是 *d = '\\0'，漏了输出就带随机脏字符。" },
+            { tag: "来源 · 手写笔记", name: "③ int* p, q 只有 p 是指针",
+              desc: "* 绑定变量名不绑定类型；一行声明多个指针要每个都带 *：int *p, *q。" },
+            { tag: "来源 · 手写笔记", name: "④ p+1 的步长是 sizeof(*p)",
+              desc: "int* 移 4 字节、double* 移 8 字节 —— 步长由类型决定，不是地址 +1。" },
+            { tag: "来源 · 老师批注", name: "⑤ 指针用前必初始化",
+              desc: "野指针、空指针解引用、越界，调试时都表现成「偶尔崩一下」，写之前先想好它指向谁。" },
+          ],
+          advice: "清单可以直接存进资料库；之后做结构体与链表时，这 5 条会被再次引用。",
+          trace: {
+            main: "清单综合了你本次上传的两份材料与 赵启明 老师课件「第8章-指针.pptx」的知识点「常见错误清单」（按相关度取前 3）：",
+            ranked: [
+              { score: "0.897", via: "多模态", teacher: "赵启明 老师", course: "C 语言程序设计（2026 春）", file: "第8章-指针.pptx", kp: "常见错误清单",
+                snippet: "野指针、空指针、越界、漏终止符 —— 四类错误的调试表现都高度相似，靠写法预防。" },
+              { score: "0.815", via: "多模态", teacher: "赵启明 老师", course: "C 语言程序设计（2026 春）", file: "第8章-指针.pptx", kp: "指针算术与类型长度",
+                snippet: "p+1 的位移量是 sizeof(*p)：步长由指针类型决定，做边界计算时按字节核。" },
+              { score: "0.702", via: "语义", teacher: "孙楠 老师", course: "数据结构（2026 春）", file: "第2章-线性表.pdf", kp: "链式存储与指针结点",
+                snippet: "malloc 之后立刻判空、free 之后立刻置 NULL，是指针纪律的第一课。" },
+            ],
+          },
+          note: {
+            title: "C 语言指针 · 避坑清单（5 条）",
+            body: "C 语言 · 第8章 指针 —— 避坑清单\n\n来源：综合《C语言-实验八-指针作业.png》《C语言-第8章-指针笔记.png》与赵启明老师课件「常见错误清单」知识点。\n\n1. 循环边界先走一遍再写：代 i=0 与最后一轮，确认不碰 a[n]。\n2. 手写字符串函数必写 '\\0'：拷贝、拼接最后一行永远是 *d = '\\0'。\n3. int* p, q 只有 p 是指针：一行声明多个指针要每个都带 *。\n4. p+1 的步长是 sizeof(*p)：步长由类型决定，不是地址 +1。\n5. 指针用前必初始化：野指针/空指针/越界的调试表现都是「偶尔崩一下」。",
+          },
+        },
+      ],
       trace: {
         main: "本次答案主要结合 赵启明 老师《C 语言程序设计（2026 春）》课件「第8章-指针.pptx」中的知识点「指针与数组的关系」，图片与文字两路证据一起参与排序（共命中 12 条，按相关度取前 4）：",
         ranked: [
@@ -820,13 +981,16 @@
     return '<div class="dm-attach">' + inner + "</div>";
   };
 
-  /** 溯源知识点卡：这次答案结合了哪位老师的哪份课件的哪个知识点 + 相关度排序（前 4）。 */
+  /** 溯源知识点卡：这次答案结合了哪位老师的哪份课件的哪个知识点 + 相关度排序（前 4）。
+   *  v7.8 起**默认收起**，点标题才展开 —— 溯源是证据，不是主角，别一上来糊满屏。 */
   PF.demoTraceCard = function (demo) {
     const t = (demo || {}).trace;
     if (!t) return "";
-    let html = '<div class="dm-card dm-trace">' +
-      '<div class="dm-card__head">' + PF.icon("link", 14) + "溯源知识点" +
-        '<span class="t-xs t-dim">答案不是凭空生成，是检索后综合的</span></div>' +
+    let html = '<details class="dm-card dm-trace">' +
+      '<summary class="dm-trace__head">' + PF.icon("link", 14) + "溯源知识点" +
+        '<span class="t-xs t-dim">点开看：答案结合了哪位老师的哪份课件与知识点</span>' +
+        '<span class="dm-trace__chev">' + PF.icon("chevronDown", 14) + "</span></summary>" +
+      '<div class="dm-trace__body">' +
       '<div class="dm-card__lead">' + PF.esc(t.main || "") + "</div>" +
       '<div class="dm-list">';
     (t.ranked || []).forEach(function (r, i) {
@@ -842,16 +1006,17 @@
           (r.snippet ? '<div class="dm-snip">「' + PF.esc(PF.trunc(r.snippet, 90)) + "」</div>" : "") +
         "</div></div>";
     });
-    return html + "</div></div>";
+    return html + "</div></div></details>";
   };
 
-  /** 「要不要存成笔记」条：含保存路径选择（我的资料库的分类即路径）。 */
+  /** 「要不要存成笔记」条：含保存路径选择（我的资料库的分类即路径）。
+   *  data-demo 形如 "text" 或 "text.hw"（后者指向 demo.guides 里的某个引导结果）。 */
   PF.noteSaverHtml = function (demo, folders) {
     const d = demo || {};
     const cats = PF.arr(folders && folders.length ? folders : ["课程资料", "教学备课", "科研成果", "个人材料", "未分类"]);
+    const q = d.saveQ || "要不要把这份整理结果存成一篇<b>学习笔记</b>，放进「我的资料库」？";
     return '<div class="dm-save" data-ns data-demo="' + PF.esc(d.key || "") + '">' +
-      '<div class="dm-save__q">' + PF.icon("save", 14) +
-        "要不要把这份整理结果存成一篇<b>学习笔记</b>，放进「我的资料库」？</div>" +
+      '<div class="dm-save__q">' + PF.icon("save", 14) + q + "</div>" +
       '<div class="dm-save__row">' +
         '<span class="dm-save__k">保存路径</span>' +
         '<select class="select select--sm" data-ns-path style="max-width:170px">' +
@@ -886,16 +1051,20 @@
       });
       PF.$("[data-ns-save]", bar).addEventListener("click", async function () {
         const btn = this;
-        const demo = PF.COPILOT_DEMOS[bar.dataset.demo] || {};
+        // key 支持 "text" 与 "text.hw"：后者取 demo.guides 里对应引导自己的 note
+        const parts = String(bar.dataset.demo || "").split(".");
+        const demo = PF.COPILOT_DEMOS[parts[0]] || {};
+        const guide = parts[1] ? PF.arr(demo.guides).filter(function (g) { return g.key === parts[1]; })[0] : null;
+        const note = (guide && guide.note) || demo.note || {};
+        const course = (guide && guide.course) || demo.course || "";
         const category = sel.value === "__new__" ? (nw.value.trim() || "未分类") : sel.value;
-        const note = demo.note || {};
         PF.busy(btn, true, "保存中");
         try {
           const d = await PF.post("/api/materials/note", {
             title: note.title || "知识点整理",
             content: note.body || "",
             category: category,
-            course: demo.course || "",
+            course: course,
           });
           if (done) {
             done.style.display = "";
@@ -914,8 +1083,8 @@
     });
   };
 
-  /** 演示轮助手气泡正文：先给整理结果，再给溯源卡，最后给「存成笔记」条。 */
-  PF.demoAnswerBody = function (demo, folders) {
+  /** 演示轮助手气泡正文：整理结果 → 溯源（折叠）→ 存笔记条 → 两条引导问答。 */
+  PF.demoAnswerBody = function (demo, folders, side) {
     const d = demo || {};
     let html = "";
     if (d.lead) html += '<div class="dm-lead">' + PF.esc(d.lead) + "</div>";
@@ -936,7 +1105,143 @@
     }
     html += PF.demoTraceCard(d);
     html += PF.noteSaverHtml(d, folders);
+    html += PF.demoGuides(d, side);
     return html;
+  };
+
+  /* ------------------------------------------------------ 引导问答（v7.8）
+     溯源/保存之后给两个浅色按钮：点一下 Copilot 就替你把下一件事做掉
+     （自动上传作业图 → 解析 → 给建议分与订正建议，或出题 / 整理清单）。
+     结果同样写死保证断网可演示；其中「上传作业图」一步会真调上传接口入库。 */
+
+  /** 两条引导按钮。side = "teacher" 时用 askT 文案。 */
+  PF.demoGuides = function (demo, side) {
+    const d = demo || {};
+    const gs = PF.arr(d.guides);
+    if (!gs.length) return "";
+    return '<div class="dm-guides">' +
+      '<div class="dm-guides__t">' + PF.icon("sparkles", 13) +
+        "接下来，小寻还可以顺手帮你做这两件事：</div>" +
+      '<div class="dm-guides__row">' + gs.map(function (g) {
+        const text = (side === "teacher" && g.askT) ? g.askT : (g.ask || "");
+        return '<button class="dm-guide" data-guide="' + PF.esc((d.key || "") + "." + (g.key || "")) + '">' +
+          '<span class="dm-guide__ic">' + PF.icon(g.icon || "sparkles", 15) + "</span>" +
+          '<span class="dm-guide__tx">' + PF.esc(text) + "</span>" +
+          '<span class="dm-guide__go">' + PF.icon("chevronRight", 13) + "</span>" +
+        "</button>";
+      }).join("") + "</div></div>";
+  };
+
+  /** 引导结果轮里「上传作业图」的状态行：真调上传接口，成功后如实回报入库结果。 */
+  PF.demoUpStatus = function (g) {
+    const u = g && g.upload;
+    if (!u) return "";
+    const st = g._up;
+    if (!st) {
+      return '<div class="dm-sub" data-up>' + PF.icon("upload", 12) +
+        " 正在把《" + PF.esc(u.filename) + "》上传到「我的资料库」并解析…</div>";
+    }
+    if (st.state === "ok") {
+      const it = st.item || {};
+      return '<div class="dm-sub dm-sub--ok">' + PF.icon("check", 12) +
+        " 已上传《" + PF.esc(u.filename) + "》→ 资料库 / " + PF.esc(st.category || u.category || "课程资料") +
+        (it.material_id ? "（资料 #" + PF.esc(it.material_id) + "）" : "") +
+        (Number(it.knowledge_saved) > 0 ? "，抽出 " + PF.esc(it.knowledge_saved) + " 个知识点" : "") +
+        (Number(it.indexed_chunks) > 0 ? "、建索引 " + PF.esc(it.indexed_chunks) + " 片" : "") +
+        "。</div>";
+    }
+    return '<div class="dm-sub">' + PF.icon("info", 12) +
+      " 本次按演示素材处理，未真实入库 —— 想试真实上传，把作业照片直接拖进对话框即可。</div>";
+  };
+
+  /** 引导轮的助手气泡正文：上传状态 → 批改/出题结果 → 建议 → 溯源（折叠）→ 存笔记条。 */
+  PF.demoGuideBody = function (g, gkey, folders) {
+    g = g || {};
+    let html = "";
+    html += PF.demoUpStatus(g);
+    if (g.lead) html += '<div class="dm-lead">' + PF.esc(g.lead) + "</div>";
+    if (g.score) {
+      html += '<div class="dm-total">' + PF.icon("award", 16) +
+        '<span class="dm-total__num">' + PF.esc(g.score) + "</span>" +
+        '<span class="dm-total__den">/ ' + PF.esc(g.scoreFull || "100") + "</span>" +
+        '<span class="dm-total__t">建议分 · 逐题判定见上</span></div>';
+    }
+    if (PF.arr(g.blocks).length) {
+      html += '<div class="dm-list">' + g.blocks.map(function (b, i) {
+        return '<div class="dm-item"><span class="dm-rank">' + (i + 1) + "</span>" +
+          '<div class="dm-item__body">' +
+            '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+              (b.tag ? '<span class="dm-via">' + PF.esc(b.tag) + "</span>" : "") +
+              '<span class="dm-kp">' + PF.esc(b.name || "") + "</span>" +
+            "</div>" +
+            (b.desc ? '<div class="dm-sub">' + PF.esc(b.desc) + "</div>" : "") +
+          "</div></div>";
+      }).join("") + "</div>";
+    }
+    if (g.advice) {
+      html += '<div class="dm-note">' + PF.icon("target", 13) +
+        "<div><b>改进建议：</b>" + PF.esc(g.advice) + "</div></div>";
+    }
+    html += PF.demoTraceCard(g);
+    if (g.note) html += PF.noteSaverHtml({ key: gkey, saveQ: g.saveQ }, folders);
+    return html;
+  };
+
+  /** 绑定引导按钮（paint 之后调用一次；重复调用安全）。onPick 收到 "text.hw" 形式的 key。 */
+  PF.bindGuides = function (scope, opts) {
+    const o = opts || {};
+    PF.$$("[data-guide]", scope).forEach(function (b) {
+      if (b.dataset.guideBound) return;
+      b.dataset.guideBound = "1";
+      b.addEventListener("click", function () {
+        if (typeof o.onPick === "function") o.onPick(b.dataset.guide, b);
+      });
+    });
+  };
+
+  /** 把演示作业图真的上传入库（只调一次；失败静默返回 null，演示照常进行）。
+   *  返回 /api/materials/upload 里 files 数组的第一个元素。 */
+  PF.uploadStaticImage = async function (url, filename, category) {
+    try {
+      const res = await fetch(url, { credentials: "same-origin" });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const fd = new FormData();
+      fd.append("files", new File([blob], filename, { type: blob.type || "image/png" }));
+      fd.append("category", category || "课程资料");
+      fd.append("save", "true");
+      const r = await fetch("/api/materials/upload",
+        { method: "POST", body: fd, credentials: "same-origin" });
+      const j = await r.json();
+      const item = j && j.data && PF.arr(j.data.files)[0];
+      return item && !item.error ? item : null;
+    } catch (e) { return null; }
+  };
+
+  /** 页面侧通用：点引导按钮 → 追加一轮「上传 + 解析 + 建议」，并后台触发真实上传。
+   *  两个对话页共用，避免同一段流程抄两遍。 */
+  PF.runCopilotGuide = function (gkey, hooks) {
+    const h = hooks || {};
+    const parts = String(gkey || "").split(".");
+    const demo = PF.COPILOT_DEMOS[parts[0]] || {};
+    const guide = PF.arr(demo.guides).filter(function (g) { return g.key === parts[1]; })[0];
+    if (!guide || typeof h.push !== "function") return;
+    const ctx = h.push(guide, gkey);          // 页面负责入列与画 loading，返回 {chat, side, done}
+    if (!ctx) return;
+    // 首次点击才真上传；结果挂在 guide._up 上，回看历史轮时状态行不闪重传
+    if (guide.upload && !guide._up) {
+      const side = ctx.side === "teacher" ? "teacher" : "student";
+      const category = side === "teacher" ? (guide.upload.categoryT || guide.upload.category)
+                                          : guide.upload.category;
+      PF.uploadStaticImage(guide.upload.url, guide.upload.filename, category)
+        .then(function (item) {
+          guide._up = item ? { state: "ok", item: item, category: category }
+                           : { state: "skip" };
+          const el = PF.$("[data-up]", ctx.chat || document);
+          if (el) { el.outerHTML = PF.demoUpStatus(guide); }
+        });
+    }
+    if (typeof ctx.done === "function") ctx.done();
   };
 
   /* ---------------------------------------------------------- 智能体工具
