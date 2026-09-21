@@ -3098,3 +3098,37 @@ html[data-theme="dark"] .dm-save.is-done { border-color: var(--ok-500, #34d399);
 html[data-theme="dark"] .dm-guide { background: var(--surface-2, #1b2333); }
 html[data-theme="dark"] .dm-guide:hover { background: var(--brand-50, #232a45); }
 html[data-theme="dark"] .dm-total { border-color: var(--brand-300, #3d4ce2); }
+
+/* ============================================================ v7.9 教师 Copilot 演示（2026-09-20）
+   备课（教案 / PPT / 作业三张产物卡）与指导学生（学生头 + 雷达图）两块。
+   产物卡走「图标 + 标题 + 元信息」的紧凑行，不做大色块 —— 与 v7 系的取舍一致。 */
+.dm-prods { margin-top: 12px; display: grid; gap: 8px; }
+.dm-prod {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 9px 11px; border-radius: 11px;
+  border: 1px solid var(--border, #dce6f2); background: var(--surface, #fff);
+}
+.dm-prod__ic {
+  flex: 0 0 30px; width: 30px; height: 30px; border-radius: 9px;
+  display: grid; place-items: center;
+  background: var(--brand-50, #f0f1ff); color: var(--brand-600, #3d4ce2);
+}
+.dm-prod__body { flex: 1 1 auto; min-width: 0; }
+.dm-prod__t {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 13px; font-weight: 700; color: var(--ink-800, #1e293b);
+}
+.dm-prod__meta { margin-top: 3px; font-size: 11px; color: var(--ink-500, #64748b); line-height: 1.6; }
+
+/* —— 指导学生：学生头 + 雷达图 —— */
+.dm-coach {
+  margin-bottom: 10px; padding: 11px 12px; border-radius: 12px;
+  border: 1px solid var(--brand-200, #c3c8ff);
+  background: linear-gradient(180deg, var(--brand-50, #f0f1ff), var(--surface, #fff));
+}
+.dm-coach__head { display: grid; gap: 6px; margin-bottom: 6px; }
+.dm-coach__name { font-size: 14px; font-weight: 700; color: var(--ink-800, #1e293b); }
+.dm-coach .radar-wrap { background: transparent; border: none; padding: 0; }
+
+html[data-theme="dark"] .dm-prod { background: var(--surface-2, #1b2333); }
+html[data-theme="dark"] .dm-coach { border-color: var(--brand-300, #3d4ce2); }

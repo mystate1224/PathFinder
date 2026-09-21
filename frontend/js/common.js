@@ -961,6 +961,118 @@
         ],
       },
     },
+
+    /* v7.9 就业（事业方向）用例：学生只有「课程」和「事业」两类内容，
+       这条走事业侧 —— 问路线、给建议、能溯源，并且最后一步真去提交项目申请。 */
+    job: {
+      key: "job",
+      icon: "briefcase",
+      kind: "就业",
+      layer: "就业规划",                   // 气泡上的能力标签，纯提问不带附件
+      course: "职业发展",
+      material: "",                       // 纯提问，不带附件
+      materialMeta: "",
+      prompt: "我想做前端，需要学什么技术？给我一条能走的学习路线",
+      lead: "按你的画像（职业倾向测评里工程实践得分偏高）和学院近几届前端岗的实际招聘口径，给你一条 6 段式路线 —— 每段都标了「学到什么程度算过关」：",
+      points: [
+        ["① 网页骨架：HTML + CSS", "先能徒手写一个两栏布局，Flex（一维）与 Grid（二维）要能说清各自什么时候用。过关：照着设计稿还原一个静态页面。"],
+        ["② 语言本体：JavaScript / TypeScript", "闭包、事件循环、Promise 必须过一遍；TS 至少能写类型与接口。过关：不用框架实现一个带校验的表单。"],
+        ["③ 框架：React 或 Vue 二选一", "先把一个学到能独立做页面：组件、状态、路由、副作用。过关：做出带列表 + 详情 + 表单的增删改查页面。"],
+        ["④ 工程化：Vite / 构建 / Git", "会建项目、会打包、会提 PR、看得懂 package.json。过关：把一个项目从 0 推到能访问的静态站点。"],
+        ["⑤ 数据可视化：ECharts（或 D3）", "学院的项目里前端多半要画图表。过关：把一个接口返回的 JSON 画成可交互的折线 + 柱状联动图。"],
+        ["⑥ 联调与协作：HTTP、接口、评审", "看得懂接口文档，会用开发者工具查请求，知道什么是跨域。过关：与后端同学联调通一个真实接口。"],
+      ],
+      remind: "别一上来追新框架版本 —— 招聘看的是你把一件事做完的证据：一个部署过、能打开的项目，比五个半成品有用得多。",
+      next: "第 ①、② 段两周内就能过完；之后直接进项目里做，比继续刷教程快。库里正好有一个对得上路的校企项目。",
+      note: {
+        title: "前端工程师 · 6 段式学习路线",
+        body: "前端工程师 —— 6 段式学习路线\n\n来源：Copilot 结合李文静老师《Web 前端工程实践（2026 春）》课件「前端工程师能力地图」与学院就业报告综合而成。\n\n1. HTML + CSS：能还原设计稿，说清 Flex 与 Grid 的适用场景。\n2. JavaScript / TypeScript：闭包、事件循环、Promise；TS 至少会写类型与接口。\n3. 框架（React 或 Vue 二选一）：组件、状态、路由、副作用，能独立做增删改查页面。\n4. 工程化：Vite 建项目、打包、Git 提 PR、能部署成静态站点。\n5. 数据可视化：ECharts 把接口数据画成可交互图表。\n6. 联调与协作：看懂接口文档，会查请求，理解跨域。\n\n易错：追新框架版本不如把一个项目做完整并部署上线。",
+      },
+      guides: [
+        {
+          key: "apply",
+          icon: "briefcase",
+          ask: "小寻注意到张明远老师的《学业导航平台前端可视化（校企共建）》正在招人，需要我帮你提交申请吗？",
+          label: "项目申请",
+          action: {
+            type: "resource_apply",
+            title: "学业导航平台前端可视化（校企共建）",
+            message: "我已按前端路线学完 HTML/CSS 与 JavaScript 基础，做过带校验的表单和一个数据看板页面，希望参与学业导航平台的前端开发与数据可视化部分。",
+          },
+          lead: "申请已按项目要求提交，留言写的是你现在的进度与能立刻上手的部分：",
+          saveQ: "要不要把这份<b>申请与入组准备清单</b>存成一篇笔记，放进「我的资料库」？",
+          blocks: [
+            { tag: "匹配度 · 89%", name: "① 为什么是这个项目",
+              desc: "项目要「页面开发 + 数据可视化 + 接口联调」，正好补上你路线里第 ⑤、⑥ 段还没动的两块 —— 进去就能补最缺的一环。" },
+            { tag: "申请材料 · 已附", name: "② 你的前端基础",
+              desc: "HTML/CSS 能还原静态页、JS 能手写表单校验，路线第 ①、② 段已达标，够到了项目要求里的硬门槛。" },
+            { tag: "入组安排", name: "③ 进去之后做什么",
+              desc: "先跟一次完整迭代（看需求 → 提 PR → 过评审），之后独立负责一个可视化模块；每周一次进度同步。" },
+          ],
+          advice: "申请一般 3 天内会有回复。这段时间别干等 —— 把第 ④ 段（Vite + Git 提 PR）先做完，进组第一天就能直接上手。",
+          trace: {
+            main: "推荐这个项目，是把你的路线进度与项目要求做了比对（主要依据 张明远 老师的项目说明与 李文静 老师课件里的能力地图，按相关度取前 3）：",
+            ranked: [
+              { score: "0.911", via: "语义", teacher: "张明远 老师", course: "学业导航平台（校企共建）", file: "项目说明与分工.pdf", kp: "前端岗位分工与交付要求",
+                snippet: "前端同学负责页面与可视化，进组前需具备 HTML/CSS/JS 基础，会 React 或 Vue 其中之一。" },
+              { score: "0.867", via: "语义", teacher: "李文静 老师", course: "Web 前端工程实践（2026 春）", file: "第1章-前端能力地图.pdf", kp: "前端工程师能力地图",
+                snippet: "入门看三件事：能不能还原设计稿、能不能不用框架写出交互、能不能把项目跑起来部署。" },
+              { score: "0.734", via: "关键词", teacher: "就业指导中心", course: "2026 届就业去向报告", file: "工程岗技能要求.pdf", kp: "前端岗招聘口径",
+                snippet: "同等条件下，有一个完整上线项目的候选人，通过率约为只有课程作业的两倍。" },
+            ],
+          },
+          note: {
+            title: "学业导航平台前端项目 · 申请与入组准备",
+            body: "学业导航平台前端可视化（校企共建）—— 申请与入组准备\n\n匹配度：89%\n\n1. 为什么是这个项目：要「页面开发 + 数据可视化 + 接口联调」，正好补上路线第 5、6 段。\n2. 我的基础：HTML/CSS 能还原静态页，JS 能手写表单校验（路线第 1、2 段已达标）。\n3. 入组安排：先跟一次完整迭代（需求 → PR → 评审），之后独立负责一个可视化模块，每周同步一次。\n\n等待期间要做：把 Vite + Git 提 PR 这一段先做完，进组第一天就能上手。",
+          },
+        },
+        {
+          key: "plan",
+          icon: "wand",
+          ask: "要不要把这条路线拆成一份 8 周学习计划，每周都有东西可交？",
+          label: "学习计划",
+          lead: "已拆成 4 个阶段（每 2 周一阶段），每个阶段都有一个能拿出来看的东西：",
+          saveQ: "要不要把这份<b>8 周学习计划</b>存成一篇笔记，放进「我的资料库」？",
+          blocks: [
+            { tag: "第 1-2 周", name: "阶段一 · 静态页面",
+              desc: "HTML + CSS：照设计稿还原一个学院首页，Flex 与 Grid 各用一次。交付：一个能打开的静态页面。" },
+            { tag: "第 3-4 周", name: "阶段二 · JS / TS 基础",
+              desc: "手写表单校验与列表增删，把阶段一改成数据驱动。交付：一个不依赖框架的表单 + 列表页。" },
+            { tag: "第 5-6 周", name: "阶段三 · 框架与工程化",
+              desc: "用 React 或 Vue 重写阶段二并加路由，Vite 打包后部署成静态站点。交付：一个能访问的网址。" },
+            { tag: "第 7-8 周", name: "阶段四 · 可视化与联调",
+              desc: "用 ECharts 画接口数据的联动图表，与后端同学联调通一个真实接口。交付：图表页 + 联调记录。" },
+          ],
+          advice: "四个交付物都留着，最后合成一份作品集 —— 这才是招聘时真正会被看的东西。",
+          trace: {
+            main: "阶段划分按 李文静 老师课件的能力地图排布，交付物口径对齐项目要求（按相关度取前 3）：",
+            ranked: [
+              { score: "0.878", via: "语义", teacher: "李文静 老师", course: "Web 前端工程实践（2026 春）", file: "第2章-工程化与构建.pdf", kp: "Vite 与构建流程",
+                snippet: "先学会把项目跑起来并部署，再谈优化 —— 能访问的网址是最好的学习反馈。" },
+              { score: "0.803", via: "关键词", teacher: "张明远 老师", course: "学业导航平台（校企共建）", file: "迭代流程说明.pdf", kp: "两周一次迭代",
+                snippet: "每次迭代交付一个可演示的版本，需求、开发、评审各占一周的一半。" },
+              { score: "0.691", via: "语义", teacher: "李文静 老师", course: "Web 前端工程实践（2026 春）", file: "第5章-数据可视化.pdf", kp: "ECharts 联动图表",
+                snippet: "折线看趋势、柱状看对比，联动的关键是共用一个数据集与同一套筛选条件。" },
+            ],
+          },
+          note: {
+            title: "前端路线 · 8 周学习计划",
+            body: "前端路线 —— 8 周学习计划（每阶段都有交付物）\n\n阶段一（第 1-2 周）HTML + CSS：照设计稿还原学院首页，交付可打开的静态页面。\n阶段二（第 3-4 周）JS/TS：手写表单校验与列表增删，交付不依赖框架的表单 + 列表页。\n阶段三（第 5-6 周）框架与工程化：React/Vue 重写并加路由，Vite 打包部署，交付一个网址。\n阶段四（第 7-8 周）可视化与联调：ECharts 联动图表 + 与后端联调通一个真实接口。\n\n提醒：四个交付物留着合成作品集，这是招聘时真正被看的东西。",
+          },
+        },
+      ],
+      trace: {
+        main: "路线与阶段划分主要结合 李文静 老师《Web 前端工程实践（2026 春）》课件里的「前端工程师能力地图」，并与项目要求、学院就业报告交叉核对（共命中 9 条，按相关度取前 3）：",
+        ranked: [
+          { score: "0.903", via: "语义", teacher: "李文静 老师", course: "Web 前端工程实践（2026 春）", file: "第1章-前端能力地图.pdf", kp: "前端工程师能力地图",
+            snippet: "入门看三件事：能不能还原设计稿、能不能不用框架写出交互、能不能把项目跑起来部署。" },
+          { score: "0.845", via: "关键词", teacher: "张明远 老师", course: "学业导航平台（校企共建）", file: "项目说明与分工.pdf", kp: "前端岗位分工与交付要求",
+            snippet: "前端同学负责页面与可视化，进组前需具备 HTML/CSS/JS 基础，会 React 或 Vue 其中之一。" },
+          { score: "0.762", via: "语义", teacher: "就业指导中心", course: "2026 届就业去向报告", file: "工程岗技能要求.pdf", kp: "前端岗招聘口径",
+            snippet: "同等条件下，有一个完整上线项目的候选人通过率约为只有课程作业的两倍。" },
+        ],
+      },
+    },
   };
 
   /** 演示轮用户气泡里的「附件」块：文本显示摘要，图片直接显示缩略图。 */
@@ -1010,10 +1122,15 @@
   };
 
   /** 「要不要存成笔记」条：含保存路径选择（我的资料库的分类即路径）。
-   *  data-demo 形如 "text" 或 "text.hw"（后者指向 demo.guides 里的某个引导结果）。 */
-  PF.noteSaverHtml = function (demo, folders) {
+   *  data-demo 形如 "text" 或 "text.hw"（后者指向 demo.guides 里的某个引导结果）。
+   *  side="teacher" 时才给「教学备课」—— 学生侧没有备课这回事，分类只有课程 / 科研 / 个人。 */
+  PF.noteSaverHtml = function (demo, folders, side) {
     const d = demo || {};
-    const cats = PF.arr(folders && folders.length ? folders : ["课程资料", "教学备课", "科研成果", "个人材料", "未分类"]);
+    const isT = side === "teacher";
+    const all = ["课程资料", "教学备课", "科研成果", "个人材料", "未分类"];
+    let cats = PF.arr(folders && folders.length ? folders : all);
+    if (!isT) cats = cats.filter(function (c) { return c !== "教学备课"; });
+    if (!cats.length) cats = isT ? all : all.filter(function (c) { return c !== "教学备课"; });
     const q = d.saveQ || "要不要把这份整理结果存成一篇<b>学习笔记</b>，放进「我的资料库」？";
     return '<div class="dm-save" data-ns data-demo="' + PF.esc(d.key || "") + '">' +
       '<div class="dm-save__q">' + PF.icon("save", 14) + q + "</div>" +
@@ -1104,7 +1221,7 @@
         "<div><b>下一步：</b>" + PF.esc(d.next) + "</div></div>";
     }
     html += PF.demoTraceCard(d);
-    html += PF.noteSaverHtml(d, folders);
+    html += PF.noteSaverHtml(d, folders, side);
     html += PF.demoGuides(d, side);
     return html;
   };
@@ -1154,11 +1271,68 @@
       " 本次按演示素材处理，未真实入库 —— 想试真实上传，把作业照片直接拖进对话框即可。</div>";
   };
 
-  /** 引导轮的助手气泡正文：上传状态 → 批改/出题结果 → 建议 → 溯源（折叠）→ 存笔记条。 */
-  PF.demoGuideBody = function (g, gkey, folders) {
+  /** 引导里的「帮我申请」状态行：真查资源广场 → 真提交申请，如实回报结果。
+   *  只调一次，结果挂 guide._apply；重复申请会被后端拒绝，所以先看 my_application。 */
+  PF.demoApplyStatus = function (g) {
+    const a = g && g.action;
+    if (!a) return "";
+    const st = g._apply;
+    const name = "《" + PF.esc(a.title || "该项目") + "》";
+    if (!st) {
+      return '<div class="dm-sub" data-apply>' + PF.icon("briefcase", 12) +
+        " 正在在资源广场里找到 " + name + " 并提交申请…</div>";
+    }
+    if (st.state === "ok") {
+      const r = st.resource || {};
+      return '<div class="dm-sub dm-sub--ok">' + PF.icon("check", 12) +
+        " 已提交 " + name + " 的申请 → 等待 " + PF.esc(r.teacher_name || "该教师") +
+        " 处理" + (r.capacity ? "（名额 " + PF.esc(r.capacity) + " 人）" : "") +
+        "。去 <a href=\"/resources\">资源广场</a> 看进度。</div>";
+    }
+    if (st.state === "dup") {
+      return '<div class="dm-sub dm-sub--ok">' + PF.icon("info", 12) +
+        " " + name + "你已经申请过了（" + PF.esc(st.status_text || st.status || "已提交") +
+        "），不用重复提交。去 <a href=\"/resources\">资源广场</a> 看进度。</div>";
+    }
+    if (st.state === "miss") {
+      return '<div class="dm-sub">' + PF.icon("info", 12) +
+        " 当前数据里没有找到 " + name +
+        "（演示库可能未包含这条资源），其余结论照常给你。</div>";
+    }
+    return '<div class="dm-sub">' + PF.icon("info", 12) +
+      " 申请没能提交成功（可能名额已满或已截止），你可以直接到 " +
+      '<a href="/resources">资源广场</a> 里找老师沟通。</div>';
+  };
+
+  /** 真提交一份申请：按标题在资源广场里定位，再 POST /api/resources/{id}/apply。
+   *  返回 { state: ok | dup | miss | fail, resource }。 */
+  PF.applyDemoResource = async function (title, message) {
+    const board = await PF.try(function () { return PF.get("/api/resources", { quiet: true }); }, null);
+    let found = null;
+    PF.arr(board && board.teachers).forEach(function (t) {
+      PF.arr(t && t.resources).forEach(function (r) {
+        if (!found && r && r.title === title) found = r;
+      });
+    });
+    if (!found) return { state: "miss", title: title };
+    if (found.my_application) {
+      return { state: "dup", resource: found,
+               status: found.my_application.status,
+               status_text: found.my_application.status_text || "" };
+    }
+    const d = await PF.try(function () {
+      return PF.post("/api/resources/" + found.id + "/apply", { message: message || "" });
+    }, null);
+    if (!d) return { state: "fail", resource: found };
+    return { state: "ok", resource: found, data: d };
+  };
+
+  /** 引导轮的助手气泡正文：上传/申请状态 → 批改/出题结果 → 建议 → 溯源（折叠）→ 存笔记条。 */
+  PF.demoGuideBody = function (g, gkey, folders, side) {
     g = g || {};
     let html = "";
-    html += PF.demoUpStatus(g);
+    if (g.upload) html += PF.demoUpStatus(g);
+    if (g.action && g.action.type === "resource_apply") html += PF.demoApplyStatus(g);
     if (g.lead) html += '<div class="dm-lead">' + PF.esc(g.lead) + "</div>";
     if (g.score) {
       html += '<div class="dm-total">' + PF.icon("award", 16) +
@@ -1183,7 +1357,7 @@
         "<div><b>改进建议：</b>" + PF.esc(g.advice) + "</div></div>";
     }
     html += PF.demoTraceCard(g);
-    if (g.note) html += PF.noteSaverHtml({ key: gkey, saveQ: g.saveQ }, folders);
+    if (g.note) html += PF.noteSaverHtml({ key: gkey, saveQ: g.saveQ }, folders, side);
     return html;
   };
 
@@ -1241,10 +1415,606 @@
           if (el) { el.outerHTML = PF.demoUpStatus(guide); }
         });
     }
+    // 另一种「替你去做」：按标题找到项目并真提交申请（同样只做一次）
+    if (guide.action && guide.action.type === "resource_apply" && !guide._apply) {
+      PF.applyDemoResource(guide.action.title, guide.action.message).then(function (r) {
+        guide._apply = r;
+        const el = PF.$("[data-apply]", ctx.chat || document);
+        if (el) { el.outerHTML = PF.demoApplyStatus(guide); }
+      });
+    }
     if (typeof ctx.done === "function") ctx.done();
   };
 
-  /* ---------------------------------------------------------- 智能体工具
+  /* ------------------------------------------------- 教师 Copilot 演示（v7.9）
+     与上面写死的素材演示不同，这两个**真跑接口**：
+       ① 备课 —— 教案 → PPT（≤10 页）→ 作业，三步真实生成，产物进「教学备课」，
+          同时各存一份进「资料与知识库 / 资料列表」；
+       ② 指导学生 —— 真实取某个学生的画像画雷达图，给解读与建议。
+     真跑的理由：演示里出现的东西必须能在别的页面真的找到，写死的产物一翻就穿帮。 */
+  PF.TEACHER_DEMOS = {
+    prep: {
+      key: "prep",
+      icon: "presentation",
+      title: "帮我备一节朴素贝叶斯的课",
+      topic: "朴素贝叶斯",
+      course: "机器学习",
+      pages: 10,
+      periods: 1,
+      level: "B",
+      homework: {
+        title: "朴素贝叶斯课后作业",
+        full_score: 100,
+        days: 7,
+        detail: "1. 用自己的话说明朴素贝叶斯为什么能做分类（写清「贝叶斯公式 + 条件独立假设」两步）。\n"
+          + "2. 给定一封邮件中 3 个词的出现情况，手算它属于「正常邮件 / 垃圾邮件」的概率，写出每一步。\n"
+          + "3. 说明为什么叫「朴素」，并举一个条件独立假设不成立时结果会怎样的例子（顺带说明拉普拉斯平滑要不要用）。\n"
+          + "要求 400 字以上，计算过程可拍照附上。",
+      },
+    },
+    coach: {
+      key: "coach",
+      icon: "users",
+      title: "如何指导陈嘉禾同学？",
+      student: "陈嘉禾",
+      // 建议加入的课题组：演示教师（张明远）自己带的长期招募组，逻辑上最顺
+      group: "多模态内容理解课题组（长期招募）",
+    },
+  };
+
+  /** 今天 / N 天后的 "YYYY-MM-DD"，给文件夹名与作业截止时间用。 */
+  PF.dayStr = function (offsetDays) {
+    const d = new Date(Date.now() + Number(offsetDays || 0) * 86400000);
+    const p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  };
+
+  /** 教案结构 → 纯文本（存进资料库用，别无脑塞 JSON）。 */
+  PF.lessonToText = function (plan) {
+    plan = plan || {};
+    const L = ["# " + (plan.title || "教案"), "",
+      "取向：" + (plan.orientation || "") + "　课时：" + (plan.periods || 1) +
+      "　总时长：" + (plan.total_minutes || 0) + " 分钟", ""];
+    const sect = function (name, arr) {
+      if (!PF.arr(arr).length) return;
+      L.push("## " + name);
+      PF.arr(arr).forEach(function (x, i) { L.push((i + 1) + ". " + x); });
+      L.push("");
+    };
+    sect("教学目标", plan.objectives);
+    sect("教学重点", plan.key_points);
+    sect("教学难点", plan.difficulties);
+    if (PF.arr(plan.outline).length) {
+      L.push("## 教学环节");
+      PF.arr(plan.outline).forEach(function (s) {
+        L.push("· " + (s.step || "") + "（" + (s.minutes || 0) + " 分钟）：" + (s.content || ""));
+      });
+      L.push("");
+    }
+    if (plan.homework) { L.push("## 作业"); L.push(plan.homework); }
+    return L.join("\n");
+  };
+
+  /** PPT 大纲 → 纯文本（存进资料库用）。 */
+  PF.slidesToText = function (outline) {
+    const slides = PF.arr((outline || {}).slides);
+    const L = ["# " + String((outline || {}).title || "PPT 大纲"), "",
+      "共 " + slides.length + " 页", ""];
+    slides.forEach(function (s, i) {
+      L.push("## 第 " + (i + 1) + " 页 · " + (s.title || ""));
+      PF.arr(s.bullets).forEach(function (b) { L.push("- " + b); });
+      if (s.note) L.push("> 讲法提示：" + s.note);
+      L.push("");
+    });
+    return L.join("\n");
+  };
+
+  /** 备课演示：教案 → PPT → 作业 三步真实生成，每步再存一份进资料库。 */
+  PF.runPrepDemo = async function (cfg, onStep) {
+    const c = cfg || {};
+    const demo = PF.TEACHER_DEMOS.prep;
+    const topic = c.topic || demo.topic;
+    const course = c.course || demo.course;
+    const folder = c.folder || (topic + " · " + PF.dayStr(0));
+    const step = typeof onStep === "function" ? onStep : function () {};
+    const out = { key: "prep", topic: topic, course: course, folder: folder,
+                  items: [], errors: [] };
+
+    const save = async function (title, body) {
+      return await PF.try(function () {
+        return PF.post("/api/materials/note", {
+          title: title, content: body, category: "教学备课", course: course,
+        });
+      }, null);
+    };
+    const size = function (b) { return Number(b) > 0 ? PF.num(Number(b) / 1024, 0) + " KB" : ""; };
+
+    /* ① 教案 —— 先检索教师自己的资料再生成，产物是 docx */
+    step("①/③ 正在检索备课资料并生成教案…");
+    const lp = await PF.try(function () {
+      return PF.post("/api/teacher/lesson", {
+        topic: topic, course: course, periods: demo.periods, level: demo.level, folder: folder,
+      });
+    }, null);
+    if (lp && lp.plan) {
+      out.items.push({
+        kind: "教案", ext: "docx", icon: "book", title: topic + " 教案",
+        engine: lp.engine, sizeText: size((lp.artifact || {}).size),
+        pages: PF.arr(lp.plan.outline).length + " 个环节",
+        note: await save(topic + " 教案", PF.lessonToText(lp.plan)),
+      });
+    } else { out.errors.push("教案"); }
+
+    /* ② PPT —— 用刚生成的教案当提纲，页数上限 10 */
+    step("②/③ 正在按这份教案生成 PPT（不超过 " + demo.pages + " 页）…");
+    const sl = await PF.try(function () {
+      return PF.post("/api/teacher/slides/from-lesson", {
+        plan: (lp && lp.plan) || null, course: course, pages: demo.pages, folder: folder,
+      });
+    }, null);
+    if (sl && sl.outline) {
+      const n = PF.arr(sl.outline.slides).length;
+      // 后端按「教案标题去掉『 教案』+ PPT」命名产物，这里沿用 sl.topic，
+      // 保证 Copilot 卡片上的名字与「备课助手 · 我的产物」里的名字是同一个。
+      const base = sl.topic || topic;
+      out.items.push({
+        kind: "PPT", ext: "pptx", icon: "presentation", title: base + " PPT",
+        engine: sl.engine, sizeText: size((sl.artifact || {}).size),
+        pages: n + " 页",
+        note: await save(base + " PPT 大纲", PF.slidesToText(sl.outline)),
+        slides: sl.outline.slides,
+      });
+    } else { out.errors.push("PPT"); }
+
+    /* ③ 作业 —— 真实布置到任教班级 */
+    step("③/③ 正在布置课后作业并归档…");
+    const hw = await PF.try(function () {
+      return PF.post("/api/teacher/homework", {
+        title: demo.homework.title, course: course,
+        class_name: c.class_name || "", detail: demo.homework.detail,
+        full_score: demo.homework.full_score,
+        deadline: PF.dayStr(demo.homework.days) + " 23:59",
+      });
+    }, null);
+    if (hw && hw.homework_id) {
+      out.items.push({
+        kind: "作业", ext: "已布置", icon: "clipboard", title: demo.homework.title,
+        engine: "rule", sizeText: "截止 " + PF.dayStr(demo.homework.days) + " 23:59",
+        pages: (c.class_name || "任教班级") + " · 100 分",
+        note: await save(demo.homework.title,
+          "# " + demo.homework.title + "\n\n课程：" + course + "\n\n" + demo.homework.detail),
+        homework_id: hw.homework_id,
+      });
+    } else { out.errors.push("作业"); }
+
+    demo._last = out;      // 引导（如「思维拓展」）要沿用同一课题与文件夹
+    return out;
+  };
+
+  /** 备课结果：三张产物卡 + 去哪儿看。 */
+  PF.prepResultHtml = function (res) {
+    const r = res || {};
+    const items = PF.arr(r.items);
+    let html = '<div class="dm-lead">三件事都做完了：正课教案、' +
+      PF.esc(PF.TEACHER_DEMOS.prep.pages) + " 页以内的 PPT、课后作业。" +
+      "产物按课题命名归到备课文件夹「" + PF.esc(r.folder || "") +
+      "」，同时各存了一份进「资料与知识库 / 教学备课」。</div>";
+    if (!items.length) {
+      return html + '<div class="dm-warn">' + PF.icon("alert", 13) +
+        "<div>三步都没跑通（后端不可达？）—— 可以到备课助手里手动再生成一次。</div></div>";
+    }
+    html += '<div class="dm-prods">' + items.map(function (it) {
+      return '<div class="dm-prod">' +
+        '<div class="dm-prod__ic">' + PF.icon(it.icon || "file", 16) + "</div>" +
+        '<div class="dm-prod__body">' +
+          '<div class="dm-prod__t">' + PF.esc(it.title) + PF.engineBadge(it.engine) + "</div>" +
+          '<div class="dm-prod__meta">' + PF.esc(it.kind) + " · " + PF.esc(it.ext) +
+            (it.sizeText ? " · " + PF.esc(it.sizeText) : "") +
+            (it.pages ? " · " + PF.esc(it.pages) : "") + "</div>" +
+          (it.note
+            ? '<div class="dm-prod__meta">已存资料库：' + PF.esc(it.note.filename || it.title) +
+              (Number(it.note.knowledge_points) > 0
+                ? "，抽出 " + PF.num(it.note.knowledge_points, 0) + " 个知识点" : "") +
+              (Number(it.note.indexed) > 0 ? "、建索引 " + PF.num(it.note.indexed, 0) + " 片" : "") +
+              "</div>"
+            : '<div class="dm-prod__meta t-dim">这份没能存进资料库</div>') +
+        "</div></div>";
+    }).join("") + "</div>";
+    if (PF.arr(r.errors).length) {
+      html += '<div class="dm-warn">' + PF.icon("alert", 13) + "<div>这几步没跑通：" +
+        PF.esc(PF.arr(r.errors).join("、")) + "。</div></div>";
+    }
+    html += '<div class="dm-note">' + PF.icon("folder", 13) +
+      "<div><b>去哪儿看：</b>教案与 PPT 在 <a href=\"/teach#/tab=artifacts\">备课助手 · 我的产物</a>" +
+      "（已按课题命名归档到同一个文件夹），三份资料在 " +
+      "<a href=\"/library#/tab=materials\">资料与知识库 · 资料列表</a>，作业在 " +
+      "<a href=\"/grade\">批改中心</a>。</div></div>";
+    html += PF.demoGuides({ key: r.key || "prep", guides: PF.teacherGuidesOf("prep") }, "teacher");
+    return html;
+  };
+
+  /** 指导学生演示：真实取画像（先按姓名定位，再取详情）。 */
+  PF.runCoachDemo = async function (cfg, onStep) {
+    const c = cfg || {};
+    const name = c.student || PF.TEACHER_DEMOS.coach.student;
+    const step = typeof onStep === "function" ? onStep : function () {};
+    const pick = function (ov) {
+      let s = null;
+      PF.arr(ov && ov.students).forEach(function (x) {
+        if (!s && String(x.name || "") === name) s = x;
+      });
+      return s;
+    };
+    step("正在班里定位「" + name + "」…");
+    let s = pick(await PF.try(function () {
+      return PF.get("/api/teacher/overview?keyword=" + encodeURIComponent(name), { quiet: true });
+    }, null));
+    if (!s) s = pick(await PF.try(function () {
+      return PF.get("/api/teacher/overview", { quiet: true });
+    }, null));
+    if (!s) return { key: "coach", miss: true, name: name };
+
+    step("正在读画像、成长路线与已有申请…");
+    const d = await PF.try(function () {
+      return PF.get("/api/teacher/students/" + s.id, { quiet: true });
+    }, null);
+    if (!d) return { key: "coach", miss: true, name: name };
+    return {
+      key: "coach",
+      name: name,
+      student: d.student || s,
+      profile: d.profile || {},
+      mastery: PF.arr(d.mastery),
+      roadmap: d.roadmap || null,
+      applications: PF.arr(d.applications),
+      tasks: PF.arr(d.tasks),
+    };
+  };
+
+  /** 画像解读：全部由真实数值算出来，不写死 —— 换个学生也说得通。 */
+  PF.coachReading = function (res) {
+    const r = res || {};
+    const p = r.profile || {};
+    const ab = PF.arr(p.ability_pairs).slice().sort(function (a, b) {
+      return Number(b.value || 0) - Number(a.value || 0);
+    });
+    const best = ab[0] || { name: "—", value: 0 };
+    const weak = ab[ab.length - 1] || best;
+    const interests = PF.arr(p.interests);
+    const apps = PF.arr(r.applications);
+    const passed = apps.filter(function (a) { return a.status === "accepted"; });
+    const pending = apps.filter(function (a) { return a.status === "pending"; });
+    const undone = PF.arr(r.tasks).filter(function (t) { return t.status !== "done"; });
+    const out = [
+      { tag: "读图 · 形状", name: "① 他的形状偏哪边",
+        desc: "尖角在「" + best.name + "」（" + PF.num(best.value, 1) + "），凹口在「" + weak.name +
+          "」（" + PF.num(weak.value, 1) + "）：" +
+          (Number(best.value) - Number(weak.value) >= 1.2
+            ? "长短差得比较明显，补短板比继续加长板划算。"
+            : "五维比较均衡，可以往任一方向加任务。") },
+      { tag: "画像 · 定位", name: "② 按什么口径带他",
+        desc: (p.track || "—") + " · " + (p.grade_level || "—") + " 层（" + (p.layer || "") +
+          "）——" + (p.track === "学业型"
+            ? "给任务要给他能往下挖的，别只给重复练习；讲清「为什么」比多练两遍有用。"
+            : "给任务要给他能马上用上的，最好有明确的交付物与场景。") },
+    ];
+    if (interests.length) {
+      out.push({ tag: "兴趣", name: "③ 他自己想往哪走",
+        desc: "兴趣方向是 " + interests.join("、") + "，指导时尽量往这边靠，任务才推得动。" });
+    }
+    if (passed.length) {
+      out.push({ tag: "已有申请", name: "④ 他已经在哪儿了",
+        desc: "已通过《" + PF.esc(passed[0].resource_title || "") + "》（" +
+          PF.esc(passed[0].teacher_name || "") + " 老师）" +
+          (pending.length ? "，另有 " + pending.length + " 项申请在等回复" : "") + "。" });
+    } else if (pending.length) {
+      out.push({ tag: "已有申请", name: "④ 他正在等什么",
+        desc: "有 " + pending.length + " 项申请还在等教师回复（《" +
+          PF.esc(pending[0].resource_title || "") + "》等），可以先帮他推进一下。" });
+    }
+    if (undone.length) {
+      out.push({ tag: "待办", name: "⑤ 手上还压着什么",
+        desc: "还有 " + undone.length + " 项任务未完成，先清掉再上新任务，别堆叠。" });
+    }
+    return out;
+  };
+
+  /** 指导建议：读图结论 → 具体动作（含建议加入哪个课题组）。 */
+  PF.coachAdvice = function (res) {
+    const r = res || {};
+    const p = r.profile || {};
+    const ab = PF.arr(p.ability_pairs).slice().sort(function (a, b) {
+      return Number(a.value || 0) - Number(b.value || 0);
+    });
+    const weak = ab[0] || { name: "实践能力", value: 0 };
+    const group = PF.TEACHER_DEMOS.coach.group;
+    return [
+      { tag: "建议 · 课题组", name: "① 建议他加入「" + group + "」",
+        desc: "让他承担其中的检索与问答子课题 —— 既接得上他的 NLP 底子，又正好练最缺的「" +
+          weak.name + "」。组里还有名额，进组后先跟一次完整复现再定方向。" },
+      { tag: "建议 · 近期", name: "② 最近四周给一个能交付的小目标",
+        desc: "把课上讲的分类方法做成一份能跑通的小实验（数据、代码、结论三样齐全），"
+          + "四周后一次复盘 —— 目标要小到能做完，做完要有东西可看。" },
+      { tag: "建议 · 关注", name: "③ 布置任务时多写一句验收标准",
+        desc: "他的短板在「" + weak.name + "」，任务说明里把「交什么、怎么算做完」写清楚，"
+          + "比事后催更省事。" },
+    ];
+  };
+
+  /** 指导学生结果：学生头 + 雷达图 + 解读 + 建议。 */
+  PF.coachResultHtml = function (res) {
+    const r = res || {};
+    if (r.miss) {
+      return '<div class="dm-lead">任教班级里没有找到「' + PF.esc(r.name || "该学生") +
+        '」。换个名字再问一次，或先到驾驶舱确认名单。</div>';
+    }
+    const st = r.student || {};
+    const p = r.profile || {};
+    const ab = PF.arr(p.ability_pairs);
+    let html = '<div class="dm-coach">' +
+      '<div class="dm-coach__head">' +
+        '<div class="dm-coach__name">' + PF.esc(st.name || r.name || "") +
+          ' <span class="t-xs t-dim">' + PF.esc(st.username || "") + " · " +
+          PF.esc(st.class_name || st.class_id || "") + "</span></div>" +
+        '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+          PF.trackBadge(p.track) + PF.levelTag(p.grade_level, true) +
+          (p.gpa !== undefined && p.gpa !== null
+            ? '<span class="badge">绩点 ' + PF.num(p.gpa, 2) + "</span>" : "") +
+          (p.layer ? '<span class="badge">' + PF.esc(p.layer) + "</span>" : "") +
+        "</div>" +
+      "</div>" +
+      '<div class="radar-wrap">' + PF.radar(ab, { max: 5 }) + PF.radarTips(ab) + "</div>" +
+      "</div>";
+    html += '<div class="dm-lead">图是这个学生真实的五维能力（数据来源：画像库）。' +
+      "下面两句是照着图读出来的，不是套话：</div>";
+    html += PF.demoBlocks(PF.coachReading(r));
+    html += '<div class="dm-note">' + PF.icon("target", 13) +
+      "<div><b>可以怎么做：</b>按上面的读图结论，给三条能直接落到行动上的建议。</div></div>";
+    html += PF.demoBlocks(PF.coachAdvice(r));
+    html += PF.demoGuides({ key: r.key || "coach", guides: PF.teacherGuidesOf("coach") }, "teacher");
+    return html;
+  };
+
+  /** 一组 blocks（[{tag,name,desc}]）渲染成列表 —— 解读与建议共用。 */
+  PF.demoBlocks = function (blocks) {
+    const bs = PF.arr(blocks);
+    if (!bs.length) return "";
+    return '<div class="dm-list">' + bs.map(function (b, i) {
+      return '<div class="dm-item"><span class="dm-rank">' + (i + 1) + "</span>" +
+        '<div class="dm-item__body">' +
+          '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+            (b.tag ? '<span class="dm-via">' + PF.esc(b.tag) + "</span>" : "") +
+            '<span class="dm-kp">' + PF.esc(b.name || "") + "</span>" +
+          "</div>" +
+          (b.desc ? '<div class="dm-sub">' + PF.esc(b.desc) + "</div>" : "") +
+        "</div></div>";
+    }).join("") + "</div>";
+  };
+
+  /** 一组 blocks → 可存的纯文本（引导里「顺手存一份」用）。 */
+  PF.blocksToText = function (title, blocks, lead) {
+    const L = ["# " + (title || "整理结果"), ""];
+    if (lead) { L.push(lead); L.push(""); }
+    PF.arr(blocks).forEach(function (b, i) {
+      L.push("## " + (i + 1) + ". " + String(b.name || ""));
+      if (b.tag) L.push("（" + b.tag + "）");
+      if (b.desc) L.push(String(b.desc));
+      L.push("");
+    });
+    return L.join("\n");
+  };
+
+  /* 教师演示之后的引导：每条都真的去做一件事（生成拓展教案 / 存一份资料），
+     不摆样子。key 形如 "prep.extend"，与 demoGuides 的 data-guide 对齐。 */
+  PF.TEACHER_GUIDES = {
+    "prep.extend": {
+      icon: "sparkles",
+      ask: "小寻注意到上课班级为学业拔尖型（A 层占比偏高），是否需要为这节课设计思维拓展模块？",
+      label: "思维拓展",
+      lead: "已按拔尖型的内容深度单独出一份思维拓展模块，与正课放进同一个备课文件夹：",
+      run: async function () {
+        const base = (PF.TEACHER_DEMOS.prep && PF.TEACHER_DEMOS.prep._last) || {};
+        const topic = (base.topic || "朴素贝叶斯") + " · 思维拓展";
+        const course = base.course || "机器学习";
+        const d = await PF.try(function () {
+          return PF.post("/api/teacher/lesson", {
+            topic: topic, course: course, periods: 1, level: "A", folder: base.folder || "",
+          });
+        }, null);
+        if (!d) return null;
+        const note = await PF.try(function () {
+          return PF.post("/api/materials/note", {
+            title: topic + " 教案", content: PF.lessonToText(d.plan),
+            category: "教学备课", course: course,
+          });
+        }, null);
+        return { topic: topic, plan: d.plan, artifact: d.artifact, engine: d.engine, note: note };
+      },
+      statusText: function (st) {
+        return "已生成《" + PF.esc(st.topic) + " 教案》（docx" +
+          ((st.artifact && st.artifact.size) ? "，" + PF.num(st.artifact.size / 1024, 0) + " KB" : "") +
+          "）" + (st.note ? "，并存入「资料与知识库 / 教学备课」：" + PF.esc(st.note.filename || "") : "");
+      },
+      blocks: [
+        { tag: "拓展 · 假设", name: "① 把「条件独立」这条假设拆开看",
+          desc: "条件独立到底省掉了什么？把它放宽成「每个属性最多依赖一个其它属性」，就是半朴素贝叶斯 —— 让学有余力的同学自己推一遍参数个数从多少降到多少。" },
+        { tag: "拓展 · 数学", name: "② 拉普拉斯平滑为什么是加 1",
+          desc: "从贝叶斯估计的角度看，加 1 其实是给了一个均匀先验；再问一句：加 0.5（Lidstone）行不行？什么时候会出问题？" },
+        { tag: "拓展 · 对比", name: "③ 生成式 vs 判别式：与逻辑回归对照",
+          desc: "朴素贝叶斯先学 P(x|y) 再反推 P(y|x)，逻辑回归直接学 P(y|x)。讨论：训练样本很少时谁更稳？为什么？" },
+        { tag: "拓展 · 动手", name: "④ 造一个反例自己验",
+          desc: "构造两个强相关特征（如「下雨」与「带伞」），看朴素贝叶斯的概率估计怎么被放大，再想想工程上怎么规避。" },
+      ],
+      advice: "拓展模块单独成文、按需取用：不占正课时间，也不要求所有同学都做 —— 内容深度可以不一样，任务要求不因人而异。",
+      adviceLabel: "用法",
+      trace: {
+        main: "拓展点的选取依据 张明远 老师《机器学习（2026 春）》课件「第4章-贝叶斯分类器.pptx」里的两个知识点（按相关度取前 3）：",
+        ranked: [
+          { score: "0.894", via: "语义", teacher: "张明远 老师", course: "机器学习（2026 春）", file: "第4章-贝叶斯分类器.pptx", kp: "条件独立假设与参数规模",
+            snippet: "条件独立把联合概率的参数从指数级降到线性级，这是朴素贝叶斯能在小样本上工作的根本原因。" },
+          { score: "0.831", via: "关键词", teacher: "张明远 老师", course: "机器学习（2026 春）", file: "第4章-贝叶斯分类器.pptx", kp: "拉普拉斯平滑",
+            snippet: "平滑是为了避免某个属性在某个类下没出现过导致整条概率归零；加 1 相当于给了均匀先验。" },
+          { score: "0.706", via: "语义", teacher: "李文静 老师", course: "机器学习（2026 春）", file: "第3章-线性模型.pdf", kp: "生成式与判别式模型",
+            snippet: "生成式先建 P(x|y)，判别式直接建 P(y|x)；样本少时前者方差更小，样本足时后者通常更准。" },
+        ],
+      },
+    },
+    "prep.review": {
+      icon: "clipboard",
+      ask: "要不要我把这节课最容易错的地方，整理成一份讲评要点？",
+      label: "讲评要点",
+      lead: "已按作业里最容易失分的三处整理成讲评要点，下节课开头十分钟就能用：",
+      run: async function () {
+        const base = (PF.TEACHER_DEMOS.prep && PF.TEACHER_DEMOS.prep._last) || {};
+        const self = PF.TEACHER_GUIDES["prep.review"];
+        const title = (base.topic || "朴素贝叶斯") + " 讲评要点";
+        const note = await PF.try(function () {
+          return PF.post("/api/materials/note", {
+            title: title,
+            content: PF.blocksToText(title, self.blocks, "下节课开头十分钟的讲评顺序："),
+            category: "教学备课", course: base.course || "机器学习",
+          });
+        }, null);
+        return note ? { note: note, title: title } : null;
+      },
+      statusText: function (st) {
+        return "已存入「资料与知识库 / 教学备课」：" + PF.esc(st.note.filename || st.title || "") +
+          (Number(st.note.knowledge_points) > 0
+            ? "，抽出 " + PF.num(st.note.knowledge_points, 0) + " 个知识点" : "");
+      },
+      blocks: [
+        { tag: "讲评 · 第 1 处", name: "① 只写公式、不写「为什么能分类」",
+          desc: "多数同学能默出贝叶斯公式，但说不清「条件独立假设」省掉了什么。讲评时先让他解释假设，再讲公式 —— 顺序反了就记不住。" },
+        { tag: "讲评 · 第 2 处", name: "② 先验概率被漏掉",
+          desc: "手算时直接比较 P(x|y)，忘了乘 P(y)。讲评时把两类先验差一个数量级的例子摆出来，一眼就能看出差别。" },
+        { tag: "讲评 · 第 3 处", name: "③ 概率为 0 就整条归零",
+          desc: "没出现过的词会让整条概率变成 0。讲评时现场演示加平滑前后的结果对比，比讲定义管用。" },
+      ],
+      advice: "讲评要点按「错在哪 → 为什么错 → 怎么讲」排好了，直接照着念也能用。",
+      adviceLabel: "用法",
+    },
+    "coach.talk": {
+      icon: "message",
+      ask: "要不要把这份指导要点整理成一份谈话提纲，存进资料库？",
+      label: "谈话提纲",
+      lead: "已整理成一份能照着谈的提纲（怎么开场 → 问哪三句 → 怎么收尾），并存进「资料与知识库 / 教学备课」：",
+      run: async function () {
+        const self = PF.TEACHER_GUIDES["coach.talk"];
+        const who = (PF.TEACHER_DEMOS.coach && PF.TEACHER_DEMOS.coach.student) || "该学生";
+        const title = who + " · 指导谈话提纲";
+        const note = await PF.try(function () {
+          return PF.post("/api/materials/note", {
+            title: title,
+            content: PF.blocksToText(title, self.blocks, "与学生一对一谈话时的顺序（照着走即可）："),
+            category: "教学备课", course: "",
+          });
+        }, null);
+        return note ? { note: note, title: title } : null;
+      },
+      statusText: function (st) {
+        return "已存入「资料与知识库 / 教学备课」：" + PF.esc(st.note.filename || st.title || "");
+      },
+      blocks: [
+        { tag: "开场", name: "① 先说他做得好的那件事",
+          desc: "从雷达图最长的那一维切入（具体哪次作业、哪个项目做得好），先坐实优势，后面才谈得动短板。" },
+        { tag: "三问", name: "② 三句话问出真实想法",
+          desc: "一问「接下来半年最想做成什么」；二问「现在卡在哪一步」；三问「需要我帮你打通什么」—— 三问顺序不能倒，先有目标才谈卡点。" },
+        { tag: "收尾", name: "③ 收尾只留一个动作",
+          desc: "谈完只给一个小到能做完的目标（四周内、有交付物），并约定下次复盘的时间 —— 一次谈太多等于没谈。" },
+      ],
+      advice: "提纲是给教师自己用的：照着走一遍大约 20 分钟，谈完在资料库里补一句结论，下次直接续上。",
+      adviceLabel: "用法",
+    },
+    "coach.plan": {
+      icon: "target",
+      ask: "要不要给他生成一份 4 周进阶任务清单？",
+      label: "进阶任务",
+      lead: "已按他最缺的那一维排了 4 周 —— 每周一件事、每周有交付：",
+      run: async function () {
+        const self = PF.TEACHER_GUIDES["coach.plan"];
+        const who = (PF.TEACHER_DEMOS.coach && PF.TEACHER_DEMOS.coach.student) || "该学生";
+        const title = who + " · 4 周进阶任务清单";
+        const note = await PF.try(function () {
+          return PF.post("/api/materials/note", {
+            title: title,
+            content: PF.blocksToText(title, self.blocks, "每周一个交付物，四周后复盘一次："),
+            category: "教学备课", course: "",
+          });
+        }, null);
+        return note ? { note: note, title: title } : null;
+      },
+      statusText: function (st) {
+        return "已存入「资料与知识库 / 教学备课」：" + PF.esc(st.note.filename || st.title || "");
+      },
+      blocks: [
+        { tag: "第 1 周", name: "① 复现一遍课堂方法（不调库）",
+          desc: "用自己的数据把课上讲的分类方法从头实现一遍，交一份能跑的脚本 + 一张结果表 —— 先把「知道」变成「做出来」。" },
+        { tag: "第 2 周", name: "② 换一份数据再跑，写清差异",
+          desc: "换一个数据来源重跑，说明指标为什么变了。目标不是跑通，是能解释变化。" },
+        { tag: "第 3 周", name: "③ 跟一次组会 / 项目例会",
+          desc: "进组听一次会，会后用三段话写清「大家在做什么、我能在哪插进去」—— 这一步是补协作与实践那一维。" },
+        { tag: "第 4 周", name: "④ 复盘：讲一遍自己做的东西",
+          desc: "用 10 分钟讲清「做了什么、结论是什么、哪里还不确定」，讲不清的地方就是下一步要补的地方。" },
+      ],
+      advice: "四周只有一个目标：让他把一件事做完并能讲清楚。做完了再往上加，别一次排满。",
+      adviceLabel: "用法",
+    },
+  };
+
+  /** 取某个教师演示的引导列表（供 PF.demoGuides 渲染）。 */
+  PF.teacherGuidesOf = function (rootKey) {
+    return Object.keys(PF.TEACHER_GUIDES)
+      .filter(function (k) { return String(k).split(".")[0] === rootKey; })
+      .map(function (k) {
+        return Object.assign({ key: String(k).split(".")[1] }, PF.TEACHER_GUIDES[k]);
+      });
+  };
+
+  /** 引导里「正在做什么」的状态行：跑成功照实说，跑不通也照实说。 */
+  PF.teacherActionStatus = function (g) {
+    const st = (g || {})._res;
+    if (!st) {
+      return '<div class="dm-sub" data-tact>' + PF.icon("sparkles", 12) +
+        " 正在处理…</div>";
+    }
+    if (st.fail) {
+      return '<div class="dm-sub">' + PF.icon("info", 12) +
+        " 这一步没能连上后端 —— 下面的内容照常给你，稍后可以在备课助手里再做一次。</div>";
+    }
+    const txt = typeof g.statusText === "function" ? g.statusText(st) : "已完成。";
+    return '<div class="dm-sub dm-sub--ok">' + PF.icon("check", 12) + " " + txt + "</div>";
+  };
+
+  /** 教师引导轮的正文：状态行 → 结果 → 说明 → 溯源（折叠）。 */
+  PF.teacherGuideBody = function (g, folders) {
+    g = g || {};
+    let html = PF.teacherActionStatus(g);
+    if (g.lead) html += '<div class="dm-lead">' + PF.esc(g.lead) + "</div>";
+    html += PF.demoBlocks(g.blocks);
+    if (g.advice) {
+      html += '<div class="dm-note">' + PF.icon("target", 13) + "<div><b>" +
+        PF.esc(g.adviceLabel || "说明") + "：</b>" + PF.esc(g.advice) + "</div></div>";
+    }
+    html += PF.demoTraceCard(g);
+    return html;
+  };
+
+  /** 点教师演示的引导按钮：先入列画 loading，跑完真动作再重画这一轮。 */
+  PF.runTeacherGuide = async function (gkey, hooks) {
+    const h = hooks || {};
+    const g = PF.TEACHER_GUIDES[gkey];
+    if (!g) return null;
+    const ctx = typeof h.push === "function" ? h.push(g, gkey) : null;
+    let res = null;
+    if (typeof g.run === "function") {
+      res = await PF.try(function () { return g.run(g); }, null);
+    }
+    g._res = res || { fail: true };
+    if (typeof h.paint === "function") h.paint(g, gkey, ctx);
+    return g;
+  };
+
+  /* ------------------------------------------------------ 智能体工具
      两个对话页共用：从 /api/agent/tools 拿清单渲染按钮，点开弹窗填参数，
      跑完把结果（含引用来源）就地展示。新增工具不需要改前端。 */
   PF.agentTools = function (cfg) {

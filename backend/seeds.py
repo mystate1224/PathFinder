@@ -448,6 +448,13 @@ RESOURCES = [
     ("teacher3", "internship", "腾讯广告算法实习（内推）",
      "负责广告排序模型的离线评估与特征工程，要求掌握 Python 与 SQL。",
      ["实习", "推荐系统", "内推"], 3, "2026-10-25"),
+    # 学生 Copilot「就业例子演示」用：问「前端需要学什么技术」之后推荐跟的项目。
+    # 引导按钮里的「帮我申请」会真调 /api/resources/{id}/apply，所以这条必须是库里真实存在的。
+    ("teacher", "project", "学业导航平台前端可视化（校企共建）",
+     "为学院做一套学业—就业双轨导航平台的可视化前端，需要 2 名同学负责页面开发、"
+     "数据可视化与接口联调；要求 HTML/CSS/JS 基础，会 React 或 Vue 其中之一，"
+     "进组后先跟一次完整迭代再独立负责一个模块。",
+     ["前端开发", "数据可视化", "项目"], 2, "2026-11-30"),
 ]
 
 # (学生 username, 资源标题, 申请留言, 教师处理, 教师回复)
@@ -914,7 +921,24 @@ def seed(force: bool = False) -> dict:
     return report
 
 
+def seed_resources_only() -> dict:
+    """只补「资源 / 申请」这一块 —— 给已经跑过全量播种的库增量加新演示资源用。
+
+    ``seed_resources`` 本身幂等（按 教师 + 标题 判重），
+    申请则只补还没申请过的，不会覆盖教师已经做出的处理。
+    """
+    db.init_db()
+    return {"resources": seed_resources()}
+
+
 def main() -> None:  # pragma: no cover - 命令行入口
+    if "--resources-only" in sys.argv:
+        report = seed_resources_only()
+        print("[seeds] 只补资源（幂等）：")
+        for key, value in report.items():
+            print(f"  - {key}: {value}")
+        print(f"[seeds] 数据库：{config.DB_PATH}")
+        return
     force = "--reset" in sys.argv
     report = seed(force=force)
     print("[seeds] 播种结果：")

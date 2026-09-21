@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>学生 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=20">
+<link rel="stylesheet" href="/static/css/style.css?v=21">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -20,7 +20,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=11"></script>
+<script src="/static/js/common.js?v=12"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -38,11 +38,13 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     actions:
       '<button class="btn" id="btn-demo-text">' + PF.icon("file", 15) + "文本例子演示</button>" +
       '<button class="btn" id="btn-demo-image">' + PF.icon("image", 15) + "图片例子演示</button>" +
+      '<button class="btn" id="btn-demo-job">' + PF.icon("briefcase", 15) + "就业例子演示</button>" +
       '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
       '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
   });
   PF.$("#btn-demo-text").addEventListener("click", function () { runDemo("text"); });
   PF.$("#btn-demo-image").addEventListener("click", function () { runDemo("image"); });
+  PF.$("#btn-demo-job").addEventListener("click", function () { runDemo("job"); });
 
   const META = (await PF.try(function () { return PF.get("/api/meta", { quiet: true }); }, {})) || {};
   const COURSES = PF.arr(META.my_courses);
@@ -180,7 +182,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         PF.esc(m.content || "") +
         (m.attach || "") +
         (!isUser && m.demo ? PF.demoAnswerBody(m.demo, FOLDERS, "student") : "") +
-        (!isUser && m.guide ? PF.demoGuideBody(m.guide, m.guideKey, FOLDERS) : "") +
+        (!isUser && m.guide ? PF.demoGuideBody(m.guide, m.guideKey, FOLDERS, "student") : "") +
         (refs.length ? '<div class="t-xs mt-3" style="color:var(--ink-500)">依据：' +
           refs.slice(0, 3).map(function (r) { return "[" + PF.esc(r) + "]"; }).join(" ") + "</div>" : "") +
         (!isUser && m.rag ? PF.ragCard(m.rag) : "") +
@@ -207,7 +209,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       chat.innerHTML =
         renderMsg({ role: "user", content: r.q, created_at: r.at, attach: r.attach }) +
         renderMsg({ role: "assistant", content: "", created_at: r.at,
-                    layer: "资料解析", engine: "rule", refs: [], demo: r.demo });
+                    layer: r.layer || "资料解析", engine: "rule", refs: [], demo: r.demo });
       bindFollowups(chat);
       PF.bindNoteSaver(chat, { onSaved: function () { sess.refresh(); } });
       PF.bindGuides(chat, { onPick: runGuide });
@@ -336,7 +338,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     const demo = PF.COPILOT_DEMOS[key];
     if (!demo) return;
     const at = new Date().toISOString();
-    ROUNDS.push({ q: demo.prompt, a: "", refs: [], layer: "资料解析", engine: "rule",
+    const layer = demo.layer || "资料解析";
+    const busyText = demo.material
+      ? "正在解析" + PF.esc(demo.kind) + "素材、抽取知识点，并检索相关课件做溯源…"
+      : "正在结合你的画像与库里的课程/就业资料组织路线，并检索可溯源的依据…";
+    ROUNDS.push({ q: demo.prompt, a: "", refs: [], layer: layer, engine: "rule",
                   at: at, qa: null, rag: null, demo: demo, attach: PF.demoAttach(demo) });
     CURRENT = ROUNDS.length - 1;
     paintDock();
@@ -344,9 +350,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       renderMsg({ role: "user", content: demo.prompt, created_at: at, attach: PF.demoAttach(demo) }) +
       '<div class="msg msg--ai"><div class="msg__avatar">AI</div><div class="msg__bubble">' +
         '<div class="msg__meta"><span class="t-xs t-strong">AI 助教</span>' +
-        '<span class="badge badge--brand">资料解析</span>' + PF.engineBadge("rule") + "</div>" +
-        '<span class="spin"></span> <span class="t-sm t-dim">正在解析' + PF.esc(demo.kind) +
-        "素材、抽取知识点，并检索相关课件做溯源…</span></div></div>";
+        '<span class="badge badge--brand">' + PF.esc(layer) + "</span>" + PF.engineBadge("rule") + "</div>" +
+        '<span class="spin"></span> <span class="t-sm t-dim">' + busyText + "</span></div></div>";
     scrollBottom();
     setTimeout(function () { paintRound(CURRENT); }, 650);
   }
@@ -372,7 +377,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             '<span class="badge badge--brand">' + PF.esc(layer) + "</span>" +
             PF.engineBadge("rule") + "</div>" +
             '<span class="spin"></span> <span class="t-sm t-dim">' +
-            (guide.upload ? "正在上传作业图并逐题解析…" : "正在生成结果…") + "</span></div></div>";
+            (guide.upload ? "正在上传作业图并逐题解析…"
+              : (guide.action ? "正在到资源广场找到该项目并提交申请…"
+                : "正在生成结果…")) + "</span></div></div>";
         scrollBottom();
         setTimeout(function () { paintRound(CURRENT); }, 650);
         return { chat: PF.$("#chat"), side: "student" };

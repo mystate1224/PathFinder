@@ -485,6 +485,51 @@ def test_teacher(c: Client) -> None:
         return f"意图分别路由到 {outs}"
     c.check("Copilot 意图路由", copilot)
 
+    # --- v7.9 备课演示：教案 → PPT（≤10 页）→ 作业，三步真实生成并入库 ---
+    def prep_demo():
+        """教师 Copilot「帮我备一节朴素贝叶斯的课」那一步要求产物是**真的**：
+        这里把三步各跑一遍，并断言「教案与 PPT 归到同一个备课文件夹」+
+        「每份都存进了资料库」。写死的产物一翻别的页面就穿帮，所以必须钉住。"""
+        topic = "朴素贝叶斯"
+        folder = topic + " · 冒烟"
+        lp = c.api("POST", "/api/teacher/lesson",
+                   {"topic": topic, "course": "机器学习", "periods": 1,
+                    "level": "B", "folder": folder})
+        need(lp.get("plan") and lp["plan"].get("title"), f"教案生成失败：{lp}")
+        sl = c.api("POST", "/api/teacher/slides/from-lesson",
+                   {"plan": lp["plan"], "course": "机器学习", "pages": 10, "folder": folder})
+        slides = (sl.get("outline") or {}).get("slides") or []
+        need(slides, f"PPT 大纲为空：{sl}")
+        need(len(slides) <= 10, f"PPT 应不超过 10 页，实际 {len(slides)}")
+        classes = c.api("GET", "/api/teacher/classes")
+        hw = c.api("POST", "/api/teacher/homework", {
+            "title": topic + "课后作业", "course": "机器学习",
+            "class_name": classes.get("current") or "",
+            "detail": "手算一封邮件属于正常邮件还是垃圾邮件，写出每一步。",
+            "full_score": 100, "deadline": "2026-12-31 23:59",
+        })
+        need(hw.get("homework_id"), f"作业布置失败：{hw}")
+        saved = []
+        for title, body in [(topic + " 教案", "教案正文（冒烟）"),
+                            (topic + " PPT 大纲", "PPT 正文（冒烟）"),
+                            (topic + "课后作业", "作业正文（冒烟）")]:
+            d = c.api("POST", "/api/materials/note",
+                      {"title": title, "content": body, "category": "教学备课",
+                       "course": "机器学习"})
+            need(d.get("filename"), f"《{title}》未入库：{d}")
+            saved.append(d["filename"])
+            # 清理：教师新增的资料会进学生的「教师共享」池，
+            # 不删会让后面的隔离用例以为「种子学生没有预导入全部公用资料」。
+            c.api("DELETE", f"/api/materials/{d['material_id']}")
+        arts = c.api("GET", "/api/teacher/artifacts")
+        in_folder = [a for a in (arts.get("artifacts") or []) if a.get("folder") == folder]
+        need(len(in_folder) >= 2,
+             f"教案与 PPT 应同属文件夹「{folder}」，实际 {len(in_folder)} 件")
+        return (f"教案 {len(lp['plan'].get('outline') or [])} 环节 → PPT {len(slides)} 页 → "
+                f"作业 #{hw['homework_id']} → 入库 {len(saved)} 份 → "
+                f"同文件夹产物 {len(in_folder)} 件")
+    c.check("备课演示（教案 + PPT≤10 页 + 作业，真实生成并入库）", prep_demo)
+
     # --- 自检 ---
     def selfcheck():
         d = c.api("POST", "/api/selfcheck", {})
@@ -710,6 +755,34 @@ def test_student(c: Client) -> None:
         need(mine["applications"], "我的申请列表为空")
         return f"申请《{target['title']}》成功，我的申请 {len(mine['applications'])} 条"
     c.check("资源申请", apply)
+
+    # --- v7.9 学生就业演示：引导里的「帮我申请」必须能真提交 ---
+    def demo_apply():
+        """学生 Copilot 就业例子里，点「帮我申请」会真调 apply —— 前提是这条资源
+        在库里真实存在，后端也要挡住重复提交（前端靠 my_application 判定 dup）。
+        少任何一条，演示都会退化成「没找到这个资源」的降级文案。"""
+        title = "学业导航平台前端可视化（校企共建）"
+        d = c.api("GET", "/api/resources")
+        target = None
+        for t in d["teachers"]:
+            for r in t["resources"]:
+                if r.get("title") == title:
+                    target = r
+                    break
+            if target:
+                break
+        need(target, f"资源广场里没有《{title}》，演示会退化成「没找到」")
+        if not target.get("my_application"):
+            c.api("POST", f"/api/resources/{target['id']}/apply",
+                  {"message": "冒烟：我已按前端路线学完 HTML/CSS 与 JS 基础"})
+        mine = c.api("GET", "/api/resources/applications/mine")
+        hit = [a for a in mine["applications"] if (a.get("resource_title") or "") == title]
+        need(hit, f"申请后没出现在「我的申请」里：{[a.get('resource_title') for a in mine['applications']]}")
+        status, _ = c.raw("POST", f"/api/resources/{target['id']}/apply", {"message": "再来一次"})
+        need(status == 400, f"重复申请应被拒（400），实际 {status}")
+        return (f"《{title}》→ 申请成功（{hit[0].get('status_text') or hit[0].get('status')}）"
+                f" → 重复提交被拒")
+    c.check("就业演示 · 项目可真实申请（含重复拦截）", demo_apply)
 
     # --- 作业 ---
     def homework():

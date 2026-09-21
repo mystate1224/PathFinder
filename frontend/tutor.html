@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=20">
+<link rel="stylesheet" href="/static/css/style.css?v=21">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -19,7 +19,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=11"></script>
+<script src="/static/js/common.js?v=12"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -37,11 +37,15 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     actions:
       '<button class="btn" id="btn-demo-text">' + PF.icon("file", 15) + "文本例子演示</button>" +
       '<button class="btn" id="btn-demo-image">' + PF.icon("image", 15) + "图片例子演示</button>" +
+      '<button class="btn btn--primary" id="btn-demo-prep">' + PF.icon("presentation", 15) + "备课例子演示</button>" +
+      '<button class="btn btn--primary" id="btn-demo-coach">' + PF.icon("users", 15) + "指导学生演示</button>" +
       '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
       '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
   });
   PF.$("#btn-demo-text").addEventListener("click", function () { runDemo("text"); });
   PF.$("#btn-demo-image").addEventListener("click", function () { runDemo("image"); });
+  PF.$("#btn-demo-prep").addEventListener("click", function () { runPrep(); });
+  PF.$("#btn-demo-coach").addEventListener("click", function () { runCoach(); });
 
   const SKILLS_FALLBACK = [
     { value: "student", label: "查学生", hint: "看看 stu03 的成绩如何" },
@@ -191,7 +195,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         PF.esc(m.content || "") +
         (m.attach || "") +
         (!isUser && m.demo ? PF.demoAnswerBody(m.demo, FOLDERS, "teacher") : "") +
-        (!isUser && m.guide ? PF.demoGuideBody(m.guide, m.guideKey, FOLDERS) : "") +
+        (!isUser && m.guide ? PF.demoGuideBody(m.guide, m.guideKey, FOLDERS, "teacher") : "") +
+        (!isUser && m.prep ? PF.prepResultHtml(m.prep) : "") +
+        (!isUser && m.coach ? PF.coachResultHtml(m.coach) : "") +
+        (!isUser && m.tguide ? PF.teacherGuideBody(m.tguide, FOLDERS) : "") +
         (!isUser && m.intent === "student" ? studentBlock(data) : "") +
         (!isUser && m.intent === "lesson" ? lessonBlock(data) : "") +
         (!isUser && m.intent === "explain" ? explainBlock(data) : "") +
@@ -309,6 +316,22 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       el.scrollTop = el.scrollHeight;
       return;
     }
+    // v7.9 教师演示：备课（真生成三件产物）/ 指导学生（真取画像画雷达图）/ 演示之后的引导
+    if (r.prep || r.coach || r.tguide) {
+      const label = r.tguide ? (r.tguide.label || "教师演示")
+        : (r.prep ? "备课" : "指导学生");
+      chat.innerHTML =
+        renderMsg({ role: "user", content: r.q, created_at: r.at, attach: r.attach }) +
+        renderMsg({ role: "assistant", content: "", created_at: r.at,
+                    intent: "", intent_label: r.intent_label || label, engine: "rule",
+                    data: {}, refs: [],
+                    prep: r.prep, coach: r.coach, tguide: r.tguide });
+      PF.bindGuides(chat, { onPick: runGuide });
+      paintDock();
+      const el = PF.$("#chat");
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
     chat.innerHTML =
       renderMsg({ role: "user", content: r.q, created_at: r.at }) +
       (r.a ? renderMsg({ role: "assistant", content: r.a, intent: r.intent, intent_label: r.intent_label,
@@ -403,8 +426,89 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     setTimeout(function () { paintRound(CURRENT); }, 650);
   }
 
-  /* 引导问答（教师侧）：文案用 askT（讲评/课堂练习视角），流程与学生侧同构。 */
+  /* ---------------------------------------------------------- 教师演示（v7.9）
+     与学生侧写死的素材演示不同，备课与指导学生这两个**真跑接口**：
+       ① 备课 —— 教案 → PPT（≤10 页）→ 作业，三步真实生成并入库；
+       ② 指导学生 —— 真实取学生画像画雷达图，给解读与建议。
+     真跑的理由：演示里出现的东西必须能在别的页面真的翻到，写死的产物一查就穿帮。 */
+  let DEMO_BUSY = false;
+
+  function pushRound(q, extra) {
+    const at = new Date().toISOString();
+    const r = Object.assign({ q: q, a: "", refs: [], data: null, intent: "", intent_label: "",
+                              engine: "rule", at: at, qa: null, rag: null }, extra || {});
+    ROUNDS.push(r);
+    CURRENT = ROUNDS.length - 1;
+    paintDock();
+    return r;
+  }
+
+  /** 演示进行中的「正在…」气泡；#dm-step 这一步的文字会被逐阶段改写。 */
+  function paintWaiting(q, label, text) {
+    PF.$("#chat").innerHTML =
+      renderMsg({ role: "user", content: q, created_at: new Date().toISOString() }) +
+      '<div class="msg msg--ai"><div class="msg__avatar">AI</div><div class="msg__bubble">' +
+        '<div class="msg__meta"><span class="t-xs t-strong">Copilot</span>' +
+        '<span class="badge badge--brand">' + PF.esc(label) + "</span>" +
+        PF.engineBadge("rule") + "</div>" +
+        '<span class="spin"></span> <span class="t-sm t-dim" id="dm-step">' +
+        PF.esc(text) + "</span></div></div>";
+    const el = PF.$("#chat");
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function setStep(t) {
+    const el = PF.$("#dm-step");
+    if (el) el.textContent = t;
+  }
+
+  async function runPrep() {
+    if (DEMO_BUSY) return;
+    const cfg = PF.TEACHER_DEMOS.prep;
+    // 作业按「教学班」分发，先问后端我现在带的是哪个班（取不到就交给后端报错兜底）
+    const cls = await PF.try(function () {
+      return PF.get("/api/teacher/classes", { quiet: true });
+    }, null);
+    const r = pushRound(cfg.title, { intent_label: "备课", prep: null });
+    paintWaiting(cfg.title, "备课", "正在检索备课资料…");
+    DEMO_BUSY = true;
+    try { r.prep = await PF.runPrepDemo({ class_name: (cls && cls.current) || "" }, setStep); }
+    finally { DEMO_BUSY = false; }
+    paintRound(CURRENT);
+    PF.toast(PF.arr(r.prep.errors).length ? "备课演示跑完了，有步骤没成功" : "三件产物都生成好了", "ok");
+  }
+
+  async function runCoach() {
+    if (DEMO_BUSY) return;
+    const cfg = PF.TEACHER_DEMOS.coach;
+    const r = pushRound(cfg.title, { intent_label: "指导学生", coach: null });
+    paintWaiting(cfg.title, "指导学生", "正在班里定位「" + cfg.student + "」…");
+    DEMO_BUSY = true;
+    try { r.coach = await PF.runCoachDemo({}, setStep); }
+    finally { DEMO_BUSY = false; }
+    paintRound(CURRENT);
+  }
+
+  /** 教师演示之后的引导：每条都真的去做一件事（生成拓展教案 / 存一份资料）。 */
+  async function runTeacherGuide(gkey) {
+    if (DEMO_BUSY) return;
+    DEMO_BUSY = true;
+    try {
+      await PF.runTeacherGuide(gkey, {
+        push: function (g) {
+          const r = pushRound(g.ask, { intent_label: g.label || "教师演示", tguide: g });
+          paintWaiting(g.ask, g.label || "教师演示", "正在处理…");
+          return { chat: PF.$("#chat") };
+        },
+        paint: function () { paintRound(CURRENT); },
+      });
+    } finally { DEMO_BUSY = false; }
+  }
+
+  /* 引导问答（教师侧）：文案用 askT（讲评/课堂练习视角），流程与学生侧同构；
+     "prep.*" / "coach.*" 是教师演示的引导，走另一条真跑接口的路径。 */
   function runGuide(gkey) {
+    if (/^(prep|coach)\./.test(String(gkey))) { runTeacherGuide(gkey); return; }
     PF.runCopilotGuide(gkey, {
       side: "teacher",
       push: function (guide, k) {
