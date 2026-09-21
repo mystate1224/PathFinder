@@ -38,6 +38,9 @@ KINDS: dict[str, str] = {
     "award": "获奖证明",
     "transcript": "成绩单",
     "resume": "简历",
+    # 对话里整理出来的笔记（Copilot「存成笔记」）—— 没有扩展名会映射到这里，
+    # 只由保存笔记的代码显式指定，与上传材料的六类并列展示。
+    "note": "学习笔记",
     "other": "其它材料",
 }
 
@@ -637,6 +640,8 @@ def list_materials(owner_id: int, category: str = "", course: str = "", keyword:
     for row in rows:
         row["parsed"] = db.jload(row.get("parsed"), {})
         row["size_chars"] = len(str(row.get("raw_text") or ""))
+        # 前端列表直接显示中文名，别把 courseware / note 这种键名亮给师生看
+        row["kind_label"] = KINDS.get(str(row.get("kind") or ""), "其它材料")
         row.pop("raw_text", None)
         row["knowledge_count"] = db.scalar(
             "SELECT COUNT(*) FROM knowledge_points WHERE material_id = ?", (row["id"],), 0

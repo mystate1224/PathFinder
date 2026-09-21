@@ -6,10 +6,17 @@
 """
 from __future__ import annotations
 
+import re
+from typing import Any
+
+import config
 import db
-from services import extract, rag
+from services import embedding, extract, rag
 
 DEFAULT_CATEGORIES = extract.CATEGORIES
+
+# 笔记文件名里允许出现的字符，其余换成 _（与 extract.safe_name 同一口径）
+_SAFE_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fa9._-]")
 
 
 def categories(owner_id: int) -> list[str]:
@@ -133,6 +140,87 @@ def materials(owner_id: int, category: str = "", course: str = "",
 
 def set_category(owner_id: int, material_id: int, category: str) -> bool:
     return extract.set_category(owner_id, material_id, category)
+
+
+def save_note(user: dict, title: str, content: str, category: str = "未分类",
+              course: str = "") -> dict[str, Any]:
+    """把对话里整理出来的知识点**存成一篇笔记**，进「我的资料库」。
+
+    和上传资料走同一条链路（落盘 → 入库 → 建索引 → 抽知识点），
+    这样笔记之后也能被答疑检索到，而不是存了个谁也用不上的死文件。
+
+    刻意**不走** ``apply_parse_result``：那条路会顺手重算学生画像，
+    把一句话疑问当成兴趣信号写进档案是不合理的副作用。
+    """
+    owner_id = int(user["id"])
+    body = str(content or "").strip()
+    if not body:
+        return {"error": "笔记内容是空的"}
+    name = str(title or "").strip() or "未命名笔记"
+
+    # 连续非法字符（如「 · 」）会各变一个 _，合并成一个，别让文件名长成 "代数___第3章"
+    stem = re.sub(r"_{2,}", "_", _SAFE_RE.sub("_", name))[:60].strip("._") or "笔记"
+    filename = f"{stem}.md"
+    stored = ""
+    try:
+        folder = extract.ensure_upload_dir(owner_id)
+        target = folder / filename
+        seq = 1
+        while target.exists():
+            target = folder / f"{stem}_{seq}.md"
+            seq += 1
+        target.write_text(body, encoding="utf-8")
+        stored = str(target.relative_to(config.DATA_DIR)).replace("\\", "/")
+    except OSError as exc:  # noqa: BLE001 - 落盘失败要如实告诉前端，不能假装成功
+        return {"error": f"笔记落盘失败：{exc}"}
+
+    # 笔记自带标题层级（"## 1. 矩阵的定义"），逐行切成知识点，库里就能按知识点检索
+    points: list[dict] = []
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        head = line.lstrip("#").strip()
+        head = head.lstrip("★·-* ").strip()
+        if not head:
+            continue
+        first = head[:1]
+        if not (first.isdigit() or first in "★·-*"):
+            continue          # 说明性正文行不切，只切带编号/星标的条目行
+        name = re.sub(r"^(\d+(\.\d+)*[、.．]?)\s*", "", head)[:40]
+        if len(name) < 2:
+            continue
+        points.append({"name": name, "difficulty": "B", "keywords": []})
+        if len(points) >= 8:
+            break
+
+    parsed: dict[str, Any] = {
+        "title": name,
+        "summary": body[:120],
+        "directions": [],
+        "knowledge_points": points,
+    }
+    if course:
+        parsed["course"] = course
+
+    material_id = extract.save_material(
+        owner_id, "note", category or "未分类", filename, stored, body, parsed, "rule"
+    )
+    indexed = rag.index_material(material_id, owner_id, course or name, filename, body)
+    embedding.index_vectors(material_id, extract.split_chunks(body))
+    kps = extract.replace_knowledge_points(
+        material_id, owner_id, course or name, parsed, body, filename
+    )
+    return {
+        "material_id": material_id,
+        "filename": filename,
+        "title": name,
+        "category": category or "未分类",
+        "course": course or "",
+        "chars": len(body),
+        "indexed": int(indexed or 0),
+        "knowledge_points": int(kps or 0),
+    }
 
 
 def delete(owner_id: int, material_id: int) -> bool:

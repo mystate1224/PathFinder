@@ -2907,3 +2907,127 @@ html[data-theme="dark"] .mk-pct--danger, html[data-theme="dark"] .mk-score--dang
   position: absolute; top: 0; left: 0; right: 0; height: 3px;
   background: linear-gradient(90deg, #4353ff, #6366f1);
 }
+
+/* ============================================================ v7.7 Copilot 演示组件（2026-09-20）
+   学生 Copilot(/ask) 与教师 Copilot(/tutor) 共用：点「文本例子演示 / 图片例子演示」
+   走一条写死的完整链路 —— 上传素材 → 整理知识点 → 溯源（四条排序） → 存成笔记。
+   这一组选择器只服务演示块，不复用其它地方的卡片样式，改这里不会影响别处。 */
+
+/* —— 用户气泡里的附件：文本显示文件行 + 摘要；图片直接显示缩略图 —— */
+.dm-attach {
+  margin-top: 8px; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--border, #dce6f2); background: var(--surface-2, #f8fafc);
+}
+.dm-file { display: flex; gap: 8px; align-items: center; }
+.dm-file svg { flex: 0 0 auto; color: var(--brand-500, #4353ff); }
+.dm-file__name { font-size: 12.5px; font-weight: 650; color: var(--ink-800, #1e293b); word-break: break-all; }
+.dm-file__meta { font-size: 11px; color: var(--ink-500, #64748b); margin-top: 1px; }
+.dm-img {
+  display: block; max-width: 100%; width: 240px; border-radius: 8px;
+  border: 1px solid var(--border, #dce6f2); background: var(--surface, #fff);
+}
+.dm-sub {
+  margin-top: 5px; font-size: 11.5px; line-height: 1.6;
+  color: var(--ink-600, #475569); display: flex; align-items: flex-start; gap: 4px;
+}
+.dm-sub svg { flex: 0 0 auto; margin-top: 2px; color: var(--ink-500, #64748b); }
+.dm-snip {
+  margin-top: 6px; font-size: 11.5px; line-height: 1.65; font-style: normal;
+  color: var(--ink-500, #64748b); word-break: break-all;
+}
+
+/* —— 答案正文 —— */
+.dm-lead {
+  font-size: 13px; line-height: 1.75; color: var(--ink-800, #1e293b);
+  margin-bottom: 10px;
+}
+.dm-list { display: grid; gap: 6px; }
+.dm-item { display: flex; gap: 8px; align-items: flex-start; }
+.dm-rank {
+  flex: 0 0 18px; width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center; margin-top: 1px;
+  background: var(--brand-50, #f0f1ff); color: var(--brand-700, #3644c2);
+  font-size: 10.5px; font-weight: 700; font-family: var(--font-mono, monospace);
+}
+.dm-item__body { flex: 1 1 auto; min-width: 0; }
+.dm-kp {
+  font-size: 12.5px; font-weight: 650; color: var(--ink-800, #1e293b); line-height: 1.55;
+}
+.dm-score {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 7px;
+  border-radius: 999px; background: var(--brand-500, #4353ff); color: #fff;
+  font-size: 10.5px; font-weight: 700; font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.dm-via {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 7px;
+  border-radius: 999px; border: 1px solid var(--border-strong, #cbd5e1);
+  background: var(--surface, #fff); color: var(--ink-600, #475569); font-size: 10.5px;
+}
+.dm-src { margin-top: 3px; font-size: 11px; color: var(--ink-500, #64748b); word-break: break-all; }
+
+/* —— 提醒 / 下一步 —— */
+.dm-warn, .dm-note {
+  margin-top: 10px; display: flex; gap: 7px; align-items: flex-start;
+  padding: 8px 10px; border-radius: 10px; font-size: 12px; line-height: 1.7;
+}
+.dm-warn svg, .dm-note svg { flex: 0 0 auto; margin-top: 2px; }
+.dm-warn { background: var(--warn-50, #fffbeb); color: var(--ink-700, #475569); }
+.dm-warn svg { color: var(--warn-500, #f59e0b); }
+.dm-note { background: var(--accent-50, #ecfdf5); color: var(--ink-700, #475569); }
+.dm-note svg { color: var(--accent-500, #17c9a8); }
+
+/* —— 溯源知识点卡 —— */
+.dm-card {
+  margin-top: 12px; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--border, #dce6f2);
+  background: var(--surface-2, #f8fafc);
+}
+.dm-trace {
+  background: linear-gradient(180deg, var(--brand-50, #f0f1ff), var(--surface, #fff));
+  border-color: var(--brand-100, #e0e3ff);
+}
+.dm-card__head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12.5px; font-weight: 700; color: var(--ink-800, #1e293b);
+}
+.dm-card__head svg { color: var(--brand-500, #4353ff); }
+.dm-card__lead {
+  margin: 6px 0 9px; font-size: 12px; line-height: 1.7; color: var(--ink-600, #475569);
+}
+.dm-card .dm-list { gap: 7px; }
+.dm-card .dm-item { padding-bottom: 7px; border-bottom: 1px dashed var(--border, #dce6f2); }
+.dm-card .dm-item:last-child { padding-bottom: 0; border-bottom: none; }
+
+/* —— 「要不要存成笔记」条 —— */
+.dm-save {
+  margin-top: 12px; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--brand-200, #c3c8ff);
+  background: linear-gradient(180deg, var(--brand-50, #f0f1ff), var(--surface, #fff));
+}
+.dm-save.is-done {
+  border-color: var(--ok-500, #10b981);
+  background: linear-gradient(180deg, var(--ok-50, #ecfdf5), var(--surface, #fff));
+}
+.dm-save__q {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12.5px; line-height: 1.65; color: var(--ink-800, #1e293b);
+}
+.dm-save__q svg { flex: 0 0 auto; color: var(--brand-500, #4353ff); }
+.dm-save.is-done .dm-save__q svg { color: var(--ok-500, #10b981); }
+.dm-save__row {
+  margin-top: 8px; display: flex; gap: 7px; align-items: center; flex-wrap: wrap;
+}
+.dm-save__k { font-size: 11.5px; font-weight: 650; color: var(--ink-500, #64748b); }
+.dm-save__hint { margin-top: 7px; font-size: 11px; color: var(--ink-500, #64748b); line-height: 1.6; }
+.dm-save__done {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin-top: 8px; font-size: 12px; line-height: 1.7; color: var(--ok-700, #047857);
+}
+.dm-save__done a { color: var(--brand-600, #3d4ce2); text-decoration: underline; }
+.dm-save__done svg { flex: 0 0 auto; margin-top: 2px; color: var(--ok-500, #10b981); }
+
+/* 暗色下两块渐变底的边框要再亮一档，否则和背景糊在一起 */
+html[data-theme="dark"] .dm-trace,
+html[data-theme="dark"] .dm-save { border-color: var(--brand-300, #3d4ce2); }
+html[data-theme="dark"] .dm-save.is-done { border-color: var(--ok-500, #34d399); }

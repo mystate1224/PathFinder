@@ -775,6 +775,25 @@ def api_material_category(material_id: int, payload: dict = Body(default={}),
     return ok(message="分类已更新")
 
 
+@app.post(f"{API}/materials/note")
+def api_material_note(payload: dict = Body(default={}), user: dict = Depends(current_user)):
+    """把 Copilot 整理出的结果**存成一篇笔记**进「我的资料库」。
+
+    ``category`` 就是资料库里的保存路径（课程资料 / 教学备课 / …），
+    由学生自己在界面上选；存完同样会建索引、抽知识点，之后提问能引用到它。
+    """
+    result = mylibrary.save_note(
+        user,
+        _str(payload, "title"),
+        _str(payload, "content"),
+        _str(payload, "category", "未分类"),
+        _str(payload, "course"),
+    )
+    if result.get("error"):
+        return fail(result["error"])
+    return ok(result, message="已存到「我的资料库」：" + str(result.get("category") or "未分类"))
+
+
 @app.delete(f"{API}/materials/{{material_id}}")
 def api_material_delete(material_id: int, user: dict = Depends(current_user)):
     if not mylibrary.delete(int(user["id"]), material_id):

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=18">
+<link rel="stylesheet" href="/static/css/style.css?v=19">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -19,7 +19,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=9"></script>
+<script src="/static/js/common.js?v=10"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -35,13 +35,13 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     desc: "用一句话把日常动作做完：查学生、备课、讲知识点、定评分标准。结果会如实标注是「AI 生成」还是「规则生成」。",
     wide: true,
     actions:
-      '<button class="btn" id="btn-demo">' + PF.icon("sparkles", 15) + "演示例子</button>" +
+      '<button class="btn" id="btn-demo-text">' + PF.icon("file", 15) + "文本例子演示</button>" +
+      '<button class="btn" id="btn-demo-image">' + PF.icon("image", 15) + "图片例子演示</button>" +
       '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
       '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
   });
-  PF.$("#btn-demo").addEventListener("click", function () {
-    PF.demo("qa", { onAsk: function (q) { PF.$("#c-input").value = q; send(); } });
-  });
+  PF.$("#btn-demo-text").addEventListener("click", function () { runDemo("text"); });
+  PF.$("#btn-demo-image").addEventListener("click", function () { runDemo("image"); });
 
   const SKILLS_FALLBACK = [
     { value: "student", label: "查学生", hint: "看看 stu03 的成绩如何" },
@@ -189,6 +189,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           (m.created_at ? '<span class="t-xs t-dim">' + PF.esc(PF.when(m.created_at)) + "</span>" : "") +
         "</div>" +
         PF.esc(m.content || "") +
+        (m.attach || "") +
+        (!isUser && m.demo ? PF.demoAnswerBody(m.demo, FOLDERS) : "") +
         (!isUser && m.intent === "student" ? studentBlock(data) : "") +
         (!isUser && m.intent === "lesson" ? lessonBlock(data) : "") +
         (!isUser && m.intent === "explain" ? explainBlock(data) : "") +
@@ -280,6 +282,19 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       return;
     }
     const r = ROUNDS[i];
+    if (r.demo) {
+      chat.innerHTML =
+        renderMsg({ role: "user", content: r.q, created_at: r.at, attach: r.attach }) +
+        renderMsg({ role: "assistant", content: "", created_at: r.at,
+                    intent: "", intent_label: "资料解析", engine: "rule",
+                    data: {}, refs: [], demo: r.demo });
+      bindFollowups(chat);
+      PF.bindNoteSaver(chat, { onSaved: function () { sess.refresh(); } });
+      paintDock();
+      const el = PF.$("#chat");
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
     chat.innerHTML =
       renderMsg({ role: "user", content: r.q, created_at: r.at }) +
       (r.a ? renderMsg({ role: "assistant", content: r.a, intent: r.intent, intent_label: r.intent_label,
@@ -344,6 +359,35 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     PF.$("#agent-card").innerHTML = PF.agentCard(Object.assign({ btnId: "btn-manual" }, a));
     PF.$("#btn-manual").addEventListener("click", function () { PF.manual("qa"); });
   })();
+
+  /* ---------------------------------------------------------- 演示例子（写死）
+     与学生 Copilot 共用同一组素材：文本=线性代数矩阵，图片=C 语言指针笔记。
+     教师视角的差异只在于提示词与保存路径的默认值。 */
+  const CATS = (await PF.try(function () {
+    return PF.get("/api/materials/overview", { quiet: true });
+  }, null)) || {};
+  const FOLDERS = PF.arr(CATS.categories);
+
+  function runDemo(key) {
+    const demo = PF.COPILOT_DEMOS[key];
+    if (!demo) return;
+    const at = new Date().toISOString();
+    ROUNDS.push({ q: demo.prompt, a: "", refs: [], data: null, intent: "",
+                  intent_label: "资料解析", engine: "rule",
+                  at: at, qa: null, rag: null, demo: demo, attach: PF.demoAttach(demo) });
+    CURRENT = ROUNDS.length - 1;
+    paintDock();
+    PF.$("#chat").innerHTML =
+      renderMsg({ role: "user", content: demo.prompt, created_at: at, attach: PF.demoAttach(demo) }) +
+      '<div class="msg msg--ai"><div class="msg__avatar">AI</div><div class="msg__bubble">' +
+        '<div class="msg__meta"><span class="t-xs t-strong">Copilot</span>' +
+        '<span class="badge badge--brand">资料解析</span>' + PF.engineBadge("rule") + "</div>" +
+        '<span class="spin"></span> <span class="t-sm t-dim">正在解析' + PF.esc(demo.kind) +
+        "素材、抽取知识点，并检索相关课件做溯源…</span></div></div>";
+    const chatEl = PF.$("#chat");
+    chatEl.scrollTop = chatEl.scrollHeight;
+    setTimeout(function () { paintRound(CURRENT); }, 650);
+  }
 
   /* ---------------------------------------------------------- 发送 */
   async function send() {

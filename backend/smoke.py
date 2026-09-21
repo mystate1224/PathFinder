@@ -633,6 +633,35 @@ def test_student(c: Client) -> None:
                 f"{first['indexed_chunks']} 个切片→改分类→删除（{before}→{after}）")
     c.check("材料上传→解析→索引→删除", upload)
 
+    def note():
+        """Copilot 演示的落点：把对话里整理的结果存成一篇笔记进「我的资料库」。
+        必须真的能被检索到 —— 否则老师/学生下一次提问引用不到它，演示就是假的。"""
+        body = ("# 线性代数 · 第3章 矩阵知识点整理\n\n"
+                "1. 矩阵的定义与记法\n由 m×n 个数排成的矩形数表，记 A=(a_ij)。\n\n"
+                "2. 矩阵乘法\nC=AB 要求 A 的列数等于 B 的行数，且一般不满足交换律。\n\n"
+                "3. 矩阵的秩与初等变换\n初等行变换不改变矩阵的秩；行最简形可直接读出秩。\n")
+        d = c.api("POST", "/api/materials/note", {
+            "title": "线性代数 · 第3章 矩阵知识点整理",
+            "content": body,
+            "category": "课程资料",
+            "course": "线性代数",
+        })
+        need(d.get("material_id"), "保存笔记未返回 material_id")
+        need(int(d.get("knowledge_points") or 0) >= 2, f"笔记没抽出知识点：{d}")
+        need(int(d.get("indexed") or 0) > 0, "笔记没进检索索引")
+        lst = c.api("GET", "/api/materials")["materials"]
+        row = [m for m in lst if m["id"] == d["material_id"]]
+        need(row, "笔记不在资料库列表里")
+        need(row[0].get("kind_label") == "学习笔记", f"笔记类型名不对：{row[0].get('kind_label')}")
+        need(row[0].get("category") == "课程资料", f"保存路径不对：{row[0].get('category')}")
+        hits = c.api("POST", "/api/materials/search",
+                     {"query": "矩阵的秩 初等变换", "top_k": 5})["hits"]
+        need(any(d["filename"] == h.get("filename") for h in hits), "存好的笔记检索不到")
+        c.api("DELETE", f"/api/materials/{d['material_id']}")
+        return (f"存成笔记《{d['filename']}》→ 路径「课程资料」→ 抽出 "
+                f"{d['knowledge_points']} 个知识点、索引 {d['indexed']} 片 → 可被检索 → 清理")
+    c.check("Copilot 整理结果存成笔记（可选择保存路径）", note)
+
     # --- 资源广场 ---
     def hub():
         d = c.api("GET", "/api/resources")

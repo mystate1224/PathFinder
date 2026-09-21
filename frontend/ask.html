@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>学生 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=18">
+<link rel="stylesheet" href="/static/css/style.css?v=19">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -20,7 +20,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=9"></script>
+<script src="/static/js/common.js?v=10"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -33,16 +33,16 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     active: "ask",
     me: me,
     title: "学生 Copilot",
-    desc: "卡住了就问。它会按你现在的进度决定从哪里讲起、讲多深 —— 决定的是内容深度，不是班级划分。答案优先引用教师上传的课件原文。",
+    desc: "又能问答，又能整理：问卡住的知识点，或把图文素材交给它 —— 解析、抽知识点、给溯源，还能存成笔记放进「我的资料库」。",
     wide: true,
     actions:
-      '<button class="btn" id="btn-demo">' + PF.icon("sparkles", 15) + "演示例子</button>" +
+      '<button class="btn" id="btn-demo-text">' + PF.icon("file", 15) + "文本例子演示</button>" +
+      '<button class="btn" id="btn-demo-image">' + PF.icon("image", 15) + "图片例子演示</button>" +
       '<button class="btn" id="btn-hist">' + PF.icon("clock", 15) + "历史对话</button>" +
       '<button class="btn" id="btn-clear">' + PF.icon("trash", 15) + "清空对话</button>",
   });
-  PF.$("#btn-demo").addEventListener("click", function () {
-    PF.demo("qa", { onAsk: function (q) { PF.$("#c-input").value = q; send(); } });
-  });
+  PF.$("#btn-demo-text").addEventListener("click", function () { runDemo("text"); });
+  PF.$("#btn-demo-image").addEventListener("click", function () { runDemo("image"); });
 
   const META = (await PF.try(function () { return PF.get("/api/meta", { quiet: true }); }, {})) || {};
   const COURSES = PF.arr(META.my_courses);
@@ -80,12 +80,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div>" +
       '<div class="qa-side">' +
         '<div id="agent-card"></div>' +
-        '<div class="card mt-4"><div class="card__head"><h3>智能体工具</h3></div>' +
-          '<div class="card__body" id="tools"></div>' +
-          '<div class="card__foot">' + PF.caveat(
-            "上传的资料会解析、抽知识点并进入检索索引，之后的提问可以直接引用它；生成的草稿会标注依据了哪几份资料。") +
-          "</div>" +
-        "</div>" +
         '<div class="card mt-4"><div class="card__head"><h3>本次答疑风格</h3></div>' +
           '<div class="card__body stack-sm">' +
             '<dl class="style-grid">' +
@@ -191,6 +185,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           '<span class="t-xs t-dim">' + PF.esc(PF.when(m.created_at)) + "</span>" +
         "</div>" +
         PF.esc(m.content || "") +
+        (m.attach || "") +
+        (!isUser && m.demo ? PF.demoAnswerBody(m.demo, FOLDERS) : "") +
         (refs.length ? '<div class="t-xs mt-3" style="color:var(--ink-500)">依据：' +
           refs.slice(0, 3).map(function (r) { return "[" + PF.esc(r) + "]"; }).join(" ") + "</div>" : "") +
         (!isUser && m.rag ? PF.ragCard(m.rag) : "") +
@@ -213,6 +209,18 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       return;
     }
     const r = ROUNDS[i];
+    if (r.demo) {
+      chat.innerHTML =
+        renderMsg({ role: "user", content: r.q, created_at: r.at, attach: r.attach }) +
+        renderMsg({ role: "assistant", content: "", created_at: r.at,
+                    layer: "资料解析", engine: "rule", refs: [], demo: r.demo });
+      bindFollowups(chat);
+      paintRefs([]);
+      PF.bindNoteSaver(chat, { onSaved: function () { sess.refresh(); } });
+      paintDock();
+      scrollBottom();
+      return;
+    }
     chat.innerHTML =
       renderMsg({ role: "user", content: r.q, created_at: r.at, refs: [] }) +
       (r.a ? renderMsg({ role: "assistant", content: r.a, layer: r.layer, engine: r.engine,
@@ -338,6 +346,33 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     } finally { PF.busy(btn, false); }
   }
 
+  /* ---------------------------------------------------------- 演示例子（写死）
+     「文本例子 / 图片例子」两个按钮：把一份素材交给 Copilot，
+     直接给出整理结果 + 溯源排序，并询问是否存成笔记进「我的资料库」。 */
+  const CATS = (await PF.try(function () {
+    return PF.get("/api/materials/overview", { quiet: true });
+  }, null)) || {};
+  const FOLDERS = PF.arr(CATS.categories);
+
+  function runDemo(key) {
+    const demo = PF.COPILOT_DEMOS[key];
+    if (!demo) return;
+    const at = new Date().toISOString();
+    ROUNDS.push({ q: demo.prompt, a: "", refs: [], layer: "资料解析", engine: "rule",
+                  at: at, qa: null, rag: null, demo: demo, attach: PF.demoAttach(demo) });
+    CURRENT = ROUNDS.length - 1;
+    paintDock();
+    PF.$("#chat").innerHTML =
+      renderMsg({ role: "user", content: demo.prompt, created_at: at, attach: PF.demoAttach(demo) }) +
+      '<div class="msg msg--ai"><div class="msg__avatar">AI</div><div class="msg__bubble">' +
+        '<div class="msg__meta"><span class="t-xs t-strong">AI 助教</span>' +
+        '<span class="badge badge--brand">资料解析</span>' + PF.engineBadge("rule") + "</div>" +
+        '<span class="spin"></span> <span class="t-sm t-dim">正在解析' + PF.esc(demo.kind) +
+        "素材、抽取知识点，并检索相关课件做溯源…</span></div></div>";
+    scrollBottom();
+    setTimeout(function () { paintRound(CURRENT); }, 650);
+  }
+
   /* ---------------------------------------------------------- 历史与推荐问题 */
   async function loadHistory(sid) {
     try {
@@ -350,17 +385,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     }
     paintRound(CURRENT);
   }
-
-  /* ---------------------------------------------------------- 智能体工具 */
-  PF.agentTools({
-    el: PF.$("#tools"),
-    onInsert: function (_md, r) {
-      const input = PF.$("#c-input");
-      input.value = "帮我讲解这份资料：" + (r.title || "我刚生成的资料");
-      input.focus();
-    },
-    onDone: function () { sess.refresh(); },
-  });
 
   (async function loadSuggest() {
     const box = PF.$("#suggest");

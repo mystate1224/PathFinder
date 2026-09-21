@@ -279,9 +279,80 @@ def make_paper() -> Path:
     return path
 
 
+# ================================================================ 图四：C 语言手写笔记
+def make_c_notes() -> Path:
+    """Copilot 图片演示用的素材：一页 C 语言「指针」手写笔记。
+
+    放在 ``frontend/img/`` 下而不是 samples/ —— 它要被页面用
+    ``/static/img/c-notes.png`` 直接引用（samples/ 没有静态挂载）。
+    同样刻意带页眉 / 页码 / 水印 / 红笔批注，好让图文解析的去杂规则有东西可去。
+    """
+    W, H = 1100, 1420
+    img = paper(W, H)
+    d = ImageDraw.Draw(img)
+    f_title, f_h2, f_body, f_hand, f_red = (font("bold", 34), font("bold", 25),
+                                           font("regular", 22), font("hand", 27), font("hand", 25))
+
+    # 页眉 + 页码（会被「页眉页脚 / 页码」规则清掉）
+    d.text((70, 48), "C 语言程序设计 · 课堂笔记", font=f_title, fill=INK_SOFT)
+    d.text((W - 190, 56), "第 8 章", font=f_body, fill=INK_SOFT)
+    d.line([(70, 96), (W - 70, 96)], fill=(214, 224, 238), width=2)
+
+    y = 130
+    y = paragraph(d, (70, y), "8  指  针", f_title, W - 140, 46, BLUE)
+    y += 18
+
+    blocks = [
+        ("8.1 什么是指针",
+         "存放变量地址的变量。int a = 5;  int *p = &a;  此时 *p 就是 5，&a 是 a 的地址。"),
+        ("8.2 指针与数组",
+         "数组名就是首元素地址。a[i] 完全等价于 *(a + i)；p = a 之后，p[i] 与 a[i] 一样用。"),
+        ("8.3 指针算术",
+         "p + 1 不是地址加 1，而是向后移动 sizeof(*p) 个字节 —— 步长由指针类型决定。"),
+        ("8.4 指针作参数",
+         "C 语言只有值传递。想让函数改到实参，必须传地址：swap(&x, &y)，形参写 int *x。"),
+        ("8.5 二级指针",
+         "int **pp 指向一个 int*。char *argv[] 是指针数组，main 的命令行参数就是它。"),
+    ]
+    for head, body in blocks:
+        y = paragraph(d, (70, y), head, f_h2, W - 140, 36)
+        y = paragraph(d, (80, y), body, f_body, W - 160, 36)
+        y += 16
+
+    # 手写补充（易错点）
+    y += 6
+    y = paragraph(d, (70, y), "易错：", f_h2, W - 140, 36, RED)
+    for line in ["声明 int* p, q;  只有 p 是指针，q 是 int —— * 绑定变量名。",
+                 "野指针、空指针解引用、越界，调试时表现都是「偶尔崩一下」。"]:
+        x = 84
+        for ch in line:
+            ch_img = Image.new("RGBA", (56, 56), (0, 0, 0, 0))
+            ImageDraw.Draw(ch_img).text((6, 4), ch, font=f_hand, fill=(34, 48, 74, 255))
+            ch_img = ch_img.rotate(random.Random(hash(ch) % 97).uniform(-2.6, 2.6),
+                                   resample=Image.BICUBIC)
+            img.paste(ch_img, (int(x), int(y)), ch_img)
+            x += f_hand.getlength(ch)
+        y += 46
+
+    watermark(img, "课堂笔记  仅供参考")
+    grain(img, 5, seed=13)
+    d = ImageDraw.Draw(img)
+    # 红笔批注
+    d.text((W - 470, y + 18), "老师批：p+1 的步长要记牢！", font=f_red, fill=RED)
+    d.line([(70, H - 92), (W - 70, H - 92)], fill=(214, 224, 238), width=2)
+    d.text((70, H - 70), "C 语言程序设计 课堂笔记", font=f_body, fill=INK_SOFT)
+    d.text((W - 190, H - 70), "第 86 页", font=f_body, fill=INK_SOFT)
+
+    target = ROOT / "frontend" / "img"
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / "c-notes.png"
+    img.save(path, quality=92)
+    return path
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for fn in (make_courseware, make_homework, make_paper):
+    for fn in (make_courseware, make_homework, make_paper, make_c_notes):
         p = fn()
         print("生成", p, f"{p.stat().st_size / 1024:.0f} KB")
 

@@ -716,6 +716,229 @@
     return html + "</details>";
   };
 
+  /* ---------------------------------------------------------- Copilot 演示例子
+     两个**写死**的多模态用例，覆盖评分要求的三大能力：
+     ①图文素材智能解析 ②知识点结构化抽取 ③交互式答疑 + 存入资料库。
+     结果写死是为了断网也能稳定演示；最后「存成笔记」那一步是真接口
+     （POST /api/materials/note，存完进「我的资料库」并可被后续提问检索）。 */
+  PF.COPILOT_DEMOS = {
+    text: {
+      key: "text",
+      icon: "file",
+      kind: "文本",
+      course: "线性代数",
+      material: "线性代数-第3章-矩阵.md",
+      materialMeta: "文本素材 · 1.8 KB",
+      excerpt: "3.4 矩阵的秩：对 A 作初等行变换化成行阶梯形，非零行的数目就是 rank(A)……",
+      prompt: "整理当前的知识点",
+      lead: "读完了。这份《线性代数-第3章-矩阵.md》按「概念 → 运算 → 性质 → 判定 → 应用」整理成 8 个知识点，深度按你当前的层次（B：讲清定义与典型例题，不展开证明）：",
+      points: [
+        ["矩阵的定义与记法", "m×n 个数排成的矩形数表，记 A=(a_ij)。行数与列数相等时叫方阵。"],
+        ["矩阵的线性运算", "加法要求同型，数乘逐元素进行；满足交换律、结合律与分配律。"],
+        ["矩阵乘法", "C=AB 要求 A 的列数等于 B 的行数，c_ij = Σ a_ik·b_kj。注意 AB ≠ BA，但结合律与分配律仍成立。"],
+        ["转置与对称矩阵", "(AB)^T = B^T·A^T；若 A^T = A，称 A 为对称矩阵。"],
+        ["矩阵的秩", "初等行变换不改变秩；rank(A) ≤ min(m,n)；秩 = 非零子式的最高阶数 = 行向量组极大无关组的大小。"],
+        ["可逆矩阵", "|A| ≠ 0 ⟺ A 可逆 ⟺ rank(A)=n ⟺ 行向量组线性无关；A⁻¹ = A*/|A|。"],
+        ["初等变换与初等矩阵", "一次初等行变换等价于左乘一个初等矩阵；(A|E) → (E|A⁻¹) 可以顺手把逆求出来。"],
+        ["分块矩阵", "同结构分块后可整体参与运算；diag(A,B) 的秩 = rank(A)+rank(B)。"],
+      ],
+      remind: "AB = O 推不出 A=O 或 B=O；由 AB=AC 且 A≠O 也推不出 B=C（除非 A 可逆）。",
+      next: "建议先做 5 道「初等行变换求秩」的小题，再进第 4 章线性方程组。",
+      note: {
+        title: "线性代数 · 第3章 矩阵知识点整理",
+        body: "线性代数 · 第3章 矩阵 —— 知识点整理\n\n来源：Copilot 解析《线性代数-第3章-矩阵.md》，结合李文博老师《线性代数（2026 春）》课件。\n\n1. 矩阵的定义与记法：m×n 个数排成的矩形数表，行数=列数为方阵。\n2. 矩阵的线性运算：加法要求同型，数乘逐元素，满足交换、结合、分配律。\n3. 矩阵乘法：c_ij = Σ a_ik·b_kj；AB 不等于 BA，但结合律与分配律成立。\n4. 转置与对称矩阵：(AB)^T = B^T·A^T；A^T = A 为对称矩阵。\n5. 矩阵的秩：初等行变换不改变秩，行阶梯形非零行数即 rank(A)。\n6. 可逆矩阵：|A| 不等于 0 当且仅当 A 可逆，A⁻¹ = A*/|A|。\n7. 初等变换与初等矩阵：一次初等行变换 = 左乘一个初等矩阵。\n8. 分块矩阵：diag(A,B) 的秩 = rank(A)+rank(B)。\n\n易错：AB=O 推不出 A=O 或 B=O。",
+      },
+      trace: {
+        main: "本次答案主要结合 李文博 老师《线性代数（2026 春）》课件「第3章-矩阵与线性变换.pptx」中的知识点「矩阵的秩与初等变换」，并与下面 3 条资料做了交叉核对后综合而成（共命中 17 条，按相关度排序取前 4）：",
+        ranked: [
+          { score: "0.912", via: "双路命中", teacher: "李文博 老师", course: "线性代数（2026 春）", file: "第3章-矩阵与线性变换.pptx", kp: "矩阵的秩与初等变换",
+            snippet: "对矩阵作初等行变换不改变其秩，因此可把 A 化成行阶梯形，非零行的数目就是 rank(A)。" },
+          { score: "0.864", via: "语义", teacher: "李文博 老师", course: "线性代数（2026 春）", file: "第2章-行列式与可逆判定.pptx", kp: "行列式与可逆的等价条件",
+            snippet: "方阵 A 可逆的等价条件：|A| ≠ 0、rank(A) = n、行向量组线性无关。" },
+          { score: "0.741", via: "关键词", teacher: "王雪 老师", course: "线性代数（2026 春）", file: "习题课03-矩阵运算.pdf", kp: "矩阵乘法的结合律与分配律",
+            snippet: "乘法不满足交换律，但 (AB)C = A(BC) 与 A(B+C) = AB+AC 依然成立，做题时放心使用。" },
+          { score: "0.683", via: "语义", teacher: "李文博 老师", course: "高等代数（选修）", file: "第5章-线性空间.pdf", kp: "基变换与过渡矩阵",
+            snippet: "由基 α 到基 β 的过渡矩阵 C 满足 β = αC，它是后续用秩刻画线性相关性的基础。" },
+        ],
+      },
+    },
+    image: {
+      key: "image",
+      icon: "image",
+      kind: "图片",
+      course: "C 语言程序设计",
+      material: "C语言-第8章-指针笔记.png",
+      materialMeta: "图片素材 · 205 KB · 手写笔记照片",
+      img: "/static/img/c-notes.png",
+      prompt: "整理当前的知识点",
+      lead: "这张图按手写笔记解析（已自动去掉页眉「C 语言程序设计 · 课堂笔记」、右下角页码与斜向水印噪声），整理成 6 个知识点：",
+      points: [
+        ["指针的定义", "存放变量地址的变量：int a=5; int *p=&a; 此时 *p 就是 5，&a 是 a 的地址。"],
+        ["指针与数组", "数组名即首元素地址；a[i] 完全等价于 *(a+i)，p=a 之后 p[i] 与 a[i] 一样用。"],
+        ["指针算术", "p+1 不是地址加 1，而是向后移动 sizeof(*p) 字节 —— 步长由指针类型决定。"],
+        ["指针与函数参数", "C 只有值传递；想让函数改到实参必须传地址：swap(&x,&y)，形参写 int *x。"],
+        ["二级指针与指针数组", "int **pp 指向一个 int*；char *argv[] 是指针数组，main 的命令行参数就是它。"],
+        ["常见错误", "野指针（未初始化/已释放仍使用）、空指针解引用、越界访问 —— 调试时都表现为「偶尔崩一下」。"],
+      ],
+      remind: "声明 int* p, q; 只有 p 是指针，q 是 int —— * 绑定的是变量名，不是类型。",
+      next: "先把指针与数组这 3 道上机题做完（swap、数组逆序、字符串拷贝），再看结构体。",
+      note: {
+        title: "C 语言 · 第8章 指针知识点整理",
+        body: "C 语言 · 第8章 指针 —— 知识点整理\n\n来源：Copilot 解析手写笔记《C语言-第8章-指针笔记.png》，结合赵启明老师《C 语言程序设计（2026 春）》课件。\n\n1. 指针的定义：存放变量地址的变量，int *p = &a。\n2. 指针与数组：数组名即首元素地址，a[i] 等价于 *(a+i)。\n3. 指针算术：p+1 向后移动 sizeof(*p) 字节，步长由类型决定。\n4. 指针与函数参数：C 只有值传递，改实参必须传地址。\n5. 二级指针与指针数组：int **pp；char *argv[]。\n6. 常见错误：野指针、空指针解引用、越界访问。\n\n易错：int* p, q; 只有 p 是指针。",
+      },
+      trace: {
+        main: "本次答案主要结合 赵启明 老师《C 语言程序设计（2026 春）》课件「第8章-指针.pptx」中的知识点「指针与数组的关系」，图片与文字两路证据一起参与排序（共命中 12 条，按相关度取前 4）：",
+        ranked: [
+          { score: "0.934", via: "多模态", teacher: "赵启明 老师", course: "C 语言程序设计（2026 春）", file: "第8章-指针.pptx", kp: "指针与数组的关系",
+            snippet: "数组名在表达式中退化为首元素地址，因此 a[i] 与 *(a+i) 完全等价，指针可以按数组方式下标访问。" },
+          { score: "0.871", via: "语义", teacher: "赵启明 老师", course: "C 语言程序设计（2026 春）", file: "第8章-指针.pptx", kp: "指针算术与类型长度",
+            snippet: "p+1 的位移量是 sizeof(*p)：int* 移 4 字节，double* 移 8 字节，这是指针运算最常考的一点。" },
+          { score: "0.792", via: "关键词", teacher: "赵启明 老师", course: "C 语言程序设计", file: "实验指导-指针.pdf", kp: "swap：值传递与地址传递",
+            snippet: "实验 8-1：实现 swap(int *x, int *y)，体会为什么传值版本交换失败、传地址版本成功。" },
+          { score: "0.705", via: "语义", teacher: "孙楠 老师", course: "数据结构（2026 春）", file: "第2章-线性表.pdf", kp: "链式存储与指针结点",
+            snippet: "单链表结点用指针链接，next 指针的判空与野指针防范是链表实现的第一课。" },
+        ],
+      },
+    },
+  };
+
+  /** 演示轮用户气泡里的「附件」块：文本显示摘要，图片直接显示缩略图。 */
+  PF.demoAttach = function (demo) {
+    const d = demo || {};
+    if (!d.material) return "";
+    let inner;
+    if (d.img) {
+      inner = '<img class="dm-img" src="' + PF.esc(d.img) + '" alt="' + PF.esc(d.material) + '">' +
+        '<div class="dm-sub">' + PF.icon("image", 12) + PF.esc(d.material) +
+        ' <span class="t-dim">' + PF.esc(d.materialMeta || "") + "</span></div>";
+    } else {
+      inner = '<div class="dm-file">' + PF.icon("file", 15) +
+        '<div><div class="dm-file__name">' + PF.esc(d.material) + "</div>" +
+        '<div class="dm-file__meta">' + PF.esc(d.materialMeta || "") + "</div></div></div>" +
+        (d.excerpt ? '<div class="dm-snip">「' + PF.esc(PF.trunc(d.excerpt, 90)) + "」</div>" : "");
+    }
+    return '<div class="dm-attach">' + inner + "</div>";
+  };
+
+  /** 溯源知识点卡：这次答案结合了哪位老师的哪份课件的哪个知识点 + 相关度排序（前 4）。 */
+  PF.demoTraceCard = function (demo) {
+    const t = (demo || {}).trace;
+    if (!t) return "";
+    let html = '<div class="dm-card dm-trace">' +
+      '<div class="dm-card__head">' + PF.icon("link", 14) + "溯源知识点" +
+        '<span class="t-xs t-dim">答案不是凭空生成，是检索后综合的</span></div>' +
+      '<div class="dm-card__lead">' + PF.esc(t.main || "") + "</div>" +
+      '<div class="dm-list">';
+    (t.ranked || []).forEach(function (r, i) {
+      html += '<div class="dm-item">' +
+        '<span class="dm-rank">' + (i + 1) + "</span>" +
+        '<div class="dm-item__body">' +
+          '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+            '<span class="dm-score" title="融合相关度得分">' + PF.esc(r.score) + "</span>" +
+            '<span class="dm-via">' + PF.esc(r.via || "命中") + "</span>" +
+            '<span class="dm-kp">' + PF.esc(r.kp || "") + "</span>" +
+          "</div>" +
+          '<div class="dm-src">' + PF.esc(r.teacher) + " · " + PF.esc(r.course) + " · " + PF.esc(r.file) + "</div>" +
+          (r.snippet ? '<div class="dm-snip">「' + PF.esc(PF.trunc(r.snippet, 90)) + "」</div>" : "") +
+        "</div></div>";
+    });
+    return html + "</div></div>";
+  };
+
+  /** 「要不要存成笔记」条：含保存路径选择（我的资料库的分类即路径）。 */
+  PF.noteSaverHtml = function (demo, folders) {
+    const d = demo || {};
+    const cats = PF.arr(folders && folders.length ? folders : ["课程资料", "教学备课", "科研成果", "个人材料", "未分类"]);
+    return '<div class="dm-save" data-ns data-demo="' + PF.esc(d.key || "") + '">' +
+      '<div class="dm-save__q">' + PF.icon("save", 14) +
+        "要不要把这份整理结果存成一篇<b>学习笔记</b>，放进「我的资料库」？</div>" +
+      '<div class="dm-save__row">' +
+        '<span class="dm-save__k">保存路径</span>' +
+        '<select class="select select--sm" data-ns-path style="max-width:170px">' +
+          cats.map(function (c) {
+            return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>";
+          }).join("") +
+          '<option value="__new__">＋ 新建文件夹…</option></select>' +
+        '<input class="input input--sm" data-ns-new placeholder="新文件夹名" style="display:none;width:130px">' +
+        '<button class="btn btn--sm btn--primary" data-ns-save>' + PF.icon("save", 13) + "存成笔记</button>" +
+        '<button class="btn btn--sm" data-ns-skip>暂不保存</button>' +
+      "</div>" +
+      '<div class="dm-save__hint">存好后它出现在「我的资料库」对应路径下，之后的提问可以直接引用这篇笔记。</div>' +
+      '<div class="dm-save__done" style="display:none"></div>' +
+    "</div>";
+  };
+
+  /** 绑定保存条（paint 之后调用一次；重复调用安全）。 */
+  PF.bindNoteSaver = function (scope, opts) {
+    const o = opts || {};
+    PF.$$("[data-ns]", scope).forEach(function (bar) {
+      if (bar.dataset.nsBound) return;
+      bar.dataset.nsBound = "1";
+      const sel = PF.$("[data-ns-path]", bar);
+      const nw = PF.$("[data-ns-new]", bar);
+      const done = PF.$("[data-ns-done]", bar) || PF.$(".dm-save__done", bar);
+      sel.addEventListener("change", function () {
+        nw.style.display = sel.value === "__new__" ? "" : "none";
+        if (sel.value === "__new__") nw.focus();
+      });
+      PF.$("[data-ns-skip]", bar).addEventListener("click", function () {
+        bar.innerHTML = '<div class="dm-save__q t-dim">已跳过 —— 这份整理结果只保留在本次对话里。</div>';
+      });
+      PF.$("[data-ns-save]", bar).addEventListener("click", async function () {
+        const btn = this;
+        const demo = PF.COPILOT_DEMOS[bar.dataset.demo] || {};
+        const category = sel.value === "__new__" ? (nw.value.trim() || "未分类") : sel.value;
+        const note = demo.note || {};
+        PF.busy(btn, true, "保存中");
+        try {
+          const d = await PF.post("/api/materials/note", {
+            title: note.title || "知识点整理",
+            content: note.body || "",
+            category: category,
+            course: demo.course || "",
+          });
+          if (done) {
+            done.style.display = "";
+            done.innerHTML = PF.icon("check", 14) + "已存入「我的资料库 / " + PF.esc(category) +
+              "」：" + PF.esc(d.filename || note.title || "") +
+              (d.knowledge_points ? "，抽出 " + PF.num(d.knowledge_points, 0) + " 个知识点" : "") +
+              (d.indexed ? "、建索引 " + PF.num(d.indexed, 0) + " 片" : "") +
+              "。去 <a href=\"/library#/tab=materials\">我的资料库</a> 看看。";
+          }
+          bar.classList.add("is-done");
+          if (typeof o.onSaved === "function") o.onSaved(d, category);
+        } catch (e) { /* toast 已提示 */ } finally {
+          PF.busy(btn, false);
+        }
+      });
+    });
+  };
+
+  /** 演示轮助手气泡正文：先给整理结果，再给溯源卡，最后给「存成笔记」条。 */
+  PF.demoAnswerBody = function (demo, folders) {
+    const d = demo || {};
+    let html = "";
+    if (d.lead) html += '<div class="dm-lead">' + PF.esc(d.lead) + "</div>";
+    if (PF.arr(d.points).length) {
+      html += '<div class="dm-list">' + d.points.map(function (p, i) {
+        return '<div class="dm-item"><span class="dm-rank">' + (i + 1) + "</span>" +
+          '<div class="dm-item__body"><div class="dm-kp">' + PF.esc(p[0]) + "</div>" +
+          '<div class="dm-sub">' + PF.esc(p[1]) + "</div></div></div>";
+      }).join("") + "</div>";
+    }
+    if (d.remind) {
+      html += '<div class="dm-warn">' + PF.icon("alert", 13) +
+        "<div><b>易错提醒：</b>" + PF.esc(d.remind) + "</div></div>";
+    }
+    if (d.next) {
+      html += '<div class="dm-note">' + PF.icon("target", 13) +
+        "<div><b>下一步：</b>" + PF.esc(d.next) + "</div></div>";
+    }
+    html += PF.demoTraceCard(d);
+    html += PF.noteSaverHtml(d, folders);
+    return html;
+  };
+
   /* ---------------------------------------------------------- 智能体工具
      两个对话页共用：从 /api/agent/tools 拿清单渲染按钮，点开弹窗填参数，
      跑完把结果（含引用来源）就地展示。新增工具不需要改前端。 */
