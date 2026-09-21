@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>资料与知识库 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=30">
+<link rel="stylesheet" href="/static/css/style.css?v=31">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -15,7 +15,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=16"></script>
+<script src="/static/js/common.js?v=17"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -432,9 +432,14 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               { label: "", cls: "w-md nowrap", render: function (r) {
                   // 有落盘文件的才给「打开」：课件（含一键备课生成的 PPT）点开即可放映，
                   // 不必再回备课产物里翻，也不用拷来拷去。
+                  // PPT 额外给「预览」：先在页面里翻一遍看内容对不对，再决定要不要打开。
+                  const isPpt = /\.pptx$/i.test(String(r.filename || r.stored || ""));
                   return (r.stored
                     ? '<button class="btn btn--sm" data-open="' + r.id + '">打开</button> '
                     : "") +
+                    (isPpt
+                      ? '<button class="btn btn--sm" data-preview="' + r.id + '">预览</button> '
+                      : "") +
                     '<button class="btn btn--sm" data-view="' + r.id + '">解析详情</button> ' +
                     '<button class="btn btn--sm btn--danger" data-del="' + r.id + '">删除</button>'; } },
             ], list, { empty: { icon: "layers", title: "没有匹配的资料", desc: "换个筛选条件，或先上传。" } }) +
@@ -453,6 +458,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             b.addEventListener("click", function () {
               const r = list.filter(function (x) { return String(x.id) === String(b.dataset.open); })[0];
               PF.openMaterial(b.dataset.open, (r && r.filename) || "");
+            });
+          });
+          PF.$$("[data-preview]", body).forEach(function (b) {
+            b.addEventListener("click", function () {
+              const r = list.filter(function (x) { return String(x.id) === String(b.dataset.preview); })[0];
+              PF.previewMaterial(b.dataset.preview, (r && r.filename) || "");
             });
           });
           PF.$$("[data-view]", body).forEach(function (b) {

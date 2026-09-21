@@ -684,6 +684,26 @@ def api_material_download(material_id: int, user: dict = Depends(current_user)):
     )
 
 
+@app.get(f"{API}/materials/{{material_id}}/preview")
+def api_material_preview(material_id: int, user: dict = Depends(current_user)):
+    """课件预览：把 pptx 每页还原成文字骨架，页面上直接翻页看，不必先下载。
+
+    只还原标题 / 要点 / 备注——课前扫一眼内容顺序够不够用；真要放映再点「打开」。
+    """
+    path = mylibrary.material_file(material_id, int(user["id"]))
+    if path is None:
+        return fail("资料文件不存在，或你还没有导入这份资料", 404)
+    if path.suffix.lower() != ".pptx":
+        return fail("这份资料不是 PPT 课件，暂时只能打开查看", 415)
+    row = db.query_one("SELECT filename, category FROM materials WHERE id=?", (material_id,)) or {}
+    data = office.read_pptx(path)
+    if not data.get("pages"):
+        return fail("没能读出这份课件的内容，请直接打开查看", 422)
+    data["filename"] = str(row.get("filename") or "").strip() or path.name
+    data["category"] = str(row.get("category") or "").strip()
+    return ok(data=data)
+
+
 @app.get(f"{API}/materials/knowledge")
 def api_knowledge(course: str = "", difficulty: str = "", keyword: str = "",
                   user: dict = Depends(current_user)):

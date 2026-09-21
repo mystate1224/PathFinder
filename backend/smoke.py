@@ -501,6 +501,16 @@ def test_teacher(c: Client) -> None:
         slides = (sl.get("outline") or {}).get("slides") or []
         need(slides, f"PPT 大纲为空：{sl}")
         need(len(slides) <= 10, f"PPT 应不超过 10 页，实际 {len(slides)}")
+        # PPT 本体要落进「课件」分类，并且能在页面上直接预览（不必下载）
+        mat = (sl.get("artifact") or {}).get("material") or {}
+        need(mat.get("id"), f"PPT 没有存进资料库：{sl}")
+        need(mat.get("category") == "课件",
+             f"PPT 应存在「课件」分类，实际 {mat.get('category')}")
+        pv = c.api("GET", f"/api/materials/{mat['id']}/preview")
+        pgs = pv.get("pages") or []
+        need(len(pgs) == len(slides),
+             f"预览页数应与大纲页数一致：预览 {len(pgs)} / 大纲 {len(slides)}")
+        need(pgs[0].get("title"), f"预览首页没有标题：{pgs[:1]}")
         classes = c.api("GET", "/api/teacher/classes")
         hw = c.api("POST", "/api/teacher/homework", {
             "title": topic + "课后作业", "course": "机器学习",
@@ -526,6 +536,7 @@ def test_teacher(c: Client) -> None:
         need(len(in_folder) >= 2,
              f"教案与 PPT 应同属文件夹「{folder}」，实际 {len(in_folder)} 件")
         return (f"教案 {len(lp['plan'].get('outline') or [])} 环节 → PPT {len(slides)} 页 → "
+                f"课件 #{mat['id']}（课件分类、可预览 {len(pgs)} 页）→ "
                 f"作业 #{hw['homework_id']} → 入库 {len(saved)} 份 → "
                 f"同文件夹产物 {len(in_folder)} 件")
     c.check("备课演示（教案 + PPT≤10 页 + 作业，真实生成并入库）", prep_demo)

@@ -193,7 +193,7 @@ query ──────────┤                                         
 | **A · 画像** | 学业/事业倾向判定、层次评定、能力雷达、成长路线 | `/student`、`/teacher` | `/api/student/profile`、`/api/teacher/overview` |
 | **B · 匹配** | 师生团队双向推荐与确认 | `/match` | `/api/match/recommend`、`/api/match/decide` |
 | **C · 答疑** | 按画像分层回答，带引用来源 | `/ask`、`/tutor` | `/api/tutor/ask`、`/api/teacher/copilot/ask` |
-| **D · 资源** | 素材解析入库 + 企业资源广场与申请 | `/library`、`/resources`、`/hub` | `/api/materials/*`、`/api/resources/*` |
+| **D · 资源** | 素材解析入库 + 企业资源广场与申请 | `/library`、`/hub` | `/api/materials/*`、`/api/resources/*` |
 | **E · 作业** | 发布 → 提交 → AI 建议分 → 教师定分 → 导出 | `/homework`、`/grade` | `/api/teacher/homework/*`、`/api/homework/*` |
 | **F · 账号** | 个人信息、任教班级、偏好与退出登录 | `/profile` | `/api/account/profile`、`/api/teacher/classes` |
 
@@ -218,7 +218,7 @@ query ──────────┤                                         
 | ① | 图文素材智能解析 | `/library` | 支持 md/txt/pdf/png/jpg；无视觉模型时图片降级为「需人工批改」 |
 | ② | 知识点结构化抽取 | `/library` | 解析结果落 `knowledge_points` 表，按课程聚合视图 |
 | ③ | 交互式分层答疑 | `/ask` | 同一问题，A 层 / B 层 / C 层拿到的回答深度不同；必带检索引用 |
-| ④ | 教师备课（教案 / PPT） | `/teach` | 纯标准库 `zipfile` + 手写 OOXML 生成**真实可打开**的 `.docx` / `.pptx` |
+| ④ | 教师备课（教案 / PPT） | `/teach`、`/tutor` | python-pptx 排版（缺依赖时回退标准库 `zipfile` + 手写 OOXML）生成**真实可打开**的 `.docx` / `.pptx`；PPT 自动存进「课件」分类，可在资料库直接**预览 / 打开**（`GET /api/materials/{id}/preview`） |
 | ⑤ | 作业智能批改 | `/grade` | 试批（自由文本）+ 批量批改 + 缺交记零 + CSV 导出 |
 | ⑥ | 教师 Copilot | `/tutor` | 意图路由：`lesson` / `explain` / `student` 三类，分别走不同服务 |
 

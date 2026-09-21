@@ -3181,3 +3181,63 @@ html[data-theme="dark"] .dm-menu__panel { background: var(--surface-2, #1b2333);
 html[data-theme="dark"] .dm-menu__item:hover { background: rgba(122, 132, 255, .16); }
 html[data-theme="dark"] .dm-app { background: var(--surface-2, #1b2333); }
 html[data-theme="dark"] .dm-app__done { background: rgba(122, 132, 255, .14); }
+
+/* —— 课件预览：页面内翻页看 pptx（不下载、不依赖本机 Office） ——
+   版式刻意对齐生成时的 PPT：蓝雾白底 + 宝蓝标题条 + 圆角要点卡 + 页脚页码，
+   所以「预览里看到的」跟「 PowerPoint 里放映的」是同一套信息骨架。 */
+.pv { display: grid; gap: 10px; }
+.pv__meta { font-size: 12px; color: var(--ink-600, #64748b); }
+.pv__stage {
+  padding: 10px; border-radius: 14px;
+  border: 1px solid var(--border, #dce6f2); background: var(--surface-2, #fbfdff);
+}
+.pv__slide {
+  display: grid; gap: 12px; align-content: start;
+  min-height: 300px; padding: 24px 26px 16px; border-radius: 10px;
+  background: var(--surface, #fff);
+  box-shadow: 0 1px 2px rgba(23, 42, 92, .06), 0 10px 24px -18px rgba(23, 42, 92, .28);
+}
+.pv__slide::before {
+  content: ""; display: block; height: 3px; margin: -24px -26px 0;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(90deg, var(--brand-500, #4353ff), var(--accent-500, #17c9a8) 62%, var(--vivid-500, #d6f94b));
+}
+.pv__tag { font-size: 11.5px; font-weight: 600; color: var(--brand-600, #3d4ce2); }
+.pv__t {
+  padding-left: 12px; border-left: 4px solid var(--brand-500, #4353ff);
+  font-size: 19px; font-weight: 700; line-height: 1.4; color: var(--ink-950, #172033);
+}
+.pv__pts { counter-reset: pv; display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.pv__pts li {
+  counter-increment: pv; display: flex; gap: 9px; align-items: flex-start;
+  padding: 9px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.6;
+  background: var(--brand-50, #f0f1ff); color: var(--ink-800, #334155);
+}
+.pv__pts li::before {
+  content: counter(pv); flex: 0 0 18px; height: 18px; margin-top: 2px;
+  display: grid; place-items: center; border-radius: 6px;
+  background: var(--brand-500, #4353ff); color: #fff;
+  font-size: 11px; font-weight: 700;
+}
+.pv__note {
+  padding: 9px 11px; border-radius: 10px; font-size: 12.5px; line-height: 1.65;
+  background: var(--vivid-50, #fcfff1); color: var(--ink-700, #475569);
+}
+.pv__note b { display: block; margin-bottom: 3px; font-size: 11.5px; color: var(--ink-600, #64748b); }
+.pv__foot {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-top: 10px; border-top: 1px dashed var(--border, #dce6f2);
+  font-size: 11.5px; color: var(--ink-600, #64748b);
+}
+.pv__nav { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.pv__dots { display: flex; align-items: center; gap: 6px; }
+.pv__dot {
+  width: 8px; height: 8px; padding: 0; border: 0; border-radius: 99px; cursor: pointer;
+  background: var(--ink-400, #cbd5e1); transition: width .18s ease, background .18s ease;
+}
+.pv__dot.is-on { width: 20px; background: var(--brand-500, #4353ff); }
+
+html[data-theme="dark"] .pv__stage { background: var(--surface-2, #1b2333); }
+html[data-theme="dark"] .pv__slide { background: var(--surface-2, #1b2333); }
+html[data-theme="dark"] .pv__pts li { background: rgba(122, 132, 255, .14); }
+html[data-theme="dark"] .pv__note { background: rgba(214, 249, 75, .12); }

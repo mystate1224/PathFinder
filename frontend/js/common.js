@@ -267,6 +267,96 @@
     PF.download("/api/materials/" + materialId + "/download", filename || "");
   };
 
+  /** 课件预览：把 pptx 读回「文字骨架」，在弹窗里按页翻，不必先下载再开 PowerPoint。
+   *  还原的是标题 / 要点 / 授课备注（与生成时的版式一致），真要放映再点「用本机打开」。
+   *  键盘 ← → 翻页，Esc 关闭。 */
+  PF.previewMaterial = async function (materialId, filename) {
+    let data = null;
+    try {
+      data = await PF.get("/api/materials/" + materialId + "/preview");
+    } catch (e) {
+      return;                     // PF.get 已经统一提示过了
+    }
+    const pages = (data && data.pages) || [];
+    if (!pages.length) { PF.toast("这份课件没有可预览的页面", "warn"); return; }
+    const name = filename || (data && data.filename) || "课件预览";
+    const total = pages.length;
+    let idx = 0;
+
+    function slideHtml(p, i) {
+      const pts = (p.bullets || []).map(function (b) {
+        return "<li>" + PF.esc(b) + "</li>";
+      }).join("");
+      return '<div class="pv__slide">' +
+          '<div class="pv__tag">第 ' + (i + 1) + " 页 / 共 " + total + " 页</div>" +
+          '<div class="pv__t">' + PF.esc(p.title || "（本页无文字）") + "</div>" +
+          (pts ? '<ul class="pv__pts">' + pts + "</ul>" : "") +
+          (p.note
+            ? '<div class="pv__note"><b>授课备注</b><div>' + PF.esc(p.note) + "</div></div>"
+            : "") +
+          '<div class="pv__foot"><span>寻径教育 PathFinder</span><span>' +
+            (i + 1) + " / " + total + "</span></div>" +
+        "</div>";
+    }
+
+    const m = PF.modal({
+      title: "课件预览 · " + name,
+      width: "wide",
+      body: '<div class="pv">' +
+          '<div class="pv__meta">' + PF.esc((data && data.category) || "课件") +
+            " · " + PF.esc(name) + " · " + total + " 页</div>" +
+          '<div class="pv__stage" data-role="stage"></div>' +
+          '<div class="pv__nav">' +
+            '<button class="btn btn--sm" type="button" data-pv="prev">' +
+              PF.icon("chevronLeft", 14) + " 上一页</button>" +
+            '<div class="pv__dots" data-role="dots"></div>' +
+            '<button class="btn btn--sm" type="button" data-pv="next">下一页 ' +
+              PF.icon("chevronRight", 14) + "</button>" +
+          "</div>" +
+        "</div>",
+      actions: [
+        { label: "用本机打开", type: "primary", onClick: function () {
+            PF.openMaterial(materialId, name);
+          } },
+        { label: "关闭", onClick: function () { /* 交给 modal 自己关 */ } },
+      ],
+      onClose: function () { document.removeEventListener("keydown", onKey); },
+    });
+
+    const stage = PF.$('[data-role="stage"]', m.body);
+    const dots = PF.$('[data-role="dots"]', m.body);
+    function render() {
+      stage.innerHTML = slideHtml(pages[idx], idx);
+      if (total <= 12) {
+        dots.innerHTML = pages.map(function (_, i) {
+          return '<button class="pv__dot' + (i === idx ? " is-on" : "") + '" type="button" ' +
+            'data-pv="go" data-i="' + i + '" aria-label="第 ' + (i + 1) + ' 页"></button>';
+        }).join("");
+      }
+      PF.$('[data-pv="prev"]', m.body).disabled = idx === 0;
+      PF.$('[data-pv="next"]', m.body).disabled = idx === total - 1;
+    }
+    function go(delta) {
+      const n = idx + delta;
+      if (n < 0 || n >= total) return;
+      idx = n;
+      render();
+    }
+    m.body.addEventListener("click", function (e) {
+      const b = e.target.closest("[data-pv]");
+      if (!b) return;
+      if (b.dataset.pv === "prev") go(-1);
+      else if (b.dataset.pv === "next") go(1);
+      else if (b.dataset.pv === "go") { idx = Number(b.dataset.i) || 0; render(); }
+    });
+    function onKey(e) {
+      if (e.key === "ArrowLeft") { e.preventDefault(); go(-1); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); go(1); }
+    }
+    document.addEventListener("keydown", onKey);
+    render();
+  };
+
   /* ============================================================ 提示与弹窗 */
   function toastHost() {
     let host = PF.$(".toast-host");
@@ -1681,12 +1771,17 @@
             (it.sizeText ? " · " + PF.esc(it.sizeText) : "") +
             (it.pages ? " · " + PF.esc(it.pages) : "") + "</div>" +
           (it.material && it.material.id
-            // 课件本体：给一个能直接打开的链接，而不是再挂一份文字提纲
+            // 课件本体：文件名后面直接挂「预览 / 打开」，不用再回到资料库里找
             ? '<div class="dm-prod__meta">' + PF.icon("folder", 12) +
-              ' 已存课件库：' +
-              '<a href="#" onclick="PF.openMaterial(' + PF.esc(it.material.id) + ', \'' +
-              PF.esc(String(it.material.filename || "").replace(/'/g, "")) + '\'); return false;">' +
-              PF.esc(it.material.filename || it.title) + "</a>" +
+              ' 已存课件库：' + PF.esc(it.material.filename || it.title) +
+              ' <button class="btn btn--sm" onclick="PF.previewMaterial(' +
+                PF.esc(it.material.id) + ', \'' +
+                PF.esc(String(it.material.filename || "").replace(/'/g, "")) +
+                '\'); return false;">预览</button>' +
+              ' <button class="btn btn--sm" onclick="PF.openMaterial(' +
+                PF.esc(it.material.id) + ', \'' +
+                PF.esc(String(it.material.filename || "").replace(/'/g, "")) +
+                '\'); return false;">打开</button>' +
               (Number(it.material.knowledge_points) > 0
                 ? "，按页抽出 " + PF.num(it.material.knowledge_points, 0) + " 个知识点" : "") +
               "</div>"

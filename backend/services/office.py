@@ -18,6 +18,7 @@ import re
 import zipfile
 from datetime import datetime
 from math import ceil
+from pathlib import Path
 from typing import Iterable, Sequence
 
 # 可选依赖：python-pptx 只用于「精美课件」那条路，没装也能跑（回退零依赖版式）。
@@ -598,6 +599,82 @@ def build_pptx(title: str, slides: Iterable[dict], subtitle: str = "") -> bytes:
         except Exception:  # pragma: no cover - 兜底路径
             pass
     return _build_pptx_plain(title, clean, subtitle)
+
+
+# 预览时要剔掉的「版面装饰」：页脚品牌、页码、封面日期行、小节标签
+_DECOR_TEXT = ("PathFinder · 寻径教育", "ONE-CLICK LESSON PREP")
+_PAGE_NUM = re.compile(r"^\d{1,3}\s*/\s*\d{1,3}$")
+_DATE_LINE = re.compile(r"^\d{4}-\d{2}-\d{2}.*一键备课")
+_NOTE_PREFIX = "讲法提示："
+
+
+def _is_decor(line: str) -> bool:
+    """这行是版面装饰而不是内容吗？预览只还原内容，装饰交给真正的放映。"""
+    return (line in _DECOR_TEXT
+            or bool(_PAGE_NUM.match(line))
+            or bool(_DATE_LINE.match(line)))
+
+
+def read_pptx(path: str | Path) -> dict:
+    """把 .pptx 读回「文字骨架」，供页面直接翻页预览。
+
+    不还原图片、渐变这些视觉元素，只还原每页的**标题 / 要点 / 备注**——
+    老师课前扫一眼内容够不够、顺序对不对，比下载再打开快得多。
+
+    返回 ``{"title": str, "pages": [{"title", "bullets", "note"}]}``；
+    没装 python-pptx、文件损坏或压根不是课件时 ``pages`` 为空，前端提示改用「打开」。
+    """
+    out: dict = {"title": "", "pages": []}
+    if not _PPTX_OK:
+        return out
+    try:
+        prs = _PptxPresentation(str(path))
+    except Exception:  # pragma: no cover - 坏文件 / 非 OOXML
+        return out
+    try:
+        out["title"] = str(prs.core_properties.title or "").strip()
+    except Exception:
+        out["title"] = ""
+    for sl in prs.slides:
+        blocks: list[tuple[int, list[str]]] = []
+        try:
+            shapes = list(sl.shapes)
+        except Exception:
+            continue
+        for sh in shapes:
+            if not getattr(sh, "has_text_frame", False):
+                continue          # 纯图形（色块 / 装饰条）没有文字，跳过
+            lines = [
+                re.sub(r"\s+", " ", p.text).strip()
+                for p in sh.text_frame.paragraphs
+            ]
+            lines = [x for x in lines if x and not _is_decor(x)]
+            if lines:
+                # 按纵向位置排：先出现的在上面，标题才不会被页脚抢走
+                blocks.append((int(getattr(sh, "top", 0) or 0), lines))
+        if not blocks:            # 整页没有文字（纯图页）也占位，页码才对得上
+            out["pages"].append({"title": "", "bullets": [], "note": ""})
+            continue
+        blocks.sort(key=lambda b: b[0])
+        flat: list[str] = []
+        for _, lines in blocks:
+            flat.extend(lines)
+        title = flat[0]
+        rest: list[str] = flat[1:]
+        note = ""
+        try:
+            if sl.has_notes_slide:
+                note = re.sub(r"\s+", " ", sl.notes_slide.notes_text_frame.text).strip()
+        except Exception:
+            note = ""
+        if not note:              # 自己生成的课件把「讲法提示」画在页底条里，这里认回来
+            for line in rest:
+                if line.startswith(_NOTE_PREFIX):
+                    note = line[len(_NOTE_PREFIX):].strip()
+                    rest.remove(line)
+                    break
+        out["pages"].append({"title": title, "bullets": [b for b in rest if b][:8], "note": note})
+    return out
 
 
 # ================================================================ DOCX
