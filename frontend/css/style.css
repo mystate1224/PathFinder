@@ -706,42 +706,24 @@ body::after {
 .bar-row { display: grid; grid-template-columns: 62px minmax(0, 1fr) 74px; gap: 9px; align-items: center; font-size: var(--fs-xs); }
 .bar-row .t-dim { text-align: right; font-family: var(--font-mono); }
 
-/* 方框分布：人多的那一类占两列（.tile--lead），方格里印交叉构成，下面一句话说明 + 建议。
-   v7.13：格子不再按类别上色（原先学业型青绿 / 事业型琥珀 / A 绿 B 蓝 C 橙，一屏六种彩色
-   反而读不出重点）；v7.14 连顶部那根色条也去掉了——主导格靠"占两列 + 数字更大 + 描边"
-   区分，格子内部彻底干净。深浅两套主题都靠 ink/brand 色阶翻转。 */
-.tiles { display: grid; gap: 8px; }
-.tile {
-  position: relative; overflow: hidden;
-  padding: 10px 10px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
-  text-align: center;
-  transition: transform var(--transition), box-shadow var(--transition),
-              border-color var(--transition);
-}
-.tile:hover { transform: translateY(-1px); box-shadow: var(--sh-1); }
-.tile--lead {
-  grid-column: span 2; /* 网格是 n+1 列，主导方格占两列，剩余类别各占一列，正好铺满不留空 */
-  border-color: var(--brand-300);
-  background: var(--surface);
-  box-shadow: var(--sh-1);
-}
-.tile__name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-700); }
-.tile__num {
-  margin-top: 3px;
-  font-size: 22px; font-weight: 700; line-height: 1.1;
-  color: var(--ink-800);
-  font-variant-numeric: tabular-nums;
-}
-.tile--lead .tile__num { font-size: 28px; color: var(--brand-600); }
-.tile__pct { margin-top: 2px; font-size: 11px; color: var(--ink-500); line-height: 1.45; }
-.tile__mini {
-  margin-top: 5px; padding-top: 4px;
-  border-top: 1px dashed var(--border);
-  font-size: 11px; color: var(--ink-500); line-height: 1.45;
-  font-variant-numeric: tabular-nums;
+/* 分布图（v7.15）：原先一格一类的方框（.tile）挤在一张网格里，字号小、留白少，
+   密不透风也读不出比例。改成「一根堆叠占比柱 + 逐行清单」——柱条负责一眼看出
+   比例，每行只做一件事：类别名 / 人数占比 / 交叉构成。主导类用品牌蓝标出，
+   其余类别用中性墨色深浅区分（v7.13 起分布模块不上类别语义色）。 */
+.dist-figure { display: grid; gap: 4px; }
+.dist-figure .dist-bar { height: 14px; }
+.dist-row { padding: 7px 2px 6px; border-top: 1px dashed var(--border); }
+.dist-row__top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.dist-row__name { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-800); }
+.dist-row__num { font-size: var(--fs-xs); color: var(--ink-500); font-variant-numeric: tabular-nums; }
+.dist-row--lead .dist-row__name { color: var(--brand-600); }
+.dist-row--lead .dist-row__num { color: var(--ink-700); font-weight: 600; }
+.dist-row__mini { margin-top: 2px; font-size: 11px; color: var(--ink-500); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.dist-row__tag {
+  margin-left: 6px; padding: 1px 7px; border-radius: var(--r-pill);
+  background: var(--brand-500); color: #fff;
+  font-size: 10px; font-style: normal; font-weight: 600; letter-spacing: .04em;
+  vertical-align: 1px;
 }
 .tile-note {
   margin: 0; padding: 8px 10px;
@@ -2277,19 +2259,13 @@ html[data-theme="dark"] .auth__grid-lines {
   border-bottom: 1px solid var(--border-strong);
 }
 
-/* 所有内容区块统一用强一档的描边：
-   .tile--lead 保持自己的类别色（内联 --tile-color），不参与覆盖；
-   普通方格用品牌浅蓝描边，让分布矩阵一格一格更清晰 */
+/* 所有内容区块统一用强一档的描边，卡片层级更清楚 */
 .card, .mk-card, .res-card, .hub-card, .hw-card,
 .stat, .panel {
   border-color: var(--border-strong);
 }
-.tile:not(.tile--lead) {
-  border-color: var(--brand-200);
-}
 
-/* 方框分布：普通方格也上白底，与卡片底拉开一层；说明条用品牌极淡蓝 */
-.tile { background: var(--surface); }
+/* 分布说明条用品牌极淡蓝 */
 .tile-note {
   background: var(--brand-50);
   border-color: var(--brand-200);
@@ -2297,8 +2273,7 @@ html[data-theme="dark"] .auth__grid-lines {
 }
 
 html[data-theme="dark"] .tile-note { color: var(--ink-700); }
-/* 主导格的描边在暗底上要提亮一档（brand-300 的深色版本压在深底上几乎看不见） */
-html[data-theme="dark"] .tile--lead { border-color: var(--brand-400); }
+html[data-theme="dark"] .dist-row--lead .dist-row__name { color: var(--brand-400); }
 
 /* ==========================================================================
    v2.4 系统性视觉打磨
@@ -2347,11 +2322,6 @@ html[data-theme="dark"] .tile--lead { border-color: var(--brand-400); }
   box-shadow: 0 10px 22px -12px rgba(67, 83, 255, .38), var(--sh-2);
 }
 .stat__label { letter-spacing: .02em; }
-/* 方框分布：hover 时描边转到品牌色，一眼能看出"可以点/可以关注" */
-.tile:hover {
-  border-color: var(--brand-400);
-  box-shadow: 0 8px 18px -10px rgba(67, 83, 255, .45);
-}
 /* 章节分隔线：从左往右渐隐，带出阅读方向 */
 .sect__line { background: linear-gradient(90deg, var(--border-strong), rgba(211, 220, 238, 0)); }
 

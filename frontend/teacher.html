@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师驾驶舱 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=27">
+<link rel="stylesheet" href="/static/css/style.css?v=28">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -130,16 +130,16 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div></div>";
   }
 
-  /* 方框分布：哪一类人多，哪一格就占两列（视觉上更大）；方格里直接印上
-     交叉构成（如「A 层 6 · B 层 1」），下面一句话说清构成 + 给教学建议。
+  /* 分布图：一根堆叠占比柱 + 逐行清单。柱条负责"一眼看出比例"，每行只做一件事：
+     类别名 / 人数占比 / 交叉构成（如「A 层 6 · B 层 1」），下面一句话说明 + 建议。
      @param opt.cross    交叉分布 { 类别: { 子类: 人数 } }，可为空
      @param opt.subUnit  子类名的后缀，例如 " 层"
      @param opt.leadUnit 主角自己的后缀，例如层次分布里要显示 "A 层"
      @param opt.tips     { 类别: 建议句子 }，说明文字会追加主导类别的建议
      @param opt.tieTip   并列第一时的建议句子
      @param opt.interests [{name, count}]，班级兴趣方向（带人数），追加兴趣分析句
-     v7.13：不再给每个类别注入颜色（原先学业型青绿 / 事业型琥珀 / A 绿 B 蓝 C 橙），
-     六种彩色挤在一屏里反而读不出重点；配色统一交给 CSS，只由 .tile--lead 标出主导类。 */
+     v7.13~v7.14：方框不再按类别上色、连顶部色条也去掉了；v7.15 干脆放弃方框——
+     改成堆叠柱 + 清单，主导类用品牌蓝，其余类别用中性墨色深浅区分。 */
   function distTiles(title, dist, opt) {
     const o = opt || {};
     const cross = o.cross || null;
@@ -199,23 +199,35 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
              interestLine;
     }
 
-    const cols = tie || !total ? Math.max(sorted.length, 1) : sorted.length + 1;
-    const tiles = sorted.map((key) => {
-      // 先拼好 class 字符串再进模板：check_frontend 会扫 class="..." 里的碎片
-      const tileCls = "tile" + (!tie && key === lead ? " tile--lead" : "");
+    // 堆叠柱：主导段品牌蓝，其余段中性墨色逐档变浅（有并列第一则全部中性）
+    const shade = ["var(--ink-300)", "var(--ink-200)"];
+    let si = 0;
+    const segs = total ? sorted.map((key) => {
+      const isLead = !tie && key === lead;
+      const bg = isLead ? "var(--brand-500)" : (shade[si++] || "var(--ink-200)");
+      return '<span style="width:' + PF.pct(dist[key] || 0, total) + '%;background:' + bg + '"></span>';
+    }).join("") : "";
+
+    const rows = sorted.map((key) => {
+      const isLead = !tie && key === lead;
       const mini = miniOf(key);
-      return '<div class="' + tileCls + '">' +
-        '<div class="tile__name">' + PF.esc(key) + "</div>" +
-        '<div class="tile__num">' + (dist[key] || 0) + "</div>" +
-        '<div class="tile__pct">' + PF.pct(dist[key], total || 1) + "% · " + (dist[key] || 0) + " 人</div>" +
-        (mini ? '<div class="tile__mini">' + PF.esc(mini) + "</div>" : "") +
+      return '<div class="dist-row' + (isLead ? " dist-row--lead" : "") + '">' +
+        '<div class="dist-row__top">' +
+          '<span class="dist-row__name">' + PF.esc(key) +
+            (isLead ? '<i class="dist-row__tag">主导</i>' : "") + "</span>" +
+          '<span class="dist-row__num">' + (dist[key] || 0) + " 人 · " +
+            PF.pct(dist[key] || 0, total || 1) + "%</span>" +
+        "</div>" +
+        (mini ? '<div class="dist-row__mini">' + PF.esc(mini) + "</div>" : "") +
       "</div>";
     }).join("");
 
     return '<div class="card"><div class="card__head"><h3>' + PF.esc(title) + "</h3>" +
       '<div class="card__head-actions"><span class="t-xs">' + PF.esc(o.footHint || "") + "</span></div></div>" +
       '<div class="card__body stack-sm">' +
-        '<div class="tiles" style="grid-template-columns:repeat(' + cols + ',minmax(0,1fr))">' + tiles + "</div>" +
+        '<div class="dist-figure">' +
+          (segs ? '<div class="dist-bar">' + segs + "</div>" : "") + rows +
+        "</div>" +
         '<p class="tile-note">' + note + "</p>" +
       "</div></div>";
   }
