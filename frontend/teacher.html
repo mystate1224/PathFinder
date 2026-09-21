@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师驾驶舱 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=29">
+<link rel="stylesheet" href="/static/css/style.css?v=30">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -139,7 +139,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
      @param opt.tieTip   并列第一时的建议句子
      @param opt.interests [{name, count}]，班级兴趣方向（带人数），追加兴趣分析句
      v7.13~v7.14：方框不再按类别上色、连顶部色条也去掉了；v7.15 干脆放弃方框——
-     改成堆叠柱 + 清单，主导类用品牌蓝，其余类别用中性墨色深浅区分。 */
+     改成堆叠柱 + 清单，主导类独占品牌实蓝，其余类别用品牌淡蓝按深浅排开（v7.16）。 */
   function distTiles(title, dist, opt) {
     const o = opt || {};
     const cross = o.cross || null;
@@ -161,7 +161,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         .map((name) => name + subUnit + " " + c[name] + " 人")
         .join("、");
     };
-    // 方格里的紧凑构成（不带「人」）：A 层 6 · B 层 1
+    // 清单里的紧凑构成（不带「人」）：A 层 6 · B 层 1
     const miniOf = (k) => {
       const c = (cross || {})[k] || {};
       return Object.keys(c)
@@ -201,13 +201,21 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
     // 堆叠柱：主导段品牌实蓝，其余段品牌淡蓝（brand-300 / brand-200），
     // 整条占比柱统一蓝色调、不用灰色；并列第一时全部淡蓝，谁也不突出。
+    const labelOf = (k) => k + " " + (dist[k] || 0) + " 人 · " + PF.pct(dist[k] || 0, total || 1) + "%";
     const shade = ["var(--brand-300)", "var(--brand-200)"];
     let si = 0;
     const segs = total ? sorted.map((key) => {
       const isLead = !tie && key === lead;
       const bg = isLead ? "var(--brand-500)" : (shade[si++] || "var(--brand-200)");
-      return '<span style="width:' + PF.pct(dist[key] || 0, total) + '%;background:' + bg + '"></span>';
+      return '<span style="width:' + PF.pct(dist[key] || 0, total) + '%;background:' + bg +
+             '" title="' + PF.esc(labelOf(key)) + '"></span>';
     }).join("") : "";
+    // 柱条本身没有文字，读屏读不出是哪一类：整条按 role="img" 挂一句汇总，
+    // 每段再挂 title，鼠标悬停也能查到具体人数。
+    const barHtml = segs
+      ? '<div class="dist-bar" role="img" aria-label="' +
+        PF.esc(title + "：" + sorted.map(labelOf).join("；")) + '">' + segs + "</div>"
+      : "";
 
     const rows = sorted.map((key) => {
       const isLead = !tie && key === lead;
@@ -227,7 +235,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       '<div class="card__head-actions"><span class="t-xs">' + PF.esc(o.footHint || "") + "</span></div></div>" +
       '<div class="card__body stack-sm">' +
         '<div class="dist-figure">' +
-          (segs ? '<div class="dist-bar">' + segs + "</div>" : "") + rows +
+          barHtml + rows +
         "</div>" +
         '<p class="tile-note">' + note + "</p>" +
       "</div></div>";

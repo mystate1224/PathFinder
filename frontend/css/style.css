@@ -708,13 +708,16 @@ body::after {
 
 /* 分布图（v7.15）：原先一格一类的方框（.tile）挤在一张网格里，字号小、留白少，
    密不透风也读不出比例。改成「一根堆叠占比柱 + 逐行清单」——柱条负责一眼看出
-   比例，每行只做一件事：类别名 / 人数占比 / 交叉构成。主导类用品牌蓝标出，
-   其余类别用中性墨色深浅区分（v7.13 起分布模块不上类别语义色）。 */
+   比例，每行只做一件事：类别名 / 人数占比 / 交叉构成。
+   v7.13 起分布模块不上类别语义色（青绿/琥珀），全部收进品牌蓝色阶：
+   v7.16 起主导类独占实蓝（brand-500）并把名字放大到 24px，其余段用
+   brand-300 / brand-200 两档淡蓝，靠深浅而不是色相区分。 */
 .dist-figure { display: grid; gap: 4px; }
 .dist-figure .dist-bar { height: 14px; }
 .dist-row { padding: 7px 2px 6px; border-top: 1px dashed var(--border); }
-.dist-row__top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.dist-row__name { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-800); }
+/* 类别名可能较长（例如「事业型·考研」），窄屏下允许换行而不是把人数挤出卡片 */
+.dist-row__top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; row-gap: 2px; }
+.dist-row__name { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-800); min-width: 0; overflow-wrap: anywhere; }
 .dist-row__num { font-size: var(--fs-xs); color: var(--ink-500); font-variant-numeric: tabular-nums; }
 /* 主导类要跳出来：名字放大到普通行的近两倍（13px → 24px），人数同步加粗打 H 那一档 */
 .dist-row--lead { padding: 9px 2px 9px; }
@@ -2279,6 +2282,9 @@ html[data-theme="dark"] .auth__grid-lines {
 
 html[data-theme="dark"] .tile-note { color: var(--ink-700); }
 html[data-theme="dark"] .dist-row--lead .dist-row__name { color: var(--brand-400); }
+/* 「主导」徽标是实底白字：暗色下 --brand-500 会翻成浅蓝 #7883ff，白字只剩 3.2 ❌，
+   所以往下取一档 --brand-300（暗色里 = #3d4ce2），白字 5.6 ✅ */
+html[data-theme="dark"] .dist-row__tag { background: var(--brand-300); }
 
 /* ==========================================================================
    v2.4 系统性视觉打磨
