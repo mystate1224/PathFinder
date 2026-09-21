@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师驾驶舱 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=22">
+<link rel="stylesheet" href="/static/css/style.css?v=23">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -15,7 +15,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=13"></script>
+<script src="/static/js/common.js?v=14"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -615,7 +615,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       box.innerHTML =
         '<div class="note note--brand mb-5">' + PF.icon("info", 15) +
           "<div><strong>「我的团队」是你长期带的学生队伍：</strong>科研课题组、横向项目、竞赛团队、实习组都放在这里，" +
-          "它同时是师生匹配的打分主体。「资源管理」里的招募公告是面向学生的一次性报名通知，两者相互独立；" +
+          "它同时是师生匹配的打分主体。「师生匹配」页里「资源管理」那类招募公告是面向学生的一次性报名通知，两者相互独立；" +
           "类型只用于分类查看，不参与匹配打分。</div></div>" +
 
         '<div class="grid grid-2" style="gap:16px">' +

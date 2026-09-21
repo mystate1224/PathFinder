@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>团队匹配 · 寻径教育 PathFinder</title>
+<title>师生匹配 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=22">
+<link rel="stylesheet" href="/static/css/style.css?v=23">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -14,11 +14,13 @@ if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-co
 document.documentElement.setAttribute("data-theme",t)})();</script>
 <style>
   .mk-list { display: flex; flex-direction: column; gap: var(--s-3); }
+  .res-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--s-4); }
+  @media (max-width: 700px) { .res-grid { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=13"></script>
+<script src="/static/js/common.js?v=14"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -34,9 +36,12 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     me: me,
     title: isTeacher ? "师生匹配" : "团队匹配",
     desc: isTeacher
-      ? "匹配分 = 方向契合 60 分 + 层次适配 20 分 + 兴趣新鲜度 10 分 + 名额余量 10 分。规则固定、理由可复核；双方都确认才算匹配成功，并自动生成一条跟进任务。"
+      ? "两件事都在这里：一是长期团队 —— 按匹配分排序的推荐候选，双方都确认才算匹配成功；二是招募公告 —— 发布资源、处理学生申请，通过后自动给该生建一条跟进任务。" +
+        "匹配分 = 方向契合 60 分 + 层次适配 20 分 + 兴趣新鲜度 10 分 + 名额余量 10 分，规则固定、理由可复核。"
       : "系统按方向契合度、层次适配、兴趣新鲜度与名额余量给你排了序。你表态后老师那边也会给出意向，双方都确认才算匹配成功。",
     wide: true,
+    // 手机上把页头主操作贴底：教师侧四个标签内容都长，滚下去不该再让人滚回页头找按钮
+    dock: isTeacher,
     actions: '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>" +
       (isTeacher
         ? '<button class="btn btn--primary" id="btn-new-group">' + PF.icon("plus", 15) + "新建团队</button>"
@@ -46,15 +51,29 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   view.innerHTML = '<div id="tabs-host"></div>';
   const host = PF.$("#tabs-host", view);
 
+  /* 两个数据源的缓存。必须声明在 PF.tabs() 之前：构造时会同步渲染首屏标签，
+     而深链（如 /match#/tab=res）可能直接落在资源标签上 —— 声明晚了会撞 TDZ。 */
+  let TD = null;                 // /api/match/recommend
+  let RD = null;                 // /api/resources（资源管理 / 申请处理两个标签共用）
+
+  /** 深链：/match#/tab=res 要能直接落到「资源管理」（旧「资源管理」页和 Copilot 演示都这么链过来）。
+      PF.tabs 默认让 initial 优先于 hash，所以这里自己先读一次 hash 再决定 initial。 */
+  function hashTab() {
+    const m = /(?:^|&)tab=([^&]+)/.exec((location.hash || "").replace(/^#\/?/, ""));
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+
   const tabs = PF.tabs(host, isTeacher
     ? [
         { key: "pick", label: "推荐候选", icon: "users", render: function (b) { return renderPick(b, false); } },
         { key: "groups", label: "团队管理", icon: "layers", render: renderGroups },
+        { key: "res", label: "资源管理", icon: "folder", render: renderResources },
+        { key: "apps", label: "申请处理", icon: "clipboard", render: renderApps },
       ]
     : [
         { key: "rec", label: "推荐团队", icon: "target", render: renderRec },
         { key: "mine", label: "我的匹配记录", icon: "check", render: renderMine },
-      ], { base: "#/", initial: isTeacher ? "pick" : "rec" });
+      ], { base: "#/", initial: hashTab() || (isTeacher ? "pick" : "rec") });
 
   /* ============================================================ 共用渲染件 */
   function statCard(icon, label, num, hint, tone) {
@@ -121,7 +140,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     "层次只用来判断「这个组的难度合不合适」，不是能力评定，也不用于分班、不构成准入门槛。";
 
   /* ============================================================ 教师侧 */
-  let TD = null;
   let curGroup = 0;
 
   async function renderPick(box, quiet) {
@@ -409,7 +427,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         "</div></div>" +
         '<div class="card__body">' +
           PF.caveat("「我的团队」是长期招生、支撑推荐打分的主体，科研课题组、横向项目、竞赛团队、实习组都建在这里；" +
-            "「资源管理」里那一类招募公告是一次性的报名通知，两者相互独立。") +
+            "本页「资源管理」里的招募公告是一次性的报名通知，两者相互独立。") +
           (groups.length
             ? '<div class="grid grid-2 mt-4">' + groups.map(groupCard).join("") + "</div>"
             : '<div class="mt-4">' + PF.empty({
@@ -493,6 +511,398 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         '<div class="spacer"></div>' +
         '<button class="btn btn--sm btn--danger" data-dg="' + g.group_id + '">' + PF.icon("trash", 12) + "删除</button>" +
       "</div></div>";
+  }
+
+  /* ============================================================ 教师侧：资源与申请
+     原「资源管理」页已并入本页（2026-09-21）：招募公告（一次性报名）与常设团队（双向匹配）
+     是两套东西，但都是「老师找学生」这一件事，放在同一页的两个标签里，省掉来回跳页。
+     RD 声明在文件前部：深链 /match#/tab=res 会同步渲染本标签，晚声明会撞上 TDZ。 */
+
+  const RES_CAVEAT =
+    "这里的「资源」是面向学生的一次性招募公告（课题组 / 比赛 / 实习 / 项目）：学生主动申请、你来批复，" +
+    "通过后自动给该生建一条跟进任务。「团队管理」里的常设团队是双向匹配的打分主体，两者相互独立 —— " +
+    "发布课题组类资源不会自动创建团队。";
+
+  async function loadRes(force) {
+    if (RD && !force) return RD;
+    RD = await PF.get("/api/resources");
+    return RD;
+  }
+
+  /* ---- 标签三：资源管理 ---- */
+  async function renderResources(box) {
+    box.innerHTML = PF.loading("正在读取我发布的资源");
+    let d;
+    try { d = await loadRes(true); } catch (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      return;
+    }
+    const list = PF.arr(d.resources);
+    const s = d.stats || {};
+
+    const stats =
+      '<div class="grid grid-4">' +
+        statCard("folder", "我发布的资源", PF.num(s.total, 0) + ' <span class="t-sm">条</span>',
+          "四类：课题组 / 比赛 / 实习 / 项目", "") +
+        statCard("play", "接收申请中", PF.num(s.open, 0) + ' <span class="t-sm">条</span>', "状态为 open", "info") +
+        statCard("bell", "待处理申请", PF.num(s.pending, 0) + ' <span class="t-sm">条</span>',
+          "学生已提交，等你答复", (s.pending || 0) > 0 ? "warn" : "") +
+        statCard("check", "已通过申请", PF.num(s.accepted, 0) + ' <span class="t-sm">人</span>',
+          "通过时自动生成跟进任务", "ok") +
+      "</div>";
+
+    const head =
+      '<div class="row mt-4" style="gap:10px;flex-wrap:wrap">' +
+        '<button class="btn btn--primary" id="btn-pub">' + PF.icon("plus", 15) + "发布资源</button>" +
+        '<span class="t-xs t-dim">发布后学生能在「资源广场」看到并申请。</span>' +
+      "</div>" +
+      '<div class="mt-3">' + PF.caveat(RES_CAVEAT) + "</div>";
+
+    if (!list.length) {
+      box.innerHTML = stats + head + '<div class="mt-5">' + PF.empty({
+        icon: "folder",
+        title: "你还没有发布任何资源",
+        desc: "资源可以是常设课题组、学科竞赛、实习岗位或横向项目。发布后学生能在「资源广场」看到并申请。",
+        action: '<button class="btn btn--primary" id="btn-go-publish">' + PF.icon("plus", 15) + "去发布</button>",
+      }) + "</div>";
+      const bp = PF.$("#btn-pub", box), bg = PF.$("#btn-go-publish", box);
+      if (bp) bp.addEventListener("click", function () { publishModal(); });
+      if (bg) bg.addEventListener("click", function () { publishModal(); });
+      return;
+    }
+
+    box.innerHTML = stats + head + '<div class="res-grid mt-4">' + list.map(resCardHtml).join("") + "</div>";
+
+    PF.$$("[data-close]", box).forEach(function (b) {
+      b.addEventListener("click", async function () {
+        try {
+          await PF.post("/api/teacher/resources/" + b.dataset.close + "/close");
+          PF.toast("状态已切换", "ok");
+          renderResources(box);
+        } catch (e) { /* 已提示 */ }
+      });
+    });
+    PF.$$("[data-del]", box).forEach(function (b) {
+      b.addEventListener("click", async function () {
+        const yes = await PF.confirm({
+          title: "删除资源",
+          text: "会同时删除该资源下所有学生申请记录，不可恢复。",
+          okText: "删除", danger: true,
+        });
+        if (!yes) return;
+        try {
+          await PF.del("/api/teacher/resources/" + b.dataset.del);
+          PF.toast("已删除", "ok");
+          RD = null;
+          renderResources(box);
+        } catch (e) { /* 已提示 */ }
+      });
+    });
+    PF.$$("[data-edit]", box).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const r = list.filter(function (x) { return x.id === Number(b.dataset.edit); })[0];
+        editResModal(r);
+      });
+    });
+    PF.$$("[data-decide]", box).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const r = list.filter(function (x) { return x.id === Number(b.dataset.res); })[0];
+        const app = PF.arr(r && r.applications).filter(function (a) { return a.id === Number(b.dataset.decide); })[0];
+        decideModal(Object.assign({}, app, { resource_title: r.title }));
+      });
+    });
+    const bp2 = PF.$("#btn-pub", box);
+    if (bp2) bp2.addEventListener("click", function () { publishModal(); });
+  }
+
+  function resCardHtml(r) {
+    const apps = PF.arr(r.applications);
+    return '<div class="res-card">' +
+      '<div class="res-card__head">' +
+        '<div class="row" style="gap:6px;margin-bottom:6px;flex-wrap:wrap">' +
+          '<span class="badge badge--brand">' + PF.esc(r.rtype_label || "") + "</span>" +
+          PF.statusBadge(r.status_text || "") +
+          (r.pending > 0 ? '<span class="badge badge--warn">' + r.pending + " 条待处理</span>" : "") +
+        "</div>" +
+        '<div class="res-card__title">' + PF.esc(r.title || "") + "</div>" +
+        '<div class="row" style="gap:6px;margin-top:7px;flex-wrap:wrap">' +
+          PF.arr(r.tags).map(function (t) { return '<span class="chip">' + PF.esc(t) + "</span>"; }).join("") +
+          (r.deadline ? '<span class="t-xs t-dim">截止 ' + PF.esc(PF.date(r.deadline)) + "</span>" : "") +
+        "</div>" +
+      "</div>" +
+      '<div class="res-card__body">' +
+        (r.detail
+          ? '<p class="t-sm" style="line-height:1.75;color:var(--ink-700)">' +
+            PF.esc(PF.trunc(r.detail, 160)) + "</p>" : "") +
+        '<div class="res-stat mt-3">' +
+          "<span>申请 <b>" + PF.num(r.applied, 0) + "</b></span>" +
+          "<span>待处理 <b>" + PF.num(r.pending, 0) + "</b></span>" +
+          "<span>已通过 <b>" + PF.num(r.accepted, 0) + "</b></span>" +
+          (r.capacity ? "<span>名额 <b>" + PF.num(r.capacity, 0) + "</b></span>" : "") +
+        "</div>" +
+        (apps.length
+          ? '<div class="mt-3">' + apps.slice(0, 3).map(function (a) {
+              return '<div class="res-app">' +
+                '<div class="res-app__ava">' + PF.esc(PF.initial(a.student_name)) + "</div>" +
+                '<div class="flex-1">' +
+                  '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+                    '<span class="t-sm t-strong">' + PF.esc(a.student_name || a.student_username) + "</span>" +
+                    PF.statusBadge(a.status_text || "") +
+                  "</div>" +
+                  (a.message ? '<div class="t-xs mt-2">' + PF.esc(PF.trunc(a.message, 70)) + "</div>" : "") +
+                  (a.teacher_reply ? '<div class="t-xs t-dim mt-2">回复：' + PF.esc(PF.trunc(a.teacher_reply, 60)) + "</div>" : "") +
+                "</div>" +
+                (a.status === "pending"
+                  ? '<button class="btn btn--sm btn--primary" data-decide="' + a.id + '" data-res="' + r.id + '">处理</button>'
+                  : "") +
+              "</div>";
+            }).join("") +
+            (apps.length > 3 ? '<div class="t-xs t-dim mt-2">还有 ' + (apps.length - 3) + " 条，去「申请处理」查看</div>" : "") +
+            "</div>"
+          : '<div class="t-xs t-dim mt-3">还没有学生申请。</div>') +
+      "</div>" +
+      '<div class="res-card__foot">' +
+        '<button class="btn btn--sm" data-close="' + r.id + '">' +
+          PF.icon(r.status === "open" ? "x" : "play", 12) + (r.status === "open" ? "停止申请" : "重新开放") + "</button>" +
+        '<button class="btn btn--sm" data-edit="' + r.id + '">' + PF.icon("edit", 12) + "编辑</button>" +
+        '<div class="spacer"></div>' +
+        '<button class="btn btn--sm btn--danger" data-del="' + r.id + '">' + PF.icon("trash", 12) + "</button>" +
+      "</div>" +
+    "</div>";
+  }
+
+  function editResModal(r) {
+    if (!r) return;
+    PF.modal({
+      title: "编辑资源",
+      body:
+        '<div class="stack-sm">' +
+          '<label class="t-sm t-strong">资源名称</label>' +
+          '<input class="input" id="e-title" value="' + PF.esc(r.title || "") + '">' +
+          '<label class="t-sm t-strong mt-2">说明</label>' +
+          '<textarea class="input" id="e-detail" rows="4">' + PF.esc(r.detail || "") + "</textarea>" +
+          '<div class="form-2col mt-2">' +
+            "<div><label class=\"t-sm t-strong\">名额（0 表示不限）</label>" +
+              '<input class="input" type="number" id="e-capacity" min="0" value="' + PF.num(r.capacity, 0) + '"></div>' +
+            "<div><label class=\"t-sm t-strong\">截止时间</label>" +
+              '<input class="input" id="e-deadline" placeholder="2026-12-31 18:00" value="' +
+              PF.esc(r.deadline || "") + '"></div>' +
+          "</div>" +
+          '<label class="t-sm t-strong mt-2">标签（逗号分隔，最多 8 个）</label>' +
+          '<input class="input" id="e-tags" value="' + PF.esc(PF.arr(r.tags).join("，")) + '">' +
+        "</div>",
+      actions: [
+        { label: "取消" },
+        { label: "保存", type: "primary", onClick: async function () {
+            try {
+              await PF.post("/api/teacher/resources/" + r.id, {
+                title: PF.$("#e-title").value.trim(),
+                detail: PF.$("#e-detail").value.trim(),
+                tags: PF.$("#e-tags").value.split(/[,，]/).map(function (t) { return t.trim(); }).filter(Boolean),
+                capacity: Number(PF.$("#e-capacity").value) || 0,
+                deadline: PF.$("#e-deadline").value.trim(),
+              });
+              PF.toast("已保存", "ok");
+              RD = null;
+              tabs.reload();
+            } catch (e) { return true; }
+          } },
+      ],
+    });
+  }
+
+  /** 发布资源：表单搬进弹窗，替代原来的独立标签 —— 一页四个标签已经够多了。 */
+  async function publishModal() {
+    let d = {};
+    try { d = await loadRes(false); } catch (e) { /* 类型选项兜底 */ }
+    const rtypes = PF.arr(d.rtypes).length ? PF.arr(d.rtypes) : [
+      { value: "group", label: "课题组" }, { value: "contest", label: "比赛" },
+      { value: "internship", label: "实习" }, { value: "project", label: "项目" },
+    ];
+
+    PF.modal({
+      title: "发布资源",
+      body:
+        '<div class="stack-sm">' +
+          '<div class="form-2col">' +
+            "<div><label class=\"t-sm t-strong\">资源名称</label>" +
+              '<input class="input" id="n-title" placeholder="如：图神经网络课题组（招 3 人）"></div>' +
+            "<div><label class=\"t-sm t-strong\">资源类型</label>" +
+              '<select class="select" id="n-rtype">' +
+                rtypes.map(function (r) {
+                  return '<option value="' + PF.esc(r.value) + '">' + PF.esc(r.label) + "</option>";
+                }).join("") + "</select></div>" +
+          "</div>" +
+          '<label class="t-sm t-strong mt-2">说明</label>' +
+          '<textarea class="input" id="n-detail" rows="5" ' +
+            'placeholder="做什么、需要什么基础、时间投入、怎么联系你"></textarea>' +
+          '<div class="form-2col mt-2">' +
+            "<div><label class=\"t-sm t-strong\">名额（0 表示不限）</label>" +
+              '<input class="input" type="number" min="0" value="0" id="n-capacity"></div>' +
+            "<div><label class=\"t-sm t-strong\">截止时间</label>" +
+              '<input class="input" id="n-deadline" placeholder="2026-12-31 18:00"></div>' +
+          "</div>" +
+          '<label class="t-sm t-strong mt-2">标签（逗号分隔）</label>' +
+          '<input class="input" id="n-tags" placeholder="如：深度学习，可远程，有补贴">' +
+          '<div class="mt-3">' + PF.caveat(
+            "发布后学生能在「资源广场」看到并提交申请；通过后系统会按你的回复给该生建一条跟进任务。" +
+            "需要双向确认的长期队伍，请去「团队管理」里建。") + "</div>" +
+        "</div>",
+      actions: [
+        { label: "取消" },
+        { label: "发布", type: "primary", onClick: async function () {
+            const title = PF.$("#n-title").value.trim();
+            if (!title) { PF.toast("请填写资源名称", "warn"); return true; }
+            try {
+              await PF.post("/api/teacher/resources", {
+                rtype: PF.$("#n-rtype").value,
+                title: title,
+                detail: PF.$("#n-detail").value.trim(),
+                capacity: Number(PF.$("#n-capacity").value) || 0,
+                deadline: PF.$("#n-deadline").value.trim(),
+                tags: PF.$("#n-tags").value.split(/[,，]/).map(function (t) { return t.trim(); }).filter(Boolean),
+              });
+              PF.toast("资源已发布", "ok");
+              RD = null;
+              tabs.go("res");
+            } catch (e) { return true; }
+          } },
+      ],
+    });
+  }
+
+  /* ---- 标签四：申请处理 ---- */
+  function decideModal(app) {
+    if (!app) return;
+    PF.modal({
+      title: "处理申请",
+      width: "narrow",
+      body:
+        '<div class="stack-sm">' +
+          '<div class="row" style="gap:8px">' +
+            '<span class="t-strong">' + PF.esc(app.student_name || app.student_username) + "</span>" +
+            (app.track ? PF.trackBadge(app.track) : "") +
+            (app.grade_level ? PF.levelTag(app.grade_level, true) : "") +
+          "</div>" +
+          '<div class="t-xs t-dim">申请：' + PF.esc(app.resource_title || "") + "</div>" +
+          (app.message
+            ? '<div class="t-sm" style="line-height:1.75;color:var(--ink-700)">学生留言：' +
+              PF.esc(app.message) + "</div>"
+            : '<div class="t-xs t-dim">学生没有留额外说明。</div>') +
+          '<label class="t-sm t-strong mt-2">回复（可留空）</label>' +
+          '<textarea class="input" id="d-reply" rows="3" placeholder="如：周五下午三点来实验室聊聊"></textarea>' +
+          '<div class="t-xs t-dim">通过后会自动给该生建一条跟进任务。</div>' +
+        "</div>",
+      actions: [
+        { label: "取消" },
+        { label: "婉拒", type: "danger", onClick: async function () { await sendDecide(app, "declined"); } },
+        { label: "通过", type: "primary", onClick: async function () { await sendDecide(app, "accepted"); } },
+      ],
+    });
+  }
+
+  async function sendDecide(app, action) {
+    const reply = (PF.$("#d-reply") && PF.$("#d-reply").value.trim()) || "";
+    try {
+      const d = await PF.post("/api/teacher/applications/" + app.id + "/decide", { action: action, reply: reply });
+      PF.toast(action === "accepted"
+        ? (d.task_created ? "已通过，并给该生建了跟进任务" : "已通过")
+        : "已婉拒", "ok");
+      RD = null;
+      tabs.reload();     // 卡片列表与申请表格都要跟着变，重跑当前标签最省事
+    } catch (e) { return true; }
+  }
+
+  async function renderApps(box) {
+    box.innerHTML = PF.loading("正在汇总学生申请");
+    let d;
+    try { d = await loadRes(true); } catch (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      return;
+    }
+
+    let FILTER = "pending";
+    const all = [];
+    PF.arr(d.resources).forEach(function (r) {
+      PF.arr(r.applications).forEach(function (a) {
+        all.push(Object.assign({}, a, { resource_title: r.title, rtype_label: r.rtype_label, resource_id: r.id }));
+      });
+    });
+    all.sort(function (a, b) {
+      const rank = { pending: 0, accepted: 1, declined: 2 };
+      return (rank[a.status] || 3) - (rank[b.status] || 3) || (b.id - a.id);
+    });
+
+    const pendingCount = all.filter(function (a) { return a.status === "pending"; }).length;
+
+    box.innerHTML =
+      '<div class="card"><div class="card__head">' +
+        "<h3>" + PF.icon("clipboard", 15) + " 学生申请</h3>" +
+        '<div class="card__head-actions">' +
+          '<button class="btn btn--sm" data-f="pending">待处理 ' + pendingCount + "</button>" +
+          '<button class="btn btn--sm" data-f="all">全部 ' + all.length + "</button>" +
+        "</div>" +
+      "</div>" +
+      '<div class="card__body card__body--flush" id="apps-body"></div>' +
+      '<div class="card__foot"><span class="t-xs t-dim">' +
+        "「通过」会自动给该生建一条跟进任务（类型为资源跟进），学生能在「我的画像 → 我的任务」里看到。" +
+      "</span></div></div>";
+
+    function paint() {
+      const rows = FILTER === "all" ? all : all.filter(function (a) { return a.status === "pending"; });
+      PF.$("#apps-body", box).innerHTML = PF.table([
+        { key: "student_name", label: "学生", render: function (a) {
+            return '<div class="t-strong">' + PF.esc(a.student_name || a.student_username) + "</div>" +
+              '<div class="t-xs t-dim">' + PF.esc(a.student_username || "") +
+              (a.class_name ? " · " + PF.esc(a.class_name) : "") + "</div>";
+          } },
+        { key: "profile", label: "画像", render: function (a) {
+            return '<div class="row" style="gap:5px">' +
+              (a.track ? PF.trackBadge(a.track) : "") +
+              (a.grade_level ? PF.levelTag(a.grade_level, true) : "") +
+              (a.gpa !== null && a.gpa !== undefined ? '<span class="t-xs">绩点 ' + PF.num(a.gpa, 2) + "</span>" : "") +
+              "</div>";
+          } },
+        { key: "resource_title", label: "申请的资源", render: function (a) {
+            return '<span class="badge badge--brand">' + PF.esc(a.rtype_label || "") + "</span> " +
+              '<span class="t-sm">' + PF.esc(PF.trunc(a.resource_title, 22)) + "</span>";
+          } },
+        { key: "message", label: "留言", render: function (a) {
+            return a.message
+              ? '<span class="t-sm">' + PF.esc(PF.trunc(a.message, 40)) + "</span>"
+              : '<span class="t-dim t-sm">—</span>';
+          } },
+        { key: "status_text", label: "状态", render: function (a) {
+            return PF.statusBadge(a.status_text || "") +
+              (a.teacher_reply ? '<div class="t-xs t-dim mt-2">' + PF.esc(PF.trunc(a.teacher_reply, 30)) + "</div>" : "");
+          } },
+        { key: "ops", label: "操作", cls: "nowrap", render: function (a) {
+            if (a.status !== "pending") return '<span class="t-dim t-xs">已处理</span>';
+            return '<div class="row" style="gap:6px">' +
+              '<button class="btn btn--sm btn--primary" data-ok="' + a.id + '">通过</button>' +
+              '<button class="btn btn--sm" data-no="' + a.id + '">婉拒</button></div>';
+          } },
+      ], rows, {
+        empty: {
+          icon: FILTER === "pending" ? "check" : "clipboard",
+          title: FILTER === "pending" ? "没有待处理的申请" : "还没有任何申请",
+          desc: "学生提交申请后会出现在这里。已通过会自动给该生建跟进任务。",
+        },
+      });
+
+      PF.$$("[data-ok], [data-no]", box).forEach(function (b) {
+        b.addEventListener("click", function () {
+          const id = Number(b.dataset.ok || b.dataset.no);
+          const app = all.filter(function (a) { return a.id === id; })[0];
+          decideModal(app);
+        });
+      });
+    }
+
+    PF.$$("[data-f]", box).forEach(function (b) {
+      b.addEventListener("click", function () { FILTER = b.dataset.f; paint(); });
+    });
+    paint();
   }
 
   /* ============================================================ 学生侧 */
@@ -703,7 +1113,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 
   /* ============================================================ 刷新 */
   const rf = PF.$("#btn-refresh");
-  if (rf) rf.addEventListener("click", function () { TD = null; SD = null; tabs.reload(); });
+  if (rf) rf.addEventListener("click", function () { TD = null; SD = null; RD = null; tabs.reload(); });
   const ng = PF.$("#btn-new-group");
   if (ng) ng.addEventListener("click", function () { newGroupModal(); });
 })();

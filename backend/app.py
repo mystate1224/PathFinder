@@ -210,7 +210,6 @@ PAGES: list[tuple[str, str, str]] = [
     ("/match", "match.html", ""),
     ("/teach", "teach.html", "teacher"),
     ("/tutor", "tutor.html", "teacher"),
-    ("/resources", "resources.html", "teacher"),
     ("/grade", "grade.html", "teacher"),
     ("/profile", "profile.html", ""),
 ]
@@ -236,6 +235,18 @@ def _make_page_route(filename: str, role: str, path: str):
 
 for _path, _filename, _role in PAGES:
     app.get(_path, include_in_schema=False)(_make_page_route(_filename, _role, _path))
+
+
+@app.get("/resources", include_in_schema=False)
+def page_resources_legacy(request: Request):
+    """旧入口：2026-09-21 起「资源管理」已并入「师生匹配」/match，这里只把老链接送过去。
+
+    学生的资源广场一直是 /hub，所以学生身份进来直接落到 /hub，别送进教师页。
+    """
+    user = current_user_optional(request)
+    if user and user.get("role") != "teacher":
+        return RedirectResponse("/hub")
+    return RedirectResponse("/match#/tab=res")
 
 
 @app.get("/login", include_in_schema=False)

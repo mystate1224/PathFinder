@@ -1287,12 +1287,12 @@
       return '<div class="dm-sub dm-sub--ok">' + PF.icon("check", 12) +
         " 已提交 " + name + " 的申请 → 等待 " + PF.esc(r.teacher_name || "该教师") +
         " 处理" + (r.capacity ? "（名额 " + PF.esc(r.capacity) + " 人）" : "") +
-        "。去 <a href=\"/resources\">资源广场</a> 看进度。</div>";
+        "。去 <a href=\"/hub\">资源广场</a> 看进度。</div>";
     }
     if (st.state === "dup") {
       return '<div class="dm-sub dm-sub--ok">' + PF.icon("info", 12) +
         " " + name + "你已经申请过了（" + PF.esc(st.status_text || st.status || "已提交") +
-        "），不用重复提交。去 <a href=\"/resources\">资源广场</a> 看进度。</div>";
+        "），不用重复提交。去 <a href=\"/hub\">资源广场</a> 看进度。</div>";
     }
     if (st.state === "miss") {
       return '<div class="dm-sub">' + PF.icon("info", 12) +
@@ -1301,7 +1301,7 @@
     }
     return '<div class="dm-sub">' + PF.icon("info", 12) +
       " 申请没能提交成功（可能名额已满或已截止），你可以直接到 " +
-      '<a href="/resources">资源广场</a> 里找老师沟通。</div>';
+      '<a href="/hub">资源广场</a> 里找老师沟通。</div>';
   };
 
   /** 真提交一份申请：按标题在资源广场里定位，再 POST /api/resources/{id}/apply。
@@ -1989,7 +1989,7 @@
     html += '<div class="dm-note">' + PF.icon("link", 13) +
       "<div><b>批完之后：</b>学生那边「我的申请」会立刻变成已通过/已婉拒，并带上你写的回复；" +
       "通过的话还会顺手给他建一条跟进任务（" +
-      '<a href="/resources">资源管理</a> 里能看到同一份名单）。</div></div>';
+      '<a href="/match#/tab=res">师生匹配 → 资源管理</a> 里能看到同一份名单）。</div></div>';
     html += PF.demoGuides({ key: "review", guides: PF.teacherGuidesOf("review") }, "teacher");
     return html;
   };
@@ -3381,7 +3381,6 @@
       ]},
       { group: "事务", items: [
         { key: "homework", href: "/homework", label: "作业管理", icon: "file" },
-        { key: "resources", href: "/resources", label: "资源管理", icon: "folder" },
         { key: "match", href: "/match", label: "师生匹配", icon: "users" },
         { key: "library", href: "/library", label: "资料与知识库", icon: "layers" },
       ]},

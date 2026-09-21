@@ -540,7 +540,7 @@ def test_teacher(c: Client) -> None:
     c.check("页面可达（教师）", lambda: (
         lambda pages: "、".join(pages)
     )([f"{p}={c.page(p)[0]}" for p in
-       ["/teacher", "/teach", "/grade", "/tutor", "/resources", "/match", "/library", "/homework"]]))
+       ["/teacher", "/teach", "/grade", "/tutor", "/match", "/library", "/homework"]]))
 
 
 def test_student(c: Client) -> None:
