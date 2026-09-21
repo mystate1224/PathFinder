@@ -373,11 +373,13 @@ body::after {
 .sidebar__mark {
   width: 32px; height: 32px; flex: 0 0 32px;
   border-radius: 10px;
-  /* v7：500 → 700，块面更实（白字对两档分别是 5.36 / 7.63 ✅） */
-  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+  /* v7.6：白底为主、蓝色为辅 —— 品牌块由蓝底白罗盘反转为白底蓝罗盘，
+     白色块面靠 1px 淡蓝描边 + 淡蓝投影在白色侧栏上立住轮廓。 */
+  background: linear-gradient(150deg, #ffffff 55%, #eef1ff 100%);
+  border: 1px solid var(--brand-200);
   display: grid; place-items: center;
-  box-shadow: 0 4px 12px rgba(67, 83, 255, .30), var(--sh-inset);
-  color: #fff;
+  box-shadow: 0 4px 12px rgba(67, 83, 255, .16), var(--sh-inset);
+  color: var(--brand-600);
 }
 .sidebar__mark svg { width: 18px; height: 18px; }
 .sidebar__name { font-size: 15px; font-weight: 700; color: var(--ink-950); letter-spacing: .01em; }
@@ -1490,13 +1492,14 @@ body::after {
 }
 .auth__inner { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100%; }
 .auth__brand { display: flex; align-items: center; gap: 12px; margin-bottom: auto; }
-/* 品牌块在深底上换成荧光黄绿实底 + 深蓝图标：这是登录页唯一的"亮块"，
-   黄绿对 #25308a 图标对比 8.6 ✅ */
+/* 品牌块在深底上同样白底为主、蓝色为辅（v7.6 起不再用荧光黄绿亮块）：
+   深蓝底上白块对比极强，罗盘用 brand-300（#acb3ff）在白底上清晰可辨。 */
 .auth__brand .sidebar__mark {
   width: 38px; height: 38px; flex-basis: 38px; border-radius: 12px;
-  background: linear-gradient(135deg, #d6f94b 0%, #bbdb48 100%);
-  color: var(--brand-900);
-  box-shadow: 0 4px 14px rgba(214, 249, 75, .28);
+  background: linear-gradient(150deg, #ffffff 55%, #eef1ff 100%);
+  border-color: var(--brand-300);
+  color: var(--brand-600);
+  box-shadow: 0 4px 14px rgba(255, 255, 255, .18);
 }
 .auth__brand .sidebar__name { color: #fff; }
 .auth__brand .sidebar__sub { color: rgba(255, 255, 255, .62); }
@@ -2151,7 +2154,9 @@ html[data-theme="dark"] .nav-glider {
 }
 html[data-theme="dark"] .nav-item__tag { background: rgba(125, 135, 255, .18); }
 html[data-theme="dark"] .sidebar__user { background: rgba(255, 255, 255, .05); }
-html[data-theme="dark"] .sidebar__mark,
+/* v7.6：品牌块改为白底蓝罗盘后不再随暗色反转 —— 白块是 logo 的"主色"，
+   暗侧栏上反而更醒目；罗盘保持蓝色，与浅色模式一致。 */
+html[data-theme="dark"] .sidebar__mark { color: var(--brand-400); }
 html[data-theme="dark"] .sidebar__avatar,
 html[data-theme="dark"] .msg--ai .msg__avatar,
 html[data-theme="dark"] .empty__ico { color: #0b1626; }
