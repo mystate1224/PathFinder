@@ -51,14 +51,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     runDemo(k);
   });
 
-  const SKILLS_FALLBACK = [
-    { value: "student", label: "查学生", hint: "看看 stu03 的成绩如何" },
-    { value: "lesson", label: "备课", hint: "帮我备一节注意力机制（拓展型）" },
-    { value: "explain", label: "讲知识点", hint: "讲一下反向传播，要能直接上课用" },
-    { value: "grading", label: "批改标准", hint: "这份作业怎么给分？给一份评分标准" },
-  ];
-  let SKILLS = SKILLS_FALLBACK;
-
   view.innerHTML =
     '<div class="qa-shell" id="qa-shell">' +
       '<div class="qa-dock">' +
@@ -87,19 +79,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div>" +
       '<div class="qa-side">' +
         '<div id="agent-card"></div>' +
-        '<div class="card mt-4"><div class="card__head"><h3>智能体工具</h3></div>' +
-          '<div class="card__body" id="tools"></div>' +
-          '<div class="card__foot">' + PF.caveat(
-            "上传的资料会解析、抽知识点并进入检索索引；生成的教案要点/练习题会标注依据了哪几份资料，可直接带到备课助手里用。") +
-          "</div>" +
-        "</div>" +
-        '<div class="card mt-4"><div class="card__head"><h3>它能做什么</h3></div>' +
-          '<div class="card__body stack-sm" id="skills"></div>' +
-          '<div class="card__foot">' + PF.caveat(
-            "每一条就是它能做的一件事，下面那行小字是一句能直接用的说法 —— 点一下填进输入框，改改再发。" +
-            "它按固定流程工作：判断你想做什么 → 取数据或查资料 → 给出可直接用的结果，不会自己去做你没让它做的事。" ) +
-          "</div>" +
-        "</div>" +
       "</div>" +
     "</div>";
 
@@ -113,7 +92,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   const API_BASE = "/api/teacher/copilot";
   let ROUNDS = [];
   let CURRENT = -1;
-  let LOCKED = "";
 
   function groupRounds(msgs) {
     const out = [];
@@ -350,27 +328,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     });
   }
 
-  /* ---------------------------------------------------------- 侧栏：它能做什么
-     一卡两用：主行是能力名，次行是一句能直接用的说法，点一下填进输入框。
-     （v7.10：原来下面还有一张「可以这样说」的示例卡，和这里内容重复，已合并进来。） */
-  function paintSkills() {
-    PF.$("#skills").innerHTML = PF.arr(SKILLS).map(function (s) {
-      return '<button class="btn btn--sm skill-chip" data-skill="' + PF.esc(s.value) + '">' +
-        "<span>" + PF.icon("target", 12) + " " + PF.esc(s.label) + "</span>" +
-        '<span class="t-xs t-dim" style="font-weight:400">' + PF.esc(s.hint || "") + "</span></button>";
-    }).join("");
-    PF.$$("[data-skill]", PF.$("#skills")).forEach(function (b) {
-      b.addEventListener("click", function () {
-        const s = PF.arr(SKILLS).filter(function (x) { return x.value === b.dataset.skill; })[0] || {};
-        PF.$("#c-input").value = s.hint || "";
-        PF.$("#c-skill-hint").textContent = "已锁定：" + (s.label || "");
-        LOCKED = b.dataset.skill;
-        PF.$("#c-input").focus();
-      });
-    });
-  }
-
-  /* ---------------------------------------------------------- 智能体简介卡 */
+  /* ---------------------------------------------------------- 智能体简介卡
+     右栏从 v7.12 起只留这一张：原来的「智能体工具」与「它能做什么」两张卡撤掉了
+     （上传资料走 /library、能力说明在简介卡的「能答 / 怎么答」里已经有了）。 */
   (async function loadAgentCard() {
     const m = await PF.try(function () { return PF.get("/api/manual", { quiet: true }); }, null);
     const a = (m && m.agents && m.agents.teacher) || {
@@ -553,16 +513,19 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         '<div class="msg__meta"><span class="t-xs t-strong">Copilot</span>' +
         '<span class="t-xs t-dim">正在判定你想做什么并组织结果…</span></div><span class="spin"></span></div></div>';
     input.value = "";
+    PF.$("#c-skill-hint").textContent = "已收到，正在判断你想做什么…";
     PF.busy(btn, true, "处理中");
     paintDock();
 
     try {
       const d = await PF.post(API_BASE + "/ask", {
-        question: q, skill: LOCKED,
+        question: q,                                   // skill 不传：让它自己判断你想做什么
         session_id: sess.current,                      // 不传后端新开一次；传了就续上
         strategy: PF.$("#c-rag").value || "auto",      // auto = 按问题自动选五种架构之一
       });
-      if (PF.arr(d.skills).length) { SKILLS = d.skills; paintSkills(); }
+      /* 后端会带回它能做的事（d.skills），右栏不再列卡片，这里只把识别到的能力
+         在输入框上方提示一下，让人知道这一轮它按什么理解去做的。 */
+      if (d.intent_label) PF.$("#c-skill-hint").textContent = "已按「" + d.intent_label + "」处理";
       ROUNDS[CURRENT] = {
         q: q, a: d.answer, refs: (d.data || {}).refs || [], data: d.data || {},
         intent: d.intent, intent_label: d.intent_label, engine: d.engine,
@@ -576,8 +539,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       paintRound(CURRENT);
     } finally {
       PF.busy(btn, false);
-      PF.$("#c-skill-hint").textContent = "直接说你想做什么就行";
-      LOCKED = "";
     }
   }
 
@@ -592,17 +553,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     }
     paintRound(CURRENT);
   }
-
-  /* ---------------------------------------------------------- 智能体工具 */
-  PF.agentTools({
-    el: PF.$("#tools"),
-    onInsert: function (_md, r) {
-      const input = PF.$("#c-input");
-      input.value = "帮我基于《" + (r.title || "生成的资料") + "》备一节课";
-      input.focus();
-    },
-    onDone: function () { sess.refresh(); },
-  });
 
   PF.$("#btn-send").addEventListener("click", send);
   PF.$("#c-input").addEventListener("keydown", function (e) {
@@ -624,7 +574,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     PF.toast("对话已清空", "ok");
   });
 
-  paintSkills();
   await sess.refresh();
   await loadHistory(sess.current);
 })();
