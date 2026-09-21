@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师 Copilot · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=23">
+<link rel="stylesheet" href="/static/css/style.css?v=24">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -59,13 +59,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   ];
   let SKILLS = SKILLS_FALLBACK;
 
-  const EXAMPLES = [
-    "帮我备一节注意力机制的课，拓展型",
-    "讲一下反向传播，要能直接上课用",
-    "看看 stu03 的成绩如何",
-    "这份作业怎么给分？给我一份评分标准",
-  ];
-
   view.innerHTML =
     '<div class="qa-shell" id="qa-shell">' +
       '<div class="qa-dock">' +
@@ -103,11 +96,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         '<div class="card mt-4"><div class="card__head"><h3>它能做什么</h3></div>' +
           '<div class="card__body stack-sm" id="skills"></div>' +
           '<div class="card__foot">' + PF.caveat(
-            "它按固定流程工作：判断你想做什么 → 取数据或查资料 → 给出可直接用的结果。不会自己去做你没让它做的事。" ) +
+            "每一条就是它能做的一件事，下面那行小字是一句能直接用的说法 —— 点一下填进输入框，改改再发。" +
+            "它按固定流程工作：判断你想做什么 → 取数据或查资料 → 给出可直接用的结果，不会自己去做你没让它做的事。" ) +
           "</div>" +
-        "</div>" +
-        '<div class="card mt-4"><div class="card__head"><h3>可以这样说</h3></div>' +
-          '<div class="card__body stack-sm" id="ex-row"></div>' +
         "</div>" +
       "</div>" +
     "</div>";
@@ -359,7 +350,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     });
   }
 
-  /* ---------------------------------------------------------- 侧栏：能力与示例 */
+  /* ---------------------------------------------------------- 侧栏：它能做什么
+     一卡两用：主行是能力名，次行是一句能直接用的说法，点一下填进输入框。
+     （v7.10：原来下面还有一张「可以这样说」的示例卡，和这里内容重复，已合并进来。） */
   function paintSkills() {
     PF.$("#skills").innerHTML = PF.arr(SKILLS).map(function (s) {
       return '<button class="btn btn--sm skill-chip" data-skill="' + PF.esc(s.value) + '">' +
@@ -376,18 +369,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       });
     });
   }
-
-  PF.$("#ex-row").innerHTML = EXAMPLES.map(function (q) {
-    return '<button class="btn btn--sm q-chip" data-ex="' + PF.esc(q) + '">' + PF.esc(PF.trunc(q, 30)) + "</button>";
-  }).join("");
-  PF.$$("[data-ex]", PF.$("#ex-row")).forEach(function (b) {
-    b.addEventListener("click", function () {
-      PF.$("#c-input").value = b.dataset.ex;
-      LOCKED = "";
-      PF.$("#c-skill-hint").textContent = "直接说你想做什么就行";
-      send();
-    });
-  });
 
   /* ---------------------------------------------------------- 智能体简介卡 */
   (async function loadAgentCard() {

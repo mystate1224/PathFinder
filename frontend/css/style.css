@@ -304,16 +304,15 @@ hr { border: none; border-top: 1px solid var(--border); margin: var(--s-5) 0; }
 /* 极淡的三色光晕 + 微弱网格。都挂在 fixed 伪元素上：
    用 GPU 合成层，滚动时不触发重绘，也不会随页面长度拉伸。
    v4：浅蓝 / 浅青 / 浅紫以 5%～12% 透明度柔和叠加，营造空气感。 */
-/* v7：三团光晕整体提浓（.10 → .18 这一档），并补一块明确的黄绿圆斑。
-   上一版 .07～.10 在 #f6f9ff 上几乎读不出颜色，所以"白"得没有骨架；
-   提浓后仍不到 20%，正文区的白底深字不受影响。 */
+/* v7：光晕整体提浓（.10 → .18 这一档），让浅底有骨架。
+   v7.10：去掉右下角那两团黄绿（46rem @ 72% 106% 与 9rem @ 94% 94%）。
+   黄绿在浅底上是一块明确的"脏黄斑"，比蓝/青抢眼得多，压不住；
+   现在只留左上宝蓝 + 右上青绿，正文区仍是干净的白底深字。 */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
     radial-gradient(44rem 30rem at 6% -8%, rgba(67, 83, 255, .18), transparent 60%),
-    radial-gradient(34rem 26rem at 98% 2%, rgba(23, 201, 168, .15), transparent 58%),
-    radial-gradient(46rem 32rem at 72% 106%, rgba(214, 249, 75, .22), transparent 60%),
-    radial-gradient(9rem 9rem at 94% 94%, rgba(214, 249, 75, .50), rgba(214, 249, 75, 0) 70%);
+    radial-gradient(34rem 26rem at 98% 2%, rgba(23, 201, 168, .15), transparent 58%);
 }
 body::after {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
@@ -1473,14 +1472,8 @@ body::after {
   overflow: hidden;
   border-right: 1px solid var(--border);
 }
-/* 右下角一块荧光黄绿圆斑 + 右上角一小块青绿，给实底海报留两处"透气口"。
-   黄绿对深蓝底是 8+ ✅，但这里只作装饰，不放任何文字。 */
-.auth__art::after {
-  content: "";
-  position: absolute; right: -140px; bottom: -160px;
-  width: 460px; height: 460px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(214, 249, 75, .34), transparent 68%);
-}
+/* v7.10：右下角这块荧光黄绿圆斑已去掉（与主体界面同一轮调整：不要黄色光晕）。
+   海报的"透气口"交给 .auth__art 自带的右下青绿（96% 92%）和右上亮蓝，够用了。 */
 /* 网格线在深底上必须反相成白线，否则整片网格会消失 */
 .auth__grid-lines {
   position: absolute; inset: 0;
@@ -2121,9 +2114,7 @@ html[data-theme="dark"] {
 html[data-theme="dark"] body::before {
   background:
     radial-gradient(44rem 30rem at 6% -8%, rgba(125, 135, 255, .20), transparent 60%),
-    radial-gradient(34rem 26rem at 98% 2%, rgba(45, 212, 191, .13), transparent 58%),
-    radial-gradient(46rem 32rem at 72% 106%, rgba(214, 249, 75, .10), transparent 60%),
-    radial-gradient(9rem 9rem at 94% 94%, rgba(214, 249, 75, .14), rgba(214, 249, 75, 0) 70%);
+    radial-gradient(34rem 26rem at 98% 2%, rgba(45, 212, 191, .13), transparent 58%);
 }
 html[data-theme="dark"] body::after {
   background-image: radial-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px);
@@ -2209,9 +2200,6 @@ html[data-theme="dark"] .auth__art {
     radial-gradient(90% 70% at 8% 4%, rgba(67, 83, 255, .48) 0%, rgba(67, 83, 255, 0) 60%),
     radial-gradient(60% 50% at 96% 92%, rgba(23, 201, 168, .26) 0%, rgba(23, 201, 168, 0) 62%),
     linear-gradient(155deg, #1b2350 0%, #101a3d 52%, #070d1f 100%);
-}
-html[data-theme="dark"] .auth__art::after {
-  background: radial-gradient(circle, rgba(214, 249, 75, .20), transparent 68%);
 }
 /* 右半屏的黄绿光在暗底上会发脏，换成品牌蓝的淡光 */
 html[data-theme="dark"] .auth__panel::before {
