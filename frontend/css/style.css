@@ -1524,8 +1524,11 @@ body::after {
 .auth__foot { animation-delay: 170ms; }
 .auth__form { animation-delay: 70ms; }
 
-/* 右半屏保持纯白，只在右上角压一团极淡的黄绿光 ——
-   与左栏的海报呼应，又不干扰表单阅读。 */
+/* 右半屏保持纯白。
+   v7.11：右上角原来那团黄绿是整页唯一的黄，孤立一个圆斑、又容易读成"脏"，
+   换成"宝蓝大团 + 青绿小团 + 左下极淡蓝"的三层柔光：尺寸、透明度、位置都错开，
+   背景有了层次而不是一个突兀的色块；右下角再点一层点阵，与左栏海报的网格线呼应。
+   仍然严守"不上大色块"：最浓的一团也只有 .16，正文区依旧是干净的白底深字。 */
 .auth__panel {
   position: relative; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
@@ -1533,10 +1536,20 @@ body::after {
 }
 .auth__panel::before {
   content: "";
-  position: absolute; right: -100px; top: -110px;
-  width: 300px; height: 300px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(214, 249, 75, .38), transparent 70%);
-  pointer-events: none;
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(30rem 24rem at 100% -8%, rgba(67, 83, 255, .16), transparent 60%),
+    radial-gradient(17rem 15rem at 92% 5%, rgba(23, 201, 168, .12), transparent 66%),
+    radial-gradient(26rem 22rem at 2% 104%, rgba(67, 83, 255, .07), transparent 62%);
+}
+/* 点阵只出现在右下角一小片，1px 圆点 + 22px 间距，远看是底纹不是噪点 */
+.auth__panel::after {
+  content: "";
+  position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(circle, rgba(15, 23, 42, .10) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse at 88% 96%, #000 6%, transparent 56%);
+  mask-image: radial-gradient(ellipse at 88% 96%, #000 6%, transparent 56%);
 }
 .auth__form { width: min(400px, 100%); position: relative; z-index: 1; }
 .auth__title { font-size: 24px; font-weight: 750; color: var(--ink-950); letter-spacing: -.01em; }
@@ -1565,7 +1578,12 @@ body::after {
   70% { transform: translateX(-2px); }
 }
 
-.demo-accounts { margin-top: 22px; }
+/* v7.11：表单与演示账号之间加一道虚线分隔。两块内容职责不同（登录 / 一键体验），
+   不分开的话整栏读下来是连着的一坨，没有节奏。 */
+.demo-accounts {
+  margin-top: 22px; padding-top: 18px;
+  border-top: 1px dashed var(--border-strong);
+}
 .demo-accounts__title { font-size: var(--fs-xs); font-weight: 650; color: var(--ink-500); letter-spacing: .04em; margin-bottom: 9px; }
 .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 /* v7：演示账号卡左缘一道品牌竖条，hover 时整块浮起并换成品牌描边。
@@ -2201,9 +2219,15 @@ html[data-theme="dark"] .auth__art {
     radial-gradient(60% 50% at 96% 92%, rgba(23, 201, 168, .26) 0%, rgba(23, 201, 168, 0) 62%),
     linear-gradient(155deg, #1b2350 0%, #101a3d 52%, #070d1f 100%);
 }
-/* 右半屏的黄绿光在暗底上会发脏，换成品牌蓝的淡光 */
+/* 右半屏的三层柔光在暗底上换成冷色版本，点阵也要反相成白点 */
 html[data-theme="dark"] .auth__panel::before {
-  background: radial-gradient(circle, rgba(125, 135, 255, .22), transparent 70%);
+  background:
+    radial-gradient(30rem 24rem at 100% -8%, rgba(90, 104, 255, .20), transparent 60%),
+    radial-gradient(17rem 15rem at 92% 5%, rgba(45, 212, 191, .13), transparent 66%),
+    radial-gradient(26rem 22rem at 2% 104%, rgba(67, 83, 255, .10), transparent 62%);
+}
+html[data-theme="dark"] .auth__panel::after {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, .08) 1px, transparent 1px);
 }
 html[data-theme="dark"] .auth__grid-lines {
   background-image: linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
