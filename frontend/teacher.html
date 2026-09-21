@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教师驾驶舱 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=25">
+<link rel="stylesheet" href="/static/css/style.css?v=26">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -137,8 +137,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
      @param opt.leadUnit 主角自己的后缀，例如层次分布里要显示 "A 层"
      @param opt.tips     { 类别: 建议句子 }，说明文字会追加主导类别的建议
      @param opt.tieTip   并列第一时的建议句子
-     @param opt.interests [{name, count}]，班级兴趣方向（带人数），追加兴趣分析句 */
-  function distTiles(title, dist, colorMap, opt) {
+     @param opt.interests [{name, count}]，班级兴趣方向（带人数），追加兴趣分析句
+     v7.13：不再给每个类别注入颜色（原先学业型青绿 / 事业型琥珀 / A 绿 B 蓝 C 橙），
+     六种彩色挤在一屏里反而读不出重点；配色统一交给 CSS，只由 .tile--lead 标出主导类。 */
+  function distTiles(title, dist, opt) {
     const o = opt || {};
     const cross = o.cross || null;
     const subUnit = o.subUnit || "";
@@ -202,8 +204,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       // 先拼好 class 字符串再进模板：check_frontend 会扫 class="..." 里的碎片
       const tileCls = "tile" + (!tie && key === lead ? " tile--lead" : "");
       const mini = miniOf(key);
-      return '<div class="' + tileCls + '" style="--tile-color:' +
-        (colorMap[key] || "var(--ink-300)") + '">' +
+      return '<div class="' + tileCls + '">' +
         '<div class="tile__name">' + PF.esc(key) + "</div>" +
         '<div class="tile__num">' + (dist[key] || 0) + "</div>" +
         '<div class="tile__pct">' + PF.pct(dist[key], total || 1) + "% · " + (dist[key] || 0) + " 人</div>" +
@@ -224,8 +225,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     loadOverview().then((d) => {
       const s = d.stats || {};
       const ld = s.level_dist || {};
-      const trackColors = { "学业型": "var(--track-academic-500)", "事业型": "var(--track-career-500)" };
-      const levelColors = { A: "var(--level-a-500)", B: "var(--level-b-500)", C: "var(--level-c-500)" };
 
       // 交叉分布：stats.track_level 是「主标签 → 层次」，这里再转一份「层次 → 主标签」
       const tl = s.track_level || {};
@@ -252,7 +251,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       box.innerHTML =
         statsRow(d) +
         '<div class="grid grid-2 mt-5" style="gap:16px">' +
-          distTiles("主标签分布", s.track_dist || {}, trackColors,
+          distTiles("主标签分布", s.track_dist || {},
                     { cross: tl, subUnit: " 层", footHint: "学业型 / 事业型",
                       interests: interestDist,
                       tips: {
@@ -260,7 +259,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
                         "事业型": "本班以事业型为主，建议多给工程实践方面的帮助——真实场景项目、可交付小作品、简历与面试辅导。"
                       },
                       tieTip: "建议科研与就业两类资源并重，两条路线的任务都备一份。" }) +
-          distTiles("学业层次分布", ld, levelColors,
+          distTiles("学业层次分布", ld,
                     { cross: levelTrack, leadUnit: " 层", footHint: "A / B / C 仅表示推荐内容深度",
                       tips: {
                         A: "A 层同学消化得快，推荐内容与任务难度可以放得更深，多做拔高拓展。",

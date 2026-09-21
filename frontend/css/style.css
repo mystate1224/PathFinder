@@ -707,7 +707,9 @@ body::after {
 .bar-row .t-dim { text-align: right; font-family: var(--font-mono); }
 
 /* 方框分布：人多的那一类占两列（.tile--lead），方格里印交叉构成，下面一句话说明 + 建议。
-   颜色由内联的 --tile-color 注入，深浅两套主题都靠它取色。 */
+   v7.13：格子不再按类别上色（原先学业型青绿 / 事业型琥珀 / A 绿 B 蓝 C 橙，一屏六种彩色
+   反而读不出重点）。全部走中性墨色：顶部细条淡灰、数字深墨；只有"人多的那一类"
+   用品牌宝蓝点出来——重点仍然一眼可见，整块不再花。深浅两套主题都靠 ink/brand 色阶翻转。 */
 .tiles { display: grid; gap: 8px; }
 .tile {
   position: relative; overflow: hidden;
@@ -721,24 +723,24 @@ body::after {
 }
 .tile::before {
   content: ""; position: absolute; inset: 0 0 auto; height: 3px;
-  background: var(--tile-color, var(--ink-300));
+  background: var(--ink-400);
 }
 .tile:hover { transform: translateY(-1px); box-shadow: var(--sh-1); }
 .tile--lead {
   grid-column: span 2; /* 网格是 n+1 列，主导方格占两列，剩余类别各占一列，正好铺满不留空 */
-  border-color: var(--tile-color, var(--brand-500));
+  border-color: var(--brand-300);
   background: var(--surface);
   box-shadow: var(--sh-1);
 }
-.tile--lead::before { height: 4px; }
+.tile--lead::before { height: 4px; background: var(--brand-500); }
 .tile__name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-700); }
 .tile__num {
   margin-top: 3px;
   font-size: 22px; font-weight: 700; line-height: 1.1;
-  color: var(--tile-color, var(--ink-900));
+  color: var(--ink-800);
   font-variant-numeric: tabular-nums;
 }
-.tile--lead .tile__num { font-size: 28px; }
+.tile--lead .tile__num { font-size: 28px; color: var(--brand-600); }
 .tile__pct { margin-top: 2px; font-size: 11px; color: var(--ink-500); line-height: 1.45; }
 .tile__mini {
   margin-top: 5px; padding-top: 4px;
@@ -2300,6 +2302,8 @@ html[data-theme="dark"] .auth__grid-lines {
 }
 
 html[data-theme="dark"] .tile-note { color: var(--ink-700); }
+/* 主导格的描边在暗底上要提亮一档（brand-300 的深色版本压在深底上几乎看不见） */
+html[data-theme="dark"] .tile--lead { border-color: var(--brand-400); }
 
 /* ==========================================================================
    v2.4 系统性视觉打磨
