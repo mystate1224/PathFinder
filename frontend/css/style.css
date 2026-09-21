@@ -716,14 +716,19 @@ body::after {
 .dist-row__top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .dist-row__name { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-800); }
 .dist-row__num { font-size: var(--fs-xs); color: var(--ink-500); font-variant-numeric: tabular-nums; }
-.dist-row--lead .dist-row__name { color: var(--brand-600); }
-.dist-row--lead .dist-row__num { color: var(--ink-700); font-weight: 600; }
+/* 主导类要跳出来：名字放大到普通行的近两倍（13px → 24px），人数同步加粗打 H 那一档 */
+.dist-row--lead { padding: 9px 2px 9px; }
+.dist-row--lead .dist-row__name {
+  font-size: 24px; line-height: 1.3; letter-spacing: .01em;
+  color: var(--brand-600);
+}
+.dist-row--lead .dist-row__num { font-size: 15px; font-weight: 700; color: var(--ink-700); }
 .dist-row__mini { margin-top: 2px; font-size: 11px; color: var(--ink-500); line-height: 1.5; font-variant-numeric: tabular-nums; }
 .dist-row__tag {
-  margin-left: 6px; padding: 1px 7px; border-radius: var(--r-pill);
+  margin-left: 8px; padding: 3px 9px; border-radius: var(--r-pill);
   background: var(--brand-500); color: #fff;
-  font-size: 10px; font-style: normal; font-weight: 600; letter-spacing: .04em;
-  vertical-align: 1px;
+  font-size: 11.5px; font-style: normal; font-weight: 600; letter-spacing: .05em;
+  vertical-align: 3px;
 }
 .tile-note {
   margin: 0; padding: 8px 10px;
