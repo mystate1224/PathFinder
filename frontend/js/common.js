@@ -3509,8 +3509,8 @@
     student: [
       { group: "我的成长", items: [
         { key: "student", href: "/student", label: "我的画像", icon: "compass" },
-        { key: "ask", href: "/ask", label: "学生 Copilot", icon: "message" },
         { key: "match", href: "/match", label: "师生匹配", icon: "users" },
+        { key: "ask", href: "/ask", label: "学生 Copilot", icon: "message" },
       ]},
       { group: "学习事务", items: [
         { key: "homework", href: "/homework", label: "我的作业", icon: "file" },
