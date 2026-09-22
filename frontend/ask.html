@@ -441,14 +441,27 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     try {
       await PF.post(API_BASE + "/clear", { session_id: sid });
       ROUNDS = []; CURRENT = -1;
-      setStyle("", "");
+      await initStyle();
       await sess.refresh();
       paintRound(-1);
       PF.toast("对话已清空", "ok");
     } catch (e) { /* 已提示 */ }
   });
 
-  setStyle("", "");
+  /* 进页面先用画像把风格卡填上（之前初始全是「—」，看起来像没显示）；
+     提问一轮后会被回答带回的 layer/engine 覆盖。清空对话后也回到这个默认。 */
+  async function initStyle() {
+    const d = await PF.try(function () {
+      return PF.get("/api/student/profile", { quiet: true });
+    }, null);
+    const p = (d && d.profile) || {};
+    if (p.layer) {
+      setStyle(p.layer, "");
+      PF.$("#s-engine").innerHTML = '<span class="t-xs t-dim">提问后确定</span>';
+    }
+  }
+
+  initStyle();
   await sess.refresh();
   await loadHistory(sess.current);
 })();
