@@ -273,8 +273,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   function setStyle(layer, engine) {
     const parts = String(layer || "").split("·").map(function (s) { return s.trim(); });
     PF.$("#s-track").innerHTML = parts[0] ? PF.trackBadge(parts[0]) : "—";
-    PF.$("#s-level").innerHTML = parts[1] ? PF.levelTag(parts[1].replace("级", "").trim()) +
-      ' <span class="t-xs">' + PF.esc(parts[1]) + "</span>" : "—";
+    /* 学业层次只留层级徽章（绿色的 A/B/C），后面的「X 层」小字冗余，去掉（v7.23） */
+    PF.$("#s-level").innerHTML = parts[1] ? PF.levelTag(parts[1].replace("级", "").replace(/层$/, "").trim()) : "—";
     PF.$("#s-style").textContent = parts[2] || "—";
     PF.$("#s-engine").innerHTML = engine ? PF.engineBadge(engine) : "—";
     PF.$("#s-caveat").innerHTML = PF.caveat(META.caveats && META.caveats.layer
