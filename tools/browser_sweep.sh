@@ -58,7 +58,7 @@ echo
 echo "== 教师端 =="
 login_as teacher
 # /resources 已并入 /match（这里留着验证旧链接会跳过去），末尾再直接开一次资源标签
-sweep "/teacher /teach /tutor /resources /grade /match /library /homework /profile /match#/tab=res"
+sweep "/teacher /teach /tutor /resources /match /library /homework /homework#/tab=grade /profile /match#/tab=res"
 
 echo
 echo "== 学生端 =="

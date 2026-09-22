@@ -19,7 +19,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=19"></script>
+<script src="/static/js/common.js?v=20"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -243,8 +243,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         ? '<div class="t-xs t-dim">常见扣分点：' +
           PF.arr(data.deductions).map(function (x) { return PF.esc(x); }).join("；") + "</div>"
         : "") +
-      '<div class="row"><a class="btn btn--sm" href="/grade">' +
-        PF.icon("book", 12) + "去批改中心</a></div></div>";
+      '<div class="row"><a class="btn btn--sm" href="/homework#/tab=grade">' +
+        PF.icon("book", 12) + "去作业批改</a></div></div>";
   }
 
   function paintRound(i) {

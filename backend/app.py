@@ -209,7 +209,6 @@ PAGES: list[tuple[str, str, str]] = [
     ("/match", "match.html", ""),
     ("/teach", "teach.html", "teacher"),
     ("/tutor", "tutor.html", "teacher"),
-    ("/grade", "grade.html", "teacher"),
     ("/profile", "profile.html", ""),
 ]
 
@@ -240,6 +239,16 @@ for _path, _filename, _role in PAGES:
 def page_resources_legacy(request: Request):
     """旧入口：2026-09-21 起「资源管理」已并入「师生匹配」/match，这里只把老链接送过去。"""
     return RedirectResponse("/match#/tab=res")
+
+
+@app.get("/grade", include_in_schema=False)
+def page_grade_legacy(request: Request):
+    """旧入口：2026-09-22 起教师端「批改中心」并入「作业批改」/homework 的第三个标签，
+    侧边栏不再单列「批改中心」。老链接统一送到 /homework#/tab=grade。"""
+    user = current_user_optional(request)
+    if not user:
+        return RedirectResponse("/login?next=/homework")
+    return RedirectResponse("/homework#/tab=grade")
 
 
 @app.get("/hub", include_in_schema=False)

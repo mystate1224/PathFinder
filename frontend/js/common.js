@@ -1804,7 +1804,7 @@
       "<a href=\"/library?category=" + encodeURIComponent("课件") + "#/tab=mats\">资料与知识库 · 课件</a>" +
       "里直接打开放映，教案与作业在 " +
       "<a href=\"/library#/tab=mats\">资料列表</a>，作业在 " +
-      "<a href=\"/grade\">批改中心</a>。</div></div>";
+      "<a href=\"/homework#/tab=grade\">作业批改</a>。</div></div>";
     html += PF.demoGuides({ key: r.key || "prep", guides: PF.teacherGuidesOf("prep") }, "teacher");
     return html;
   };
@@ -3494,11 +3494,10 @@
       { group: "教学", items: [
         { key: "teacher", href: "/teacher", label: "驾驶舱", icon: "grid" },
         { key: "teach", href: "/teach", label: "备课助手", icon: "presentation" },
-        { key: "grade", href: "/grade", label: "批改中心", icon: "clipboard" },
+        { key: "homework", href: "/homework", label: "作业批改", icon: "clipboard" },
         { key: "tutor", href: "/tutor", label: "教师 Copilot", icon: "sparkles" },
       ]},
       { group: "事务", items: [
-        { key: "homework", href: "/homework", label: "作业管理", icon: "file" },
         { key: "match", href: "/match", label: "师生匹配", icon: "users" },
         { key: "library", href: "/library", label: "资料与知识库", icon: "layers" },
       ]},

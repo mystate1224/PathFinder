@@ -611,7 +611,7 @@ def suggest_text(text: str, course: str = "", topic: str = "",
                  full_score: float = 100.0, terms: Sequence[str] | None = None) -> dict:
     """试批：不依赖已布置的作业，直接对一段作答给建议分。
 
-    批改中心的「试批」入口用它 —— 演示时老师可以随手粘一段学生答案，
+    「作业批改 → 自由试批」入口用它 —— 演示时老师可以随手粘一段学生答案，
     看双引擎各自给出的分数与评语，不必先走一遍发布作业的流程。
     """
     if not str(text or "").strip():

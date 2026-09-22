@@ -20,7 +20,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=19"></script>
+<script src="/static/js/common.js?v=20"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -312,7 +312,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             PF.engineBadge(c.engine || "rule") +
             '<div class="spacer"></div>' +
             (matched
-              ? '<span class="mk-foot-note">已生成跟进任务，可在「作业管理」里看到该生的待办</span>'
+              ? '<span class="mk-foot-note">已生成跟进任务，可在「作业批改」里看到该生的待办</span>'
               : '<button class="btn btn--sm' + (c.teacher_action === "accepted" ? "" : " btn--primary") +
                   '" data-act="accepted" data-s="' + c.student_id + '">' + PF.icon("check", 12) + "同意</button>" +
                 '<button class="btn btn--sm' + (c.teacher_action === "declined" ? " btn--danger" : "") +

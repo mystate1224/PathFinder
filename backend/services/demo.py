@@ -814,7 +814,7 @@ def _execute(case: dict[str, Any]) -> dict[str, Any]:
         }
     if ability == "grade":
         # 批改建议分：图片用例直接读仓库自带素材的字节，文字用例读样本文件，
-        # 都走 homework 的真实实现（与批改中心同一条代码路径）。
+        # 都走 homework 的真实实现（与「作业批改 → 按作业批改」同一条代码路径）。
         from services import homework as hw
         if inp.get("image_sample"):
             sample = _sample_by_id(str(inp["image_sample"])) or {}

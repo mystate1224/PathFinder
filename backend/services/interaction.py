@@ -205,7 +205,7 @@ def actions_of(side: str, intent_type: str, refs: list[str] | None = None) -> li
                         "hint": "打开教师驾驶舱学生页（跳转 /teacher#/tab=students）"})
     if intent_type == "grading":
         acts.insert(0, {"type": "grade", "label": "按此标准批改",
-                        "hint": "打开批改中心按作业批改（跳转 /grade）"})
+                        "hint": "打开「作业批改 → 按作业批改」（跳转 /homework#/tab=grade）"})
     return acts[:3]
 
 

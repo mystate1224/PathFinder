@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>作业 · 寻径教育 PathFinder</title>
+<title>作业批改 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/css/style.css?v=34">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
@@ -15,11 +15,14 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 <style>
   .hw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(336px, 1fr)); gap: var(--s-4); }
   @media (max-width: 700px) { .hw-grid { grid-template-columns: minmax(0, 1fr); } }
+  /* 批改视图：左列作业、右列名单（原批改中心，v7.26 并入本页） */
+  .grad-wrap { display: grid; grid-template-columns: 268px minmax(0, 1fr); gap: var(--s-5); align-items: start; }
+  @media (max-width: 1080px) { .grad-wrap { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=19"></script>
+<script src="/static/js/common.js?v=20"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -29,32 +32,53 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   if (!me) return;
   const isTeacher = me.role === "teacher";
 
+  /** 批改视图要用的课程列表；学生端不需要，省一次请求。 */
+  const META = isTeacher
+    ? ((await PF.try(function () { return PF.get("/api/meta", { quiet: true }); }, {})) || {})
+    : {};
+  const COURSES = PF.arr(META.courses).length ? PF.arr(META.courses) : PF.arr(META.my_courses);
+
+  function hashTab() {
+    const m = /(?:^|&)tab=([^&]+)/.exec((location.hash || "").replace(/^#\/?/, ""));
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+
   const view = PF.shell({
     active: "homework",
     me: me,
-    title: isTeacher ? "作业管理" : "我的作业",
+    title: isTeacher ? "作业批改" : "我的作业",
     desc: isTeacher
-      ? "按教学班布置作业、跟踪提交与批改进度。批改在「批改中心」完成，AI 只给建议分，最终分由你确认。"
+      ? "布置 → 提交 → 批改 → 导出，一条链路都在这一页：按教学班布置、跟踪提交进度、逐份批改（AI 只给建议分，最终分由你确认），另有自由试批与批量试批（都不入库）。"
       : "本班老师布置的作业都在这里。提交后可以看到批改结果；重新提交会清空原分数，需要老师重批。",
     wide: true,
     actions: isTeacher
-      ? '<button class="btn btn--primary" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>" +
-        '<a class="btn" href="/grade">' + PF.icon("clipboard", 15) + "去批改中心</a>"
+      ? '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>" +
+        '<button class="btn" id="btn-demo">' + PF.icon("sparkles", 15) + "演示例子</button>"
       : '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>",
   });
+
+  if (PF.$("#btn-demo", view)) {
+    PF.$("#btn-demo", view).addEventListener("click", function () { PF.demo("grade"); });
+  }
 
   view.innerHTML = '<div id="tabs-host"></div>';
   const host = PF.$("#tabs-host", view);
 
+  /** 从「作业列表」点某份作业的「批改」时，先记下 id，切到批改标签后自动选中它。 */
+  let PENDING_HW = null;
+
   const tabs = PF.tabs(host, isTeacher
     ? [
         { key: "list", label: "作业列表", icon: "file", render: renderTeacherList },
-        { key: "new", label: "布置新作业", icon: "plus", render: renderTeacherNew },
+        { key: "new", label: "布置作业", icon: "plus", render: renderTeacherNew },
+        { key: "grade", label: "按作业批改", icon: "clipboard", render: renderByHomework },
+        { key: "try", label: "自由试批", icon: "edit", render: renderTry },
+        { key: "batch", label: "批量试批", icon: "layers", render: renderBatch },
       ]
     : [
         { key: "todo", label: "待完成", icon: "clock", render: function (b) { return renderStudent(b, "todo"); } },
         { key: "all", label: "全部作业", icon: "file", render: function (b) { return renderStudent(b, "all"); } },
-      ], { base: "#/", initial: isTeacher ? "list" : "todo" });
+      ], { base: "#/", initial: hashTab() || (isTeacher ? "list" : "todo") });
 
   /* ============================================================ 教师侧 */
   let TD = null;
@@ -127,7 +151,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           "</div>" +
         "</div>" +
         '<div class="hw-card__foot">' +
-          '<a class="btn btn--sm btn--primary" href="/grade">' + PF.icon("clipboard", 12) + "去批改</a>" +
+          '<button class="btn btn--sm btn--primary" data-grade="' + h.id + '">' +
+            PF.icon("clipboard", 12) + "批改</button>" +
           '<button class="btn btn--sm" data-edit="' + h.id + '">' + PF.icon("edit", 12) + "编辑</button>" +
           '<button class="btn btn--sm" data-close="' + h.id + '" data-status="' + PF.esc(h.status || "open") + '">' +
             PF.icon(h.status === "open" ? "x" : "play", 12) + (h.status === "open" ? "停止提交" : "重新开放") + "</button>" +
@@ -137,6 +162,14 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       "</div>";
     }).join("") + "</div>";
 
+    PF.$$("[data-grade]", box).forEach(function (b) {
+      b.addEventListener("click", function () {
+        PENDING_HW = Number(b.dataset.grade);
+        tabs.go("grade");
+        // tabs 有渲染缓存：批改面板渲染过就不再重跑，reload 一次才会消费 PENDING_HW
+        tabs.reload();
+      });
+    });
     PF.$$("[data-close]", box).forEach(function (b) {
       b.addEventListener("click", async function () {
         const next = b.dataset.status === "open" ? "closed" : "open";
@@ -263,7 +296,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
             "</div>" +
             '<button class="btn btn--primary btn--block mt-3" id="btn-create">' +
               PF.icon("send", 15) + "布置作业</button>" +
-            '<div class="t-xs t-dim">学生提交后可在「批改中心 → 按作业批改」逐份打分，AI 会给建议分供参考。</div>' +
+            '<div class="t-xs t-dim">学生提交后可在「按作业批改」里逐份打分，AI 会给建议分供参考。</div>' +
           "</div>" +
         "</div>" +
 
@@ -283,7 +316,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           '<div class="card"><div class="card__head"><h3>布置后的完整链路</h3></div>' +
             '<div class="card__body"><ol class="obj-list">' +
               "<li>学生在本班看到作业，提交文字或图片。</li>" +
-              "<li>你在批改中心看到名单（含未提交者）与提交内容。</li>" +
+              "<li>你在「按作业批改」里看到名单（含未提交者）与提交内容。</li>" +
               "<li>点「生成建议」拿到建议分与评语，可一键采用，也可以自己改。</li>" +
               "<li>保存后学生立刻能看到得分与评语；未提交的可一键记 0 分。</li>" +
             "</ol></div>" +
@@ -312,6 +345,591 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         tabs.go("list");
       } catch (e) { /* 已提示 */ } finally { PF.busy(btn, false); }
     });
+  }
+
+  /* ============================================================ 教师侧 · 批改
+     2026-09-22 起原「批改中心」/grade 整页并入本页，教师对外的入口只有一个「作业批改」。
+     老链接 /grade 由后端重定向到 /homework#/tab=grade。 */
+  function courseOptions(id, withBlank) {
+    return '<select class="select" id="' + id + '">' +
+      (withBlank ? '<option value="">全部课程</option>' : '<option value="">不限课程</option>') +
+      COURSES.map(function (c) { return '<option value="' + PF.esc(c) + '">' + PF.esc(c) + "</option>"; }).join("") +
+      "</select>";
+  }
+
+  /* ============================================================ 一：按作业批改 */
+  let ROSTER = null;   // {homework, students, stats}
+
+  async function renderByHomework(box) {
+    box.innerHTML = PF.loading("正在读取作业列表");
+    let d;
+    try {
+      d = await PF.get("/api/teacher/homework");
+    } catch (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      return;
+    }
+    const list = PF.arr(d.homework);
+    if (!list.length) {
+      box.innerHTML = PF.empty({
+        icon: "clipboard",
+        title: "还没有布置过作业",
+        desc: "批改的前提是先有作业。切到「布置作业」发布一份，再回来逐份打分。",
+        action: '<button class="btn btn--primary" id="btn-go-new2">' + PF.icon("plus", 15) + "去布置作业</button>",
+      });
+      const b2 = PF.$("#btn-go-new2", box);
+      if (b2) b2.addEventListener("click", function () { tabs.go("new"); });
+      return;
+    }
+
+    box.innerHTML = '<div class="grad-wrap">' +
+        '<div class="card"><div class="card__head"><h3>' + PF.icon("file", 15) + " 我的作业</h3>" +
+          '<div class="card__head-actions"><span class="t-xs">' + list.length + " 份</span></div></div>" +
+          '<div class="card__body stack-sm" id="hw-list">' + list.map(function (h) {
+            return '<div class="hw-item" data-hw="' + h.id + '">' +
+              '<div class="hw-item__title">' + PF.esc(PF.trunc(h.title, 26)) + "</div>" +
+              '<div class="hw-item__meta">' +
+                (h.course ? '<span class="badge">' + PF.esc(h.course) + "</span>" : "") +
+                '<span class="badge badge--info">' + PF.esc(h.class_name || "") + "</span>" +
+                PF.statusBadge(h.status_text || "") +
+              "</div>" +
+              '<div class="hw-item__meta">' +
+                (max0(h.submitted - h.graded) > 0
+                  ? '<span class="badge badge--warn">待批 ' + max0(h.submitted - h.graded) + "</span>"
+                  : '<span class="badge badge--ok">已批完</span>') +
+                '<span class="t-xs t-dim">' + PF.num(h.graded, 0) + "/" + PF.num(h.submitted, 0) + "</span>" +
+              "</div>" +
+            "</div>";
+          }).join("") + "</div></div>" +
+        '<div id="roster-host">' + PF.empty({
+          icon: "clipboard",
+          title: "选择左侧的一份作业开始批改",
+          desc: "名单里包含未提交的学生（会用浅色标出），方便一键记零。",
+        }) + "</div>" +
+      "</div>";
+
+    function pick(id) {
+      PF.$$(".hw-item", box).forEach(function (el) {
+        el.classList.toggle("is-active", Number(el.dataset.hw) === id);
+      });
+      loadRoster(id);
+    }
+
+    PF.$$(".hw-item", box).forEach(function (el) {
+      el.addEventListener("click", function () {
+        PENDING_HW = null;                 // 手动选过之后就以手动为准
+        pick(Number(el.dataset.hw));
+      });
+    });
+
+    const pending = list.filter(function (h) { return h.id === PENDING_HW; })[0];
+    const first = pending ||
+      list.filter(function (h) { return max0(h.submitted - h.graded) > 0; })[0] || list[0];
+    if (first) pick(first.id);
+  }
+
+  async function loadRoster(hwId) {
+    const hostEl = PF.$("#roster-host");
+    hostEl.innerHTML = '<div class="card"><div class="card__body">' + PF.loading("正在读取名单与提交") + "</div></div>";
+    try {
+      const [r, st] = await Promise.all([
+        PF.get("/api/teacher/homework/" + hwId + "/roster"),
+        PF.try(function () { return PF.get("/api/teacher/homework/" + hwId + "/stats", { quiet: true }); }, null),
+      ]);
+      ROSTER = r;
+      paintRoster(hwId, st);
+    } catch (e) {
+      hostEl.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+    }
+  }
+
+  function paintRoster(hwId, st) {
+    const hostEl = PF.$("#roster-host");
+    const hw = ROSTER.homework || {};
+    const students = PF.arr(ROSTER.students);
+    const s = ROSTER.stats || {};
+    const full = Number(hw.full_score) || 100;
+
+    const stat = st || {};
+    const dist = stat.dist || { A: 0, B: 0, C: 0 };
+    const buckets = PF.arr(stat.buckets);
+
+    hostEl.innerHTML =
+      '<div class="card"><div class="card__head">' +
+        "<h3>" + PF.icon("clipboard", 15) + " " + PF.esc(hw.title || "") + "</h3>" +
+        '<div class="card__head-actions">' +
+          '<button class="btn btn--sm" id="btn-export">' + PF.icon("download", 13) + "导出成绩 CSV</button>" +
+          '<button class="btn btn--sm" id="btn-missing">' + PF.icon("alert", 13) + "未交记 0 分</button>" +
+          '<button class="btn btn--sm" id="btn-reload-roster">' + PF.icon("refresh", 13) + "刷新</button>" +
+        "</div>" +
+      "</div>" +
+      '<div class="card__body">' +
+        '<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:10px">' +
+          (hw.course ? '<span class="badge badge--brand">' + PF.esc(hw.course) + "</span>" : "") +
+          '<span class="badge badge--info">' + PF.esc(hw.class_name || "") + "</span>" +
+          '<span class="badge">满分 ' + PF.num(full, 0) + "</span>" +
+          (hw.deadline ? '<span class="badge' + (hw.overdue ? " badge--danger" : "") + '">截止 ' +
+            PF.esc(PF.date(hw.deadline)) + (hw.overdue ? "（已逾期）" : "") + "</span>" : "") +
+          PF.statusBadge(hw.status_text || "") +
+        "</div>" +
+        '<div class="stat-inline">' +
+          "<span>应交 <b>" + PF.num(s.expected, 0) + "</b></span>" +
+          "<span>已交 <b>" + PF.num(s.submitted, 0) + "</b></span>" +
+          "<span>已批 <b>" + PF.num(s.graded, 0) + "</b></span>" +
+          "<span>待批 <b" + (s.ungraded ? ' style="color:var(--warn-700)"' : "") + ">" + PF.num(s.ungraded, 0) + "</b></span>" +
+          "<span>未交 <b>" + PF.num(s.missing, 0) + "</b></span>" +
+          (stat.avg !== null && stat.avg !== undefined
+            ? "<span>平均 <b>" + PF.num(stat.avg, 1) + "</b></span>" +
+              "<span>中位 <b>" + PF.num(stat.median, 1) + "</b></span>" : "") +
+        "</div>" +
+        (buckets.length
+          ? '<div class="row mt-3" style="gap:14px;flex-wrap:wrap">' + buckets.map(function (b) {
+              const maxN = Math.max.apply(null, buckets.map(function (x) { return x.count; }).concat([1]));
+              return '<div style="min-width:88px">' +
+                '<div class="t-xs t-dim">' + PF.esc(b.label) + "</div>" +
+                '<div class="row" style="gap:6px;align-items:center">' +
+                  '<div class="progress" style="width:52px">' +
+                    '<div class="progress__bar" style="width:' + PF.pct(b.count, maxN) + '%"></div></div>' +
+                  '<span class="t-sm t-strong">' + b.count + "</span>" +
+                "</div></div>";
+            }).join("") +
+            '<div class="spacer"></div>' +
+            '<div class="row" style="gap:6px">' +
+              '<span class="badge badge--ok">A ' + PF.num(dist.A, 0) + "</span>" +
+              '<span class="badge badge--info">B ' + PF.num(dist.B, 0) + "</span>" +
+              '<span class="badge badge--warn">C ' + PF.num(dist.C, 0) + "</span>" +
+            "</div></div>"
+          : "") +
+      "</div>" +
+      '<div class="card__body card__body--flush">' +
+        PF.table([
+          { key: "name", label: "学生", render: function (r) {
+              return '<div class="t-strong">' + PF.esc(r.name || r.username) + "</div>" +
+                '<div class="t-xs t-dim">' + PF.esc(r.username || "") + "</div>";
+            } },
+          { key: "profile", label: "画像", render: function (r) {
+              return '<div class="row" style="gap:5px">' +
+                (r.track ? PF.trackBadge(r.track) : "") +
+                (r.grade_level ? PF.levelTag(r.grade_level, true) : "") + "</div>";
+            } },
+          { key: "state", label: "提交状态", render: function (r) {
+              if (!r.submitted) return '<span class="badge badge--danger">未提交</span>';
+              return '<div class="row" style="gap:5px;flex-wrap:wrap">' +
+                '<span class="badge badge--ok">已提交</span>' +
+                (r.attempt > 1 ? '<span class="badge">第 ' + r.attempt + " 次</span>" : "") +
+                (r.late ? '<span class="badge badge--warn">逾期</span>' : "") +
+                '<span class="t-xs t-dim">' + PF.esc(PF.when(r.submitted_at)) + "</span></div>";
+            } },
+          { key: "content", label: "作答", render: function (r) {
+              if (!r.submitted) return '<span class="t-dim t-sm">—</span>';
+              const text = String(r.content || "").trim();
+              const files = PF.arr(r.files);
+              return '<span class="t-sm">' +
+                (text ? PF.esc(PF.trunc(text, 28)) : '<span class="t-dim">（无文字）</span>') +
+                (files.length ? ' <span class="badge badge--info">' + files.length + " 附件</span>" : "") +
+                "</span>";
+            } },
+          { key: "score", label: "得分", render: function (r) {
+              if (!r.submitted) return '<span class="t-dim t-sm">—</span>';
+              if (!r.graded) return '<span class="badge badge--warn">待批</span>';
+              return '<span class="t-strong">' + PF.num(r.score, 1) + "</span>" +
+                '<span class="t-xs t-dim"> / ' + PF.num(full, 0) + "</span>";
+            } },
+          { key: "level", label: "层次", render: function (r) {
+              return r.graded ? PF.levelTag(r.level, true) : '<span class="t-dim t-sm">—</span>';
+            } },
+          { key: "ops", label: "操作", cls: "nowrap", render: function (r) {
+              if (!r.submitted) {
+                return '<span class="t-xs t-dim">未提交，可用上方「未交记 0 分」批量处理</span>';
+              }
+              return '<button class="btn btn--sm ' + (r.graded ? "" : "btn--primary") + '" data-grade="' + r.student_id + '">' +
+                PF.icon("edit", 12) + (r.graded ? "修改" : "批改") + "</button>";
+            } },
+        ], students, {
+          rowClass: function (r) { return r.submitted ? "" : "roster-row is-missing"; },
+          fixed: true,
+          empty: { icon: "users", title: "本班没有学生", desc: "请先确认教学班里已有学生账号。" },
+        }) +
+      "</div></div>";
+
+    PF.$$("[data-grade]", hostEl).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const stu = students.filter(function (x) { return x.student_id === Number(b.dataset.grade); })[0];
+        gradeModal(hwId, hw, stu, hostEl);
+      });
+    });
+
+    PF.$("#btn-reload-roster", hostEl).addEventListener("click", function () { loadRoster(hwId); });
+
+    PF.$("#btn-export", hostEl).addEventListener("click", function () {
+      PF.download("/api/teacher/homework/" + hwId + "/export",
+        (hw.course || "作业") + "-" + (hw.title || "成绩") + "-成绩.csv");
+    });
+
+    PF.$("#btn-missing", hostEl).addEventListener("click", async function () {
+      if (!s.missing) { PF.toast("没有未提交的学生", "warn"); return; }
+      const yes = await PF.confirm({
+        title: "未交记 0 分",
+        text: "会给 " + s.missing + " 名未提交学生各插入一条 0 分记录（层次 C，评语「未提交，按 0 分记录」）。",
+        detail: "记零后这些学生会被视为「已批改」。如果之后补交，重新提交会清空分数，需要你再批一次。",
+        okText: "确认记 0 分", danger: true,
+      });
+      if (!yes) return;
+      try {
+        const r = await PF.post("/api/teacher/homework/" + hwId + "/grade-missing");
+        PF.toast("已把 " + (r.count || 0) + " 名学生记为 0 分", "ok");
+        loadRoster(hwId);
+      } catch (e) { /* 已提示 */ }
+    });
+  }
+
+  /* -------------------------------------------------- 批改弹窗 */
+  function gradeModal(hwId, hw, stu, hostEl) {
+    if (!stu) return;
+    const full = Number(hw.full_score) || 100;
+    const files = PF.arr(stu.files);
+    const content = String(stu.content || "").trim();
+
+    const imgHtml = '<div class="thumbs mt-3">' + files.map(function (f, i) {
+      if (f.kind === "image") {
+        return '<a href="/api/homework/file/' + stu.submission_id + "/" + i + '" target="_blank">' +
+          '<img class="thumb" src="/api/homework/file/' + stu.submission_id + "/" + i + '" alt="附件">' +
+          "</a>";
+      }
+      return '<a class="btn btn--sm" href="/api/homework/file/' + stu.submission_id + "/" + i + '" target="_blank">' +
+        PF.icon("file", 12) + PF.esc(f.name || "附件") + "</a>";
+    }).join("") + "</div>";
+
+    const body =
+      '<div class="stack-sm">' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+          '<span class="t-strong">' + PF.esc(stu.name || stu.username) + "</span>" +
+          (stu.track ? PF.trackBadge(stu.track) : "") +
+          (stu.grade_level ? PF.levelTag(stu.grade_level, true) : "") +
+          '<div class="spacer"></div>' +
+          '<span class="badge">满分 ' + PF.num(full, 0) + "</span>" +
+          '<span class="badge">第 ' + PF.num(stu.attempt || 1, 0) + " 次提交</span>" +
+          (stu.late ? '<span class="badge badge--warn">逾期</span>' : "") +
+        "</div>" +
+        '<div class="t-xs t-dim">提交时间：' + PF.esc(stu.submitted_at || "—") + "</div>" +
+
+        (content
+          ? '<div class="t-sm t-strong mt-3">文字作答</div><div class="sub-content">' + PF.esc(content) + "</div>"
+          : '<div class="mt-3"><span class="t-dim t-sm">这份提交没有文字内容。</span></div>') +
+        (files.length ? imgHtml : "") +
+
+        '<div class="suggest-box mt-3">' +
+          '<div class="row"><span class="t-sm t-strong">' + PF.icon("sparkles", 13) + " AI 建议分</span>" +
+            '<div class="spacer"></div>' +
+            '<button class="btn btn--sm" id="btn-suggest">' + PF.icon("wand", 12) + "生成建议</button></div>" +
+          '<div id="suggest-out" class="mt-3"><span class="t-xs t-dim">' +
+            "建议分只作为参考，不会写库；最终分数由你填写并保存。" +
+          "</span></div>" +
+        "</div>" +
+
+        '<div class="grade-form mt-4">' +
+          "<div><label class=\"t-sm t-strong\">分数</label>" +
+            '<input class="input" type="number" id="g-score" min="0" max="' + full + '" step="0.5" value="' +
+            (stu.graded ? PF.num(stu.score, 1) : "") + '"></div>' +
+          "<div><label class=\"t-sm t-strong\">层次</label>" +
+            '<select class="select" id="g-level">' +
+              '<option value="">自动（按分数换算）</option>' +
+              '<option value="A"' + (stu.level === "A" ? " selected" : "") + ">A 优秀</option>" +
+              '<option value="B"' + (stu.level === "B" ? " selected" : "") + ">B 良好</option>" +
+              '<option value="C"' + (stu.level === "C" ? " selected" : "") + ">C 需改进</option>" +
+            "</select></div>" +
+          "<div><label class=\"t-sm t-strong\">评语</label>" +
+            '<textarea class="input" id="g-comment" rows="2">' + PF.esc(stu.comment || "") + "</textarea></div>" +
+        "</div>" +
+        '<div class="t-xs t-dim">层次换算口径：A ≥ 85%、B ≥ 70%、其余 C。</div>' +
+      "</div>";
+
+    PF.modal({
+      title: "批改：" + (stu.name || stu.username),
+      width: "wide",
+      body: body,
+      actions: [
+        { label: "关闭" },
+        { label: "保存成绩", type: "primary", onClick: async function () {
+            const raw = PF.$("#g-score").value;
+            if (raw === "") { PF.toast("请先填写分数", "warn"); return true; }
+            const score = Number(raw);
+            if (!isFinite(score) || score < 0 || score > full) {
+              PF.toast("分数必须在 0 ~ " + full + " 之间", "warn"); return true;
+            }
+            try {
+              const r = await PF.post("/api/teacher/homework/" + hwId + "/grade", {
+                student_id: stu.student_id,
+                score: score,
+                comment: PF.$("#g-comment").value,
+                level: PF.$("#g-level").value,
+              });
+              PF.toast("已保存：" + PF.num(r.score, 1) + " 分 · " + (r.level_text || ""), "ok");
+              loadRoster(hwId);
+            } catch (e) { return true; }
+          } },
+      ],
+    });
+
+    PF.$("#btn-suggest").addEventListener("click", async function () {
+      const btn = PF.$("#btn-suggest");
+      const out = PF.$("#suggest-out");
+      out.innerHTML = PF.loading("正在读作答并给建议");
+      PF.busy(btn, true, "生成中");
+      try {
+        const d = await PF.post("/api/teacher/homework/" + hwId + "/suggest", { student_id: stu.student_id });
+        out.innerHTML = suggestHtml(d, full);
+        if (!d.manual && d.score >= 0) {
+          PF.$("#g-score").value = PF.num(d.score, 1);
+          if (d.level) PF.$("#g-level").value = d.level;
+          const c = PF.$("#g-comment");
+          if (!c.value.trim() && d.comment) c.value = d.comment;
+        }
+        const apply = PF.$("#btn-apply-suggest");
+        if (apply) {
+          apply.addEventListener("click", function () {
+            PF.$("#g-score").value = PF.num(d.score, 1);
+            if (d.level) PF.$("#g-level").value = d.level;
+            if (d.comment) PF.$("#g-comment").value = d.comment;
+            PF.toast("建议已填入下方表单，确认后点「保存成绩」", "ok");
+          });
+        }
+      } catch (e) {
+        out.innerHTML = PF.empty({ icon: "alert", title: "生成建议失败", desc: e.message });
+      } finally { PF.busy(btn, false); }
+    });
+  }
+
+  function suggestHtml(d, full) {
+    const ok = !d.manual && Number(d.score) >= 0;
+    return '<div class="row" style="gap:14px;align-items:flex-start;flex-wrap:wrap">' +
+        (ok
+          ? '<div class="row" style="gap:10px;align-items:center">' +
+              '<div class="badge badge--brand" style="font-size:15px;padding:6px 10px">' +
+                PF.num(d.score, 1) + '<span class="t-xs" style="font-weight:400"> / ' + PF.num(full, 0) + "</span></div>" +
+              (d.level ? PF.levelTag(d.level, true) : "") +
+            "</div>"
+          : PF.statusBadge("需人工批改")) +
+        '<div class="flex-1" style="min-width:220px">' +
+          '<div class="row" style="gap:6px;margin-bottom:6px">' +
+            PF.engineBadge(d.engine) +
+            (d.basis ? '<span class="badge badge--info">' + PF.esc(d.basis) + "</span>" : "") +
+            (ok ? '<button class="btn btn--sm btn--primary" id="btn-apply-suggest">' +
+              PF.icon("check", 12) + "采用建议</button>" : "") +
+          "</div>" +
+          (PF.arr(d.highlights).length
+            ? '<div class="t-sm" style="line-height:1.75"><b>亮点：</b>' +
+              PF.esc(PF.arr(d.highlights).join("；")) + "</div>" : "") +
+          (PF.arr(d.missing).length
+            ? '<div class="t-sm" style="line-height:1.75"><b>待补充：</b>' +
+              PF.esc(PF.arr(d.missing).join("、")) + "</div>" : "") +
+          '<div class="t-sm mt-2" style="line-height:1.8">' + PF.esc(d.comment || "") + "</div>" +
+        "</div>" +
+      "</div>";
+  }
+
+  /* ============================================================ 二：自由试批 */
+  function renderTry(box) {
+    const SAMPLE = "注意力机制的核心是用查询与键的相似度计算权重，再对值加权求和。" +
+      "相比循环网络，它可以在常数步内建立任意两个位置的联系，因此并行度更高。" +
+      "为了避免点积随维度增大而方差过大，需要除以根号 d_k 做缩放。\n" +
+      "综上，注意力机制解决了长距离依赖与并行计算两个问题。";
+
+    box.innerHTML =
+      '<div class="grid grid-3-2" style="gap:16px">' +
+        '<div class="card"><div class="card__head"><h3>' + PF.icon("edit", 15) + " 粘贴一段作答" +
+          '<div class="card__head-actions"><button class="btn btn--sm" id="btn-sample">' +
+          PF.icon("wand", 12) + "填入示例</button></div></h3></div>" +
+          '<div class="card__body stack-sm">' +
+            '<textarea class="input" id="t-text" rows="10" placeholder="把学生的作答粘进来，不用先布置作业"></textarea>' +
+            '<div class="form-2col mt-2">' +
+              "<div><label class=\"t-sm t-strong\">课程（决定评分要点范围）</label>" + courseOptions("t-course") + "</div>" +
+              "<div><label class=\"t-sm t-strong\">满分</label>" +
+                '<input class="input" type="number" id="t-full" value="100" min="1" max="1000"></div>' +
+            "</div>" +
+            '<label class="t-sm t-strong mt-2">主题（可留空）</label>' +
+            '<input class="input" id="t-topic" placeholder="如：注意力机制">' +
+            '<button class="btn btn--primary btn--block mt-3" id="btn-try">' +
+              PF.icon("wand", 15) + "生成建议分</button>" +
+            '<div class="t-xs t-dim">评分要点取自该课程的知识点表与课件标题；未配置要点时按中间值计分并提示人工复核。</div>' +
+          "</div>" +
+        "</div>" +
+        '<div class="stack" id="t-out">' +
+          PF.empty({
+            icon: "clipboard",
+            title: "等待批改",
+            desc: "左侧填入作答后点「生成建议分」。结果会给出分数、层次、亮点、待补充与评语，并标注是模型生成还是规则兜底。",
+          }) +
+        "</div>" +
+      "</div>";
+
+    PF.$("#btn-sample", box).addEventListener("click", function () {
+      PF.$("#t-text", box).value = SAMPLE;
+    });
+
+    PF.$("#btn-try", box).addEventListener("click", async function () {
+      const text = PF.$("#t-text", box).value.trim();
+      if (!text) { PF.toast("请先粘贴一段学生作答", "warn"); return; }
+      const btn = PF.$("#btn-try", box);
+      const out = PF.$("#t-out", box);
+      out.innerHTML = '<div class="card"><div class="card__body">' + PF.loading("正在评分") + "</div></div>";
+      PF.busy(btn, true, "评分中");
+      try {
+        const d = await PF.post("/api/teacher/grade/suggest", {
+          text: text,
+          course: PF.$("#t-course", box).value,
+          topic: PF.$("#t-topic", box).value.trim(),
+          full_score: Number(PF.$("#t-full", box).value) || 100,
+        });
+        const full = Number(PF.$("#t-full", box).value) || 100;
+        out.innerHTML = tryResultHtml(d, full, text);
+      } catch (e) {
+        out.innerHTML = PF.empty({ icon: "alert", title: "生成失败", desc: e.message });
+      } finally { PF.busy(btn, false); }
+    });
+  }
+
+  function tryResultHtml(d, full, text) {
+    const pctVal = full ? (Number(d.score) / full) : 0;
+    return '<div class="card"><div class="card__head"><h3>' + PF.icon("award", 15) + " 批改结果</h3>" +
+        '<div class="card__head-actions">' + PF.engineBadge(d.engine) +
+          (d.basis ? '<span class="badge badge--info">' + PF.esc(d.basis) + "</span>" : "") + "</div></div>" +
+        '<div class="card__body">' +
+          '<div class="row" style="gap:18px;align-items:center;flex-wrap:wrap">' +
+            PF.ring(d.score, full, "建议分") +
+            '<div class="flex-1" style="min-width:220px">' +
+              '<div class="row" style="gap:8px;margin-bottom:8px">' +
+                PF.levelTag(d.level, true) +
+                '<span class="badge">' + PF.esc(d.level_text || "") + "</span>" +
+                '<span class="badge">满分 ' + PF.num(full, 0) + "</span>" +
+                '<span class="badge">得分率 ' + Math.round(pctVal * 100) + "%</span>" +
+              "</div>" +
+              '<div class="t-sm" style="line-height:1.85">' + PF.esc(d.comment || "") + "</div>" +
+            "</div>" +
+          "</div>" +
+          '<div class="grid grid-2 mt-5" style="gap:14px">' +
+            '<div><div class="t-sm t-strong" style="margin-bottom:6px">' + PF.icon("check", 13) + " 亮点</div>" +
+              (PF.arr(d.highlights).length
+                ? '<ul class="obj-list">' + PF.arr(d.highlights).map(function (h) {
+                    return "<li>" + PF.esc(h) + "</li>"; }).join("") + "</ul>"
+                : '<span class="t-dim t-sm">—</span>') + "</div>" +
+            '<div><div class="t-sm t-strong" style="margin-bottom:6px">' + PF.icon("alert", 13) + " 待补充</div>" +
+              (PF.arr(d.missing).length
+                ? '<ul class="obj-list">' + PF.arr(d.missing).map(function (h) {
+                    return "<li>" + PF.esc(h) + "</li>"; }).join("") + "</ul>"
+                : '<span class="t-dim t-sm">覆盖较完整</span>') + "</div>" +
+          "</div>" +
+        "</div>" +
+        '<div class="card__foot"><span class="t-xs t-dim">' +
+          "试批不落库：这里的结果不会写进任何学生的成绩里。" +
+        "</span></div></div>";
+  }
+
+  /* ============================================================ 三：批量试批 */
+  function renderBatch(box) {
+    box.innerHTML =
+      '<div class="card"><div class="card__head">' + PF.icon("layers", 15) +
+        " 批量试批（上传多份文件，结果不入库）</h3>" +
+        '<div class="card__head-actions"><span class="t-xs" id="b-count">未选择文件</span></div></div>' +
+        '<div class="card__body stack-sm">' +
+          '<div class="form-2col">' +
+            "<div><label class=\"t-sm t-strong\">课程（决定评分要点范围）</label>" +
+              courseOptions("b-course") + "</div>" +
+            "<div><label class=\"t-sm t-strong\">满分</label>" +
+              '<input class="input" type="number" id="b-full" value="100" min="1" max="1000"></div>' +
+          "</div>" +
+          '<label class="t-sm t-strong mt-2">主题（可留空）</label>' +
+          '<input class="input" id="b-topic" placeholder="如：期末小论文">' +
+          '<label class="t-sm t-strong mt-2">作业文件（可多选：txt / md / pdf）</label>' +
+          '<input class="input" type="file" id="b-files" multiple accept=".txt,.md,.pdf,.png,.jpg,.jpeg,.webp">' +
+          '<div class="row mt-3">' +
+            '<button class="btn btn--primary" id="btn-batch">' + PF.icon("wand", 15) + "开始批量批改</button>" +
+            '<span class="t-xs t-dim">图片类文件没有文本层时会如实标注「无文本层」，需要人工批改。</span>' +
+          "</div>" +
+        "</div>" +
+      "</div>" +
+      '<div class="mt-5" id="b-out"></div>';
+
+    const input = PF.$("#b-files", box);
+    input.addEventListener("change", function () {
+      PF.$("#b-count", box).textContent = input.files.length
+        ? "已选择 " + input.files.length + " 个文件" : "未选择文件";
+    });
+
+    PF.$("#btn-batch", box).addEventListener("click", async function () {
+      if (!input.files.length) { PF.toast("请先选择要批改的文件", "warn"); return; }
+      const btn = PF.$("#btn-batch", box);
+      const out = PF.$("#b-out", box);
+      const form = new FormData();
+      for (let i = 0; i < input.files.length; i++) form.append("files", input.files[i]);
+      form.append("course", PF.$("#b-course", box).value);
+      form.append("topic", PF.$("#b-topic", box).value.trim());
+      form.append("full_score", String(Number(PF.$("#b-full", box).value) || 100));
+
+      out.innerHTML = '<div class="card"><div class="card__body">' +
+        PF.loading("正在逐份读取并评分（共 " + input.files.length + " 份）") + "</div></div>";
+      PF.busy(btn, true, "批改中");
+      try {
+        const d = await PF.post("/api/teacher/grade/batch", null, { form: form });
+        out.innerHTML = batchResultHtml(d);
+      } catch (e) {
+        out.innerHTML = PF.empty({ icon: "alert", title: "批量批改失败", desc: e.message });
+      } finally { PF.busy(btn, false); }
+    });
+  }
+
+  function batchResultHtml(d) {
+    const results = PF.arr(d.results);
+    const s = d.summary || {};
+    const full = Number(PF.$("#b-full") && PF.$("#b-full").value) || 100;
+
+    return '<div class="card"><div class="card__head">' + PF.icon("award", 15) + " 批改结果" +
+        '<div class="card__head-actions">' + PF.engineBadge(d.engine) +
+          '<span class="badge badge--info">' + (d.stored ? "已入库" : "未入库") + "</span></div></div>" +
+      '<div class="card__body">' +
+        '<div class="stat-inline">' +
+          "<span>份数 <b>" + PF.num(s.count, 0) + "</b></span>" +
+          "<span>平均 <b>" + PF.num(s.avg, 1) + "</b></span>" +
+          "<span>最高 <b>" + PF.num(s.max, 1) + "</b></span>" +
+          "<span>最低 <b>" + PF.num(s.min, 1) + "</b></span>" +
+        "</div>" +
+        (PF.arr(s.terms).length
+          ? '<div class="row mt-3" style="gap:5px;flex-wrap:wrap"><span class="t-xs t-dim">评分要点：</span>' +
+            PF.arr(s.terms).map(function (t) { return '<span class="chip">' + PF.esc(t) + "</span>"; }).join("") +
+            "</div>"
+          : '<div class="mt-3">' + PF.caveat("该课程未配置评分要点，规则版按中间值计分，建议人工复核。", "warn") + "</div>") +
+      "</div>" +
+      '<div class="card__body card__body--flush">' +
+        PF.table([
+          { key: "filename", label: "文件", render: function (r) {
+              return '<div class="t-strong" style="word-break:break-all">' + PF.esc(r.filename) + "</div>" +
+                (r.note ? '<div class="t-xs t-dim">' + PF.esc(r.note) + "</div>" : "");
+            } },
+          { key: "score", label: "建议分", render: function (r) {
+              return Number(r.score) >= 0
+                ? '<span class="t-strong">' + PF.num(r.score, 1) + "</span>" +
+                  '<span class="t-xs t-dim"> / ' + PF.num(full, 0) + "</span>"
+                : '<span class="badge badge--warn">需人工</span>';
+            } },
+          { key: "level", label: "层次", render: function (r) {
+              return r.level ? PF.levelTag(r.level, true) : '<span class="t-dim t-sm">—</span>';
+            } },
+          { key: "highlights", label: "亮点", render: function (r) {
+              return PF.arr(r.highlights).length
+                ? '<span class="t-sm">' + PF.esc(PF.arr(r.highlights).join("；")) + "</span>"
+                : '<span class="t-dim t-sm">—</span>';
+            } },
+          { key: "comment", label: "评语", render: function (r) {
+              return '<span class="t-sm">' + PF.esc(PF.trunc(r.comment, 90)) + "</span>";
+            } },
+          { key: "engine", label: "引擎", cls: "nowrap", render: function (r) {
+              return PF.engineBadge(r.engine);
+            } },
+        ], results, { empty: { icon: "layers", title: "没有结果" } }) +
+      "</div>" +
+      '<div class="card__foot"><span class="t-xs t-dim">' +
+        "批量试批不写入任何学生成绩；需要正式打分请在「按作业批改」里逐份确认保存。" +
+      "</span></div></div>";
   }
 
   /* ============================================================ 学生侧 */
