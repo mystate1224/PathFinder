@@ -865,7 +865,8 @@ def test_student(c: Client) -> None:
     c.check("师生匹配（学生侧双向确认）", match)
 
     c.check("页面可达（学生）", lambda: "、".join(
-        f"{p}={c.page(p)[0]}" for p in ["/student", "/ask", "/hub", "/homework", "/match", "/library"]))
+        f"{p}={c.page(p)[0]}" for p in
+        ["/student", "/ask", "/homework", "/match", "/match#/tab=res", "/library"]))
 
 
 def test_agent_rag(c: Client) -> None:

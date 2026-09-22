@@ -1385,12 +1385,12 @@
       return '<div class="dm-sub dm-sub--ok">' + PF.icon("check", 12) +
         " 已提交 " + name + " 的申请 → 等待 " + PF.esc(r.teacher_name || "该教师") +
         " 处理" + (r.capacity ? "（名额 " + PF.esc(r.capacity) + " 人）" : "") +
-        "。去 <a href=\"/hub\">资源广场</a> 看进度。</div>";
+        "。去 <a href=\"/match#/tab=apps\">师生匹配 → 我的申请</a> 看进度。</div>";
     }
     if (st.state === "dup") {
       return '<div class="dm-sub dm-sub--ok">' + PF.icon("info", 12) +
         " " + name + "你已经申请过了（" + PF.esc(st.status_text || st.status || "已提交") +
-        "），不用重复提交。去 <a href=\"/hub\">资源广场</a> 看进度。</div>";
+        "），不用重复提交。去 <a href=\"/match#/tab=apps\">师生匹配 → 我的申请</a> 看进度。</div>";
     }
     if (st.state === "miss") {
       return '<div class="dm-sub">' + PF.icon("info", 12) +
@@ -1399,7 +1399,7 @@
     }
     return '<div class="dm-sub">' + PF.icon("info", 12) +
       " 申请没能提交成功（可能名额已满或已截止），你可以直接到 " +
-      '<a href="/hub">资源广场</a> 里找老师沟通。</div>';
+      '<a href="/match#/tab=res">师生匹配 → 资源广场</a> 里找老师沟通。</div>';
   };
 
   /** 真提交一份申请：按标题在资源广场里定位，再 POST /api/resources/{id}/apply。
@@ -3510,11 +3510,10 @@
       { group: "我的成长", items: [
         { key: "student", href: "/student", label: "我的画像", icon: "compass" },
         { key: "ask", href: "/ask", label: "学生 Copilot", icon: "message" },
-        { key: "match", href: "/match", label: "团队匹配", icon: "users" },
+        { key: "match", href: "/match", label: "师生匹配", icon: "users" },
       ]},
       { group: "学习事务", items: [
         { key: "homework", href: "/homework", label: "我的作业", icon: "file" },
-        { key: "hub", href: "/hub", label: "资源广场", icon: "briefcase" },
         { key: "library", href: "/library", label: "我的资料库", icon: "layers" },
       ]},
       { group: "账号", items: [

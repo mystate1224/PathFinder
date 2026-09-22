@@ -19,7 +19,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=17"></script>
+<script src="/static/js/common.js?v=18"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -347,10 +347,10 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         title: mode === "todo" ? "没有待完成的作业" : "本班还没有作业",
         desc: mode === "todo"
           ? "去「全部作业」看看已提交的批改结果。"
-          : "老师布置作业后会出现在这里；也可以先去「资源广场」看看有没有想申请的机会。",
+          : "老师布置作业后会出现在这里；也可以先去「师生匹配 → 资源广场」看看有没有想申请的机会。",
         action: mode === "todo"
           ? '<button class="btn" id="btn-go-all">' + PF.icon("file", 15) + "看全部作业</button>"
-          : '<a class="btn" href="/hub">' + PF.icon("briefcase", 15) + "去资源广场</a>",
+          : '<a class="btn" href="/match#/tab=res">' + PF.icon("briefcase", 15) + "去资源广场</a>",
       }) + "</div>";
       const b = PF.$("#btn-go-all", box);
       if (b) b.addEventListener("click", function () { tabs.go("all"); });

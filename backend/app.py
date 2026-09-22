@@ -206,7 +206,6 @@ PAGES: list[tuple[str, str, str]] = [
     ("/library", "library.html", ""),
     ("/ask", "ask.html", "student"),
     ("/homework", "homework.html", ""),
-    ("/hub", "hub.html", "student"),
     ("/match", "match.html", ""),
     ("/teach", "teach.html", "teacher"),
     ("/tutor", "tutor.html", "teacher"),
@@ -239,13 +238,17 @@ for _path, _filename, _role in PAGES:
 
 @app.get("/resources", include_in_schema=False)
 def page_resources_legacy(request: Request):
-    """旧入口：2026-09-21 起「资源管理」已并入「师生匹配」/match，这里只把老链接送过去。
+    """旧入口：2026-09-21 起「资源管理」已并入「师生匹配」/match，这里只把老链接送过去。"""
+    return RedirectResponse("/match#/tab=res")
 
-    学生的资源广场一直是 /hub，所以学生身份进来直接落到 /hub，别送进教师页。
-    """
+
+@app.get("/hub", include_in_schema=False)
+def page_hub_legacy(request: Request):
+    """旧入口：2026-09-22 起学生端「资源广场」并入「师生匹配」/match 的第二个标签，
+    侧边栏不再单列「资源广场」。老链接（含 Copilot 引导里的跳转）统一送到 /match#/tab=res。"""
     user = current_user_optional(request)
-    if user and user.get("role") != "teacher":
-        return RedirectResponse("/hub")
+    if not user:
+        return RedirectResponse("/login?next=/match")
     return RedirectResponse("/match#/tab=res")
 
 
