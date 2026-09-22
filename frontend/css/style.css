@@ -1906,10 +1906,10 @@ mark { background: var(--mark-bg); padding: 0 2px; border-radius: 3px; }
 .mini-student__name { font-size: var(--fs-sm); font-weight: 700; color: var(--ink-900); }
 .mini-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 
-/* 答疑页的画像速览表 */
-.style-grid { display: grid; grid-template-columns: 92px 1fr; gap: 8px 10px; font-size: 12.5px; }
+/* 答疑页的画像速览表；值列整体居中对齐，行内也垂直居中（v7.23） */
+.style-grid { display: grid; grid-template-columns: 92px 1fr; gap: 8px 10px; font-size: 12.5px; align-items: center; }
 .style-grid dt { color: var(--ink-500); }
-.style-grid dd { color: var(--ink-800); }
+.style-grid dd { color: var(--ink-800); text-align: center; }
 .q-chip { text-align: left; }
 
 /* ---------------------------------------------------------------- 17. 动效层 */
