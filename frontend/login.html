@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>登录 · 寻径教育 PathFinder</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82a0' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/css/style.css?v=31">
+<link rel="stylesheet" href="/static/css/style.css?v=33">
 <script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。
    刻意不依赖任何外部文件与 window.PF。用户在顶栏选过则以 localStorage 为准，
    没选过就跟随系统 prefers-color-scheme。 */
@@ -21,6 +21,17 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   <!-- 左：品牌叙事 -->
   <section class="auth__art">
     <div class="auth__grid-lines"></div>
+    <!-- 交界处的水波：单层白遮罩、左缘一条正弦波浪线，整层纵向无缝滚动
+         （样式见 style.css 的 .auth__water）。path 是静态写死的 4 个周期
+         （周期 600、振幅 ±20），不依赖 JS。白色大块是均匀的，滚过整周期后
+         视觉不变 —— 所以看起来只有蓝色一侧的波浪边在缓缓起伏，白色不动。 -->
+    <div class="auth__water" aria-hidden="true">
+      <div class="auth__water-layer">
+        <svg viewBox="0 0 150 2400" preserveAspectRatio="none">
+          <path class="auth__water-mask" d="M104 0 Q144 150 104 300 Q64 450 104 600 Q144 750 104 900 Q64 1050 104 1200 Q144 1350 104 1500 Q64 1650 104 1800 Q144 1950 104 2100 Q64 2250 104 2400 L150 2400 L150 0 Z"/>
+        </svg>
+      </div>
+    </div>
     <div class="auth__inner">
       <div class="auth__brand">
         <div class="sidebar__mark" id="brand-mark"></div>
@@ -34,7 +45,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       <p class="auth__sub">
         把「上传的资料」变成「可检索的知识」，
         把「模糊的自我认知」变成「可执行的成长路径」。
-        一次画像，三条出口：学业深造、科研入门、就业准备。
+        一次画像，两条出口，学业深造、就业准备。
       </p>
 
       <div class="auth__points">

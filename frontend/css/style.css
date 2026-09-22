@@ -1457,7 +1457,9 @@ body::after {
   padding: 56px 52px;
   display: flex; flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid var(--border);
+  /* v7.20：原来这条 1px 直线分界去掉了 —— 交界改由下面的水波（.auth__water）
+     承担，留着直线就会有一条硬边横穿波浪，反而把效果破掉。 */
+  border-right: none;
 }
 /* v7.10：右下角这块荧光黄绿圆斑已去掉（与主体界面同一轮调整：不要黄色光晕）。
    海报的"透气口"交给 .auth__art 自带的右下青绿（96% 92%）和右上亮蓝，够用了。 */
@@ -1499,6 +1501,39 @@ body::after {
 }
 .auth__point-ico svg { width: 14px; height: 14px; }
 .auth__foot { margin-top: auto; font-size: var(--fs-xs); color: rgba(255, 255, 255, .55); padding-top: 30px; }
+
+/* v7.22：交界水面简化成**单层**白遮罩：
+   把白色表单区的左缘画成一条正弦波浪线，整层做 translateY(-50%) 无缝循环。
+   白色大块是均匀的，滚过一个整周期后和原来一模一样 —— 视觉上"白色不动"，
+   只有蓝白交界的波浪边在缓缓起伏，看起来就是蓝色的水在波动。
+   v7.20 的双层（浅蓝水花 + 白遮罩）删掉了：两条波峰错峰反而会叠出一条
+   宽窄不一的浅蓝竖带，读起来像渲染 bug；单层后只有一条边，干净。
+   周期 600（v7.20 是 300）：一屏只出现 1~2 个波峰，波浪数量减半。
+   振幅 ±20px、30s 一轮 —— 要的是"在动"，不是抢戏。
+   注意 preserveAspectRatio="none" 只纵向拉伸（viewBox 宽 150 = 容器宽 150），
+   横向不缩放，波峰才不会被压扁；位移 -50% = 2 个整周期，首尾无缝。 */
+.auth__water {
+  position: absolute; top: 0; right: 0;
+  width: 150px; height: 100%;
+  overflow: hidden; pointer-events: none;
+  z-index: 2; /* 要盖住 .auth__grid-lines；内容区离右缘至少 52px，压不到文字 */
+}
+.auth__water-layer {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 200%;
+  will-change: transform;
+  animation: pf-water 30s linear infinite;
+}
+.auth__water-layer svg { display: block; width: 100%; height: 100%; }
+.auth__water-mask { fill: var(--surface); }
+@keyframes pf-water {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
+/* 尊重系统的"减少动效"：水面定格成静态波形，不来回晃 */
+@media (prefers-reduced-motion: reduce) {
+  .auth__water-layer { animation: none; }
+}
 
 /* 登录页首次进入：左栏文案自上而下依次浮现，右栏表单稍后跟上。
    纯 CSS 实现，不依赖 JS，也不影响表单可用性。 */
@@ -2220,6 +2255,7 @@ html[data-theme="dark"] .auth__grid-lines {
   background-image: linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
                     linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
 }
+/* v7.22：水面只剩一层白遮罩，fill 用 var(--surface) 自带明暗两套，无需单独覆盖 */
 
 /* 移动端抽屉里的侧边栏要接近不透明；选择器权重比 980px 那条高，必须单独覆盖 */
 @media (max-width: 980px) {
