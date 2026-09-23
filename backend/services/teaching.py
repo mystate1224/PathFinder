@@ -551,37 +551,103 @@ def key_terms(course: str = "", limit: int = 8) -> list[str]:
     return ordered[:limit]
 
 
+def _norm_text(s: str) -> str:
+    """归一化：去空白 / 标点 / 大小写，用于要点命中判断。"""
+    return re.sub(r"[\s\-_（）()·、,，.。:：]+", "", str(s or "")).lower()
+
+
+_TERM_PREFIX = re.compile(
+    r"^(第\s*\d+\s*[讲章节]|什么是|为什么需要|如何理解|怎么理解|简述|举例说明|如何|为何)"
+)
+_TERM_SUFFIX = re.compile(r"(算法|机制|模型|方法|问题|原理|思想|结构|技术|实现)$")
+
+
+def _term_cores(term: str) -> list[str]:
+    """一个要点的等价写法。
+
+    知识点库里存的是「第5讲 注意力机制」「为什么需要注意力机制」这类标题式概念名，
+    学生作答里只会写「注意力机制」—— 逐字比较会全部落空，所以剥掉常见前缀再比。
+    """
+    t = str(term or "").strip()
+    cores = [t]
+    stripped = _TERM_PREFIX.sub("", t).strip()
+    if stripped:
+        cores.append(stripped)
+    parts = [p for p in re.split(r"\s+", stripped) if p]
+    if len(parts) > 1:
+        cores.append(max(parts, key=len))       # "第6讲 图" → 取有意义的一段
+    return list(dict.fromkeys(cores))
+
+
+def _term_matched(term: str, norm_text: str) -> bool:
+    """要点是否命中：归一化后按等价写法匹配，再去「算法 / 机制 / 模型」等后缀比核心词。"""
+    for core in _term_cores(term):
+        c = _norm_text(core)
+        if len(c) < 2:
+            continue
+        if c in norm_text:
+            return True
+        short = _TERM_SUFFIX.sub("", c)
+        if len(short) >= 3 and short in norm_text:
+            return True
+    return False
+
+
 def rule_grade(text: str, topic: str = "", full_score: float = 100,
                terms: Sequence[str] | None = None) -> dict:
-    """规则版评分：长度分 + 要点覆盖分 + 结构加分。"""
+    """规则版建议分：**完成度基础分 + 篇幅分 + 要点覆盖分 + 结构分**（百分制口径）。
+
+    规则引擎判断不了答案对错，因此不做「满分往下扣」，而是先承认完成度
+    （提交了与题目相关的作答即得基础分），再按篇幅、要点覆盖与结构加分：
+
+    * 正常完成的作业 → 落在 **70 上下**（良好）；
+    * 展开充分、要点覆盖高 → 80~90（优秀）；
+    * 极简作答、跑题或空泛 → 55 上下（需改进）。
+
+    始终是**建议分**，由教师确认后再保存。
+    """
     text = (text or "").strip()
     length = len(text)
+    norm = _norm_text(text)
 
+    base_score = 50.0                       # 完成度基础分
     if length >= 600:
-        length_score = 40.0
+        length_score = 13.0
     elif length >= 300:
-        length_score = 28.0
+        length_score = 10.0
     elif length >= 120:
-        length_score = 16.0
-    else:
         length_score = 6.0
+    else:
+        length_score = 3.0
 
     terms = [t for t in (terms or []) if t]
-    hit_terms = [t for t in terms if t in text]
+    hit_terms = [t for t in terms if _term_matched(t, norm)]
     if terms:
-        cover_score = 40.0 * (len(hit_terms) / len(terms))
-        cover_note = f"命中要点 {len(hit_terms)}/{len(terms)} 个。"
+        ratio = len(hit_terms) / len(terms)
+        if ratio >= 0.6:
+            cover_score = 20.0
+        elif ratio >= 0.4:
+            cover_score = 16.0
+        elif ratio >= 0.2:
+            cover_score = 12.0
+        elif hit_terms:
+            cover_score = 8.0
+        else:
+            cover_score = 4.0
+        cover_note = f"命中要点 {len(hit_terms)}/{len(terms)} 个，覆盖档位 {cover_score:.0f} 分"
     else:
-        cover_score = 24.0
-        cover_note = "未配置参考答案要点，按 60% 中间值计分，建议教师人工复核。"
+        cover_score = 12.0
+        cover_note = "未配置参考答案要点，覆盖按 60% 中间值计分，建议教师人工复核"
 
     structure = 0.0
-    if re.search(r"(^\s*[\d一二三四五六七八九十]+[、.．)])", text, re.M) or text.count("\n- ") >= 2:
-        structure += 10.0
-    if re.search(r"(总结|结论|综上|因此|可见)", text):
-        structure += 10.0
+    if (re.search(r"(^\s*[\d一二三四五六七八九十]+[、.．)])", text, re.M)
+            or text.count("\n- ") >= 2
+            or len(re.findall(r"[^\n]{2,12}[：:]", text)) >= 2):
+        structure += 4.0
+    if re.search(r"(总结|结论|综上|因此|可见|原因是|依据是|所以)", text):
+        structure += 4.0
 
-    raw = length_score + cover_score + structure          # 百分制原始分
+    raw = base_score + length_score + cover_score + structure      # 百分制原始分
     score = round(min(float(full_score or 100), raw / 100.0 * float(full_score or 100)), 1)
 
     pct = score / float(full_score or 100)
@@ -589,23 +655,26 @@ def rule_grade(text: str, topic: str = "", full_score: float = 100,
     level_text = {"A": "优秀", "B": "良好", "C": "需改进"}[level]
 
     highlights: list[str] = []
+    highlights.append("完成度达标：提交了与题目相关的完整作答")
     if hit_terms:
         highlights.append("覆盖了要点：" + "、".join(hit_terms[:4]))
-    if structure >= 10:
-        highlights.append("作答有分点或总结，结构清晰")
+    if structure >= 8:
+        highlights.append("分点清晰且有收束，结构完整")
+    elif structure >= 4:
+        highlights.append("作答有分点或收束，结构清楚")
     if length >= 300:
         highlights.append("篇幅充实，展开较充分")
-    if not highlights:
-        highlights.append("已作答，具备基本回应")
 
-    missing = [t for t in terms if t not in text][:4]
-    parts = [f"本次作答 {length} 字，{cover_note}"]
+    missing = [t for t in terms if not _term_matched(t, norm)][:4]
+    parts = [f"本次作答 {length} 字，{cover_note}",
+             f"完成度 {base_score:.0f} + 篇幅 {length_score:.0f} + 要点覆盖 {cover_score:.0f} "
+             f"+ 结构 {structure:.0f} = {score:.0f} 分"]
     if missing:
         parts.append("建议补充：" + "、".join(missing))
     else:
         parts.append("要点覆盖较完整，注意把关键步骤的依据写清楚")
-    parts.append(f"综合评定为{level_text}。")
-    comment = "；".join(parts) + "（规则生成，可修改后再保存）"
+    parts.append(f"综合评定为{level_text}")
+    comment = "；".join(parts) + "（规则生成，教师可修改后再保存）"
 
     return {
         "score": score,
@@ -628,7 +697,9 @@ def grade_one(text: str, rubric: str = "", topic: str = "", full_score: float = 
         f"评分要点参考：{rubric or '、'.join(terms or []) or '未提供'}\n\n"
         f"学生作答：\n{text[:3000]}\n\n"
         "要求：score 为 0~满分的数字；level 为 A/B/C；highlights 与 missing 各 1~3 条；"
-        "comment 为 60~120 字中文评语，先肯定再给具体改进建议，语气平和不对人做评价。"
+        "comment 为 60~120 字中文评语，先肯定再给具体改进建议，语气平和不对人做评价。\n"
+        "评分口径：以完成度为主，不要按「满分往下扣」。切题、有展开、结构完整的作答"
+        "应落在满分的 70%~90%；只有空白、严重跑题或明显事实错误才低于 60%。"
     )
     result, engine = llm.chat_json(
         [{"role": "user", "content": prompt}],
