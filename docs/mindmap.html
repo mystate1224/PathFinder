@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>寻径教育 PathFinder · 系统功能思维导图</title>
+<title>寻径教育 PathFinder · 系统能力思维导图</title>
 <style>
   :root{
     --brand:#4353FF; --brand-d:#3340D6; --brand-100:#E8EAFF; --brand-200:#CDD2FF;
@@ -51,12 +51,12 @@
   /* 根 */
   .nd--root{
     background:linear-gradient(135deg,var(--brand),#3A46E0); border:none; color:#fff;
-    display:flex; flex-direction:column; justify-content:center; align-items:center; gap:2px;
+    display:flex; flex-direction:column; justify-content:center; align-items:center; gap:3px;
     box-shadow:0 8px 24px rgba(67,83,255,.28); text-align:center; padding:0 14px;
   }
   .nd--root b{font-size:19px; font-weight:700; letter-spacing:.5px}
   .nd--root span{font-size:12px; opacity:.88}
-  .nd--root em{font-style:normal; font-size:11px; opacity:.7}
+  .nd--root em{font-style:normal; font-size:11px; opacity:.72}
   /* 端 */
   .nd--side{display:flex; flex-direction:column; justify-content:center; padding:0 16px; border-width:1px}
   .nd--side b{font-size:17px; font-weight:700}
@@ -67,32 +67,30 @@
   .nd--s{border-color:var(--accent-200); background:var(--accent-100); padding-left:19px}
   .nd--s::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--accent)}
   .nd--s b{color:var(--ink)}
-  /* 模块 */
-  .nd--mod{cursor:pointer; transition:box-shadow .18s ease, border-color .18s ease}
-  .nd--mod:hover{box-shadow:0 4px 16px rgba(23,32,51,.10)}
-  .nd--mod .mh{height:52px; padding:0 12px; display:flex; align-items:center; gap:8px}
-  .nd--mod .mh:hover{background:rgba(67,83,255,.04)}
-  .nd--mod h4{margin:0; font-size:14.5px; font-weight:650; flex:1; min-width:0;
+  /* 能力分组 */
+  .nd--grp{cursor:pointer; display:flex; align-items:center; gap:8px; padding:0 12px}
+  .nd--grp:hover{box-shadow:0 4px 14px rgba(23,32,51,.10)}
+  .nd--grp h4{margin:0; font-size:13.5px; font-weight:650; flex:1; min-width:0;
       white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  .nd--mod .path{font-size:11px; color:var(--ink-3); font-family:ui-monospace,Menlo,Consolas,monospace}
-  .nd--mod .fold{flex:none; width:18px; height:18px; border-radius:5px; background:#F1F5FB; color:var(--ink-3);
-      font-size:11px; line-height:18px; text-align:center}
-  .nd--mod.is-closed .fold{background:var(--brand-100); color:var(--brand-d)}
-  .nd--mt{border-color:var(--brand-200)}
-  .nd--mt .mh{border-bottom:1px solid #EEF1FB; background:linear-gradient(180deg,#FAFBFF,#fff)}
-  .nd--ms{border-color:var(--accent-200)}
-  .nd--ms .mh{border-bottom:1px solid #EDF8F5; background:linear-gradient(180deg,#F8FDFC,#fff)}
-  /* 子项 */
-  .nd--child{
-    display:flex; align-items:center; border-radius:8px; box-shadow:none;
-    font-size:13px; color:var(--ink-2); padding:0 12px;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-  .nd--ct{border-color:#E6E9FB}
-  .nd--ct::before{content:""; position:absolute; left:0; top:6px; bottom:6px; width:2px;
+  .nd--grp .n{font-size:11px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+  .nd--grp .fold{flex:none; width:18px; height:18px; border-radius:5px; background:rgba(255,255,255,.85);
+      color:var(--ink-3); font-size:11px; line-height:18px; text-align:center}
+  .nd--grp.is-closed .fold{background:var(--brand-100); color:var(--brand-d)}
+  .nd--gt{background:#F3F5FF; border-color:#DCE2FF}
+  .nd--gt::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--brand)}
+  .nd--gs{background:#EEFAF7; border-color:#CFEDE6}
+  .nd--gs::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent)}
+  /* 功能节点 */
+  .nd--item{display:flex; flex-direction:column; justify-content:center; padding:0 12px 0 14px; box-shadow:none}
+  .nd--item h5{margin:0; font-size:13.5px; font-weight:650; color:var(--ink);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .nd--item p{margin:2px 0 0; font-size:11.5px; line-height:1.45; color:var(--ink-3);
+      overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical}
+  .nd--it{border-color:#E4E8FB}
+  .nd--it::before{content:""; position:absolute; left:0; top:8px; bottom:8px; width:2px;
       background:var(--brand-200); border-radius:2px}
-  .nd--cs{border-color:#DDF1EC}
-  .nd--cs::before{content:""; position:absolute; left:0; top:6px; bottom:6px; width:2px;
+  .nd--is{border-color:#DCF1EB}
+  .nd--is::before{content:""; position:absolute; left:0; top:8px; bottom:8px; width:2px;
       background:var(--accent-200); border-radius:2px}
   /* ---------------- 底座 ---------------- */
   .base{max-width:1180px; margin:6px auto 40px; padding:0 20px}
@@ -119,8 +117,8 @@
   <div class="top__brand">
     <div class="top__mark">◆</div>
     <div>
-      <div class="top__name">寻径教育 PathFinder · 系统功能思维导图</div>
-      <div class="top__sub">教师端 7 个模块 / 学生端 6 个模块 · 双引擎可离线演示</div>
+      <div class="top__name">寻径教育 PathFinder · 系统能力思维导图</div>
+      <div class="top__sub">教师端 / 学生端 · 各 3 项基础能力 + 5 项特色功能</div>
     </div>
   </div>
   <div class="top__tools">
@@ -135,7 +133,7 @@
 <div class="stage" id="stage"><div class="canvas-wrap" id="wrap"><div class="canvas" id="canvas"></div></div></div>
 
 <section class="base">
-  <h3><i></i>两端共用的底座能力</h3>
+  <h3><i></i>两端共用的技术底座</h3>
   <div class="chips" id="chips"></div>
   <p class="note" id="note"></p>
 </section>
@@ -144,126 +142,73 @@
 (function () {
   "use strict";
 
-  /* ============ 数据：与代码里的页面 / 页签一一对应 ============ */
+  /* ============ 数据：按「能力」组织，不按页面数量 ============ */
   var DATA = {
     teacher: {
-      title: "教师端", sub: "教学 + 事务 · 7 个模块",
-      mods: [
-        { name: "教师驾驶舱", path: "/teacher", items: [
-          "班级学情总览（分布方框）",
-          "主标签 / 层次 / 兴趣分布",
-          "学生画像库（五维雷达）",
-          "我的团队：建 / 改 / 删",
-          "任教班级切换器"
+      title: "教师端", sub: "教 · 评 · 管",
+      groups: [
+        { name: "基础能力", items: [
+          { n: "图文解析", d: "讲义 / 试卷上传即转可编辑文本" },
+          { n: "知识抽取", d: "自动抽知识点，入库后可检索复用" },
+          { n: "交互答疑", d: "多轮追问 + 溯源，答案可存为笔记" }
         ]},
-        { name: "备课助手", path: "/teach", items: [
-          "教案生成：目标 / 重难点 / 环节",
-          "PPT 生成（真 .pptx，可编辑）",
-          "上传讲义直接出 PPT",
-          "我的产物：预览 / 下载"
-        ]},
-        { name: "作业批改", path: "/homework", items: [
-          "作业卡 ⇄ 批改视图（同一页）",
-          "逐份打分 / 修改 / 缺交记 0",
-          "布置 / 编辑 / 删除作业",
-          "自由试批 & 批量试批（不入库）",
-          "成绩 CSV 导出"
-        ]},
-        { name: "教师 Copilot", path: "/tutor", items: [
-          "一句话查学生 / 备课 / 讲知识点",
-          "意图路由：备课 / 讲解 / 查学生",
-          "溯源卡 + 引擎徽标",
-          "五类一键演示例子",
-          "多轮会话管理"
-        ]},
-        { name: "师生匹配", path: "/match", items: [
-          "推荐候选 + 匹配分",
-          "团队管理（名额 / 方向 / 类型）",
-          "企业资源发布与管理",
-          "学生申请批复"
-        ]},
-        { name: "资料与知识库", path: "/library", items: [
-          "上传解析：PDF / Word / 图片",
-          "知识点抽取并入库",
-          "课件在线预览 / 打开",
-          "检索实验室（双路召回）"
-        ]},
-        { name: "个人中心", path: "/profile", items: [
-          "账号信息与任教班级",
-          "偏好设置与明暗主题"
+        { name: "特色功能", items: [
+          { n: "分层智能备课", d: "按层次出教案与 PPT，可预览下载" },
+          { n: "个性化指导方案", d: "学情画像 → 团队与任务建议" },
+          { n: "智能作业批改", d: "AI 给建议分与评语，教师确认" },
+          { n: "教学资源匹配", d: "团队组建、企业资源、申请批复" },
+          { n: "教学 Copilot", d: "一句话查学生 / 备课 / 讲知识点" }
         ]}
       ]
     },
     student: {
-      title: "学生端", sub: "成长 + 事务 · 6 个模块",
-      mods: [
-        { name: "我的画像", path: "/student", items: [
-          "五维能力雷达图",
-          "主标签 + 分层（六格矩阵）",
-          "成长路线（阶段任务）",
-          "我的任务：增 / 改 / 完成"
+      title: "学生端", sub: "学 · 问 · 长",
+      groups: [
+        { name: "基础能力", items: [
+          { n: "图文解析", d: "题目 / 资料拍照即可解析" },
+          { n: "知识抽取", d: "抽取要点，沉淀进个人资料库" },
+          { n: "交互答疑", d: "随时提问，答案一键存笔记" }
         ]},
-        { name: "师生匹配", path: "/match", items: [
-          "推荐团队 + 匹配分",
-          "资源广场（企业项目）",
-          "我的申请（进度跟踪）",
-          "我的匹配记录"
-        ]},
-        { name: "学生 Copilot", path: "/ask", items: [
-          "分层答疑（A / B / C 深度不同）",
-          "图文解析 + 知识点抽取",
-          "五种 RAG 架构自动路由",
-          "答案存笔记进资料库",
-          "多轮会话管理"
-        ]},
-        { name: "我的作业", path: "/homework", items: [
-          "待完成：在线作答 / 传附件",
-          "全部作业：得分与评语",
-          "截止时间与提交状态"
-        ]},
-        { name: "我的资料库", path: "/library", items: [
-          "上传素材并建立索引",
-          "教师共享资料导入",
-          "知识点库（按课程聚合）",
-          "检索实验室（双路召回）"
-        ]},
-        { name: "个人中心", path: "/profile", items: [
-          "账号信息与学习画像",
-          "偏好设置与明暗主题"
+        { name: "特色功能", items: [
+          { n: "分层答疑", d: "同一问题按层次给不同深度的讲解" },
+          { n: "画像与成长路线", d: "五维雷达 + 阶段任务打卡" },
+          { n: "团队与资源申请", d: "推荐团队、项目申请、进度跟踪" },
+          { n: "作业闭环", d: "在线作答，回看得分与评语" },
+          { n: "个人知识库", d: "素材入库 + 导入教师共享资料" }
         ]}
       ]
     }
   };
 
   var BASE = [
-    ["双引擎", "规则版 + 真实模型，失败自动降级，断网也能演示"],
-    ["六格矩阵", "学业型 / 事业型 × A / B / C，决定推荐深度与任务难度"],
-    ["混合检索", "BM25 + 向量双路召回，RRF 融合，命中标注来源"],
-    ["五种 RAG", "混合 / 图谱 / 智能体 / 纠错 / 多模态，自动路由可手切"],
-    ["数据隔离", "同学之间互不可见，教师共享需显式导入"],
-    ["演示账号", "teacher / stu01，密码统一 123456"]
+    ["双引擎", "规则版 + 真实模型，失败自动降级"],
+    ["六格矩阵", "学业型 / 事业型 × A / B / C，决定深度与难度"],
+    ["混合检索", "BM25 + 向量双路召回，命中标注来源"],
+    ["五种 RAG", "混合 / 图谱 / 智能体 / 纠错 / 多模态，自动路由"],
+    ["数据隔离", "学生互不可见，共享需显式授权"],
+    ["演示账号", "teacher / stu01，密码 123456"]
   ];
   var NOTE = "分层口径：平台产出的<b>分层结论只用于决定「推荐内容的深度」与「任务难度」</b>，不用于分班、不构成准入门槛；批改环节的 AI 只给<b>建议分</b>，最终分由教师确认。";
 
   /* ============ 布局常量 ============ */
-  var W_CHILD = 216, W_MOD = 240, W_SIDE = 184, W_ROOT = 240;
-  var H_CHILD = 30, H_MOD = 52, PAD_MOD = 10, GAP_MOD = 18;
-  var GAP_X = 46, GAP_X_SIDE = 68, PAD_Y = 40;
-  var H_ROOT = 96, H_SIDE = 76;
+  var W_ROOT = 220, W_SIDE = 164, W_GRP = 138, W_ITEM = 230;
+  var H_ROOT = 92, H_SIDE = 68, H_GRP = 42, H_ITEM = 54;
+  var GAP_ITEM = 10, PAD_GRP = 10, GAP_GRP = 20;
+  var GAP_X_SIDE = 58, GAP_X1 = 40, GAP_X2 = 40, PAD_Y = 36;
 
   var state = { closed: {}, scale: 1 };
   var canvas = document.getElementById("canvas");
   var wrap = document.getElementById("wrap");
   var stage = document.getElementById("stage");
 
-  function blockH(side, i) {
-    var m = DATA[side].mods[i];
-    return H_MOD + (state.closed[side + i] ? 0 : m.items.length * H_CHILD) + PAD_MOD;
+  function grpH(side, i) {
+    var g = DATA[side].groups[i];
+    return H_GRP + (state.closed[side + i] ? 0 : g.items.length * H_ITEM + (g.items.length - 1) * GAP_ITEM) + PAD_GRP;
   }
   function sideH(side) {
-    var n = DATA[side].mods.length, h = 0;
-    for (var i = 0; i < n; i++) h += blockH(side, i);
-    return h + (n - 1) * GAP_MOD;
+    var n = DATA[side].groups.length, h = 0;
+    for (var i = 0; i < n; i++) h += grpH(side, i);
+    return h + (n - 1) * GAP_GRP;
   }
 
   function esc(s) {
@@ -275,24 +220,23 @@
   }
 
   function render() {
-    var H = Math.max(sideH("teacher"), sideH("student")) + PAD_Y * 2;
-    var W = W_ROOT + 2 * (GAP_X_SIDE + W_SIDE + GAP_X + W_MOD + GAP_X + W_CHILD) + PAD_Y * 2;
+    var H = Math.max(sideH("teacher"), sideH("student"), H_ROOT) + PAD_Y * 2;
+    var W = W_ROOT + 2 * (GAP_X_SIDE + W_SIDE + GAP_X1 + W_GRP + GAP_X2 + W_ITEM) + PAD_Y * 2;
 
     var cx = W / 2, cy = H / 2;
     var rootX = cx - W_ROOT / 2, rootY = cy - H_ROOT / 2;
     var wires = [], nodes = [];
 
-    /* 根 */
     nodes.push('<div class="nd nd--root" style="left:' + rootX + 'px;top:' + rootY + 'px;width:' + W_ROOT +
-      'px;height:' + H_ROOT + 'px"><b>寻径教育 PathFinder</b><span>学业—就业双轨导航</span><em>教师端 7 · 学生端 6</em></div>');
+      'px;height:' + H_ROOT + 'px"><b>寻径教育 PathFinder</b><span>学业—就业双轨导航</span><em>基础能力 + 端侧特色</em></div>');
 
     var sides = [
-      { k: "teacher", dir: -1, cls: "t", color: "#4353FF", soft: "rgba(67,83,255,.34)" },
-      { k: "student", dir: 1, cls: "s", color: "#17C9A8", soft: "rgba(23,201,168,.38)" }
+      { k: "teacher", dir: -1, cls: "t" },
+      { k: "student", dir: 1, cls: "s" }
     ];
 
     sides.forEach(function (sd) {
-      var d = DATA[sd.k], n = d.mods.length;
+      var d = DATA[sd.k], n = d.groups.length;
       var sh = sideH(sd.k);
       var sideX = sd.dir < 0 ? rootX - GAP_X_SIDE - W_SIDE : rootX + W_ROOT + GAP_X_SIDE;
       var sideY = cy - H_SIDE / 2;
@@ -301,37 +245,36 @@
       nodes.push('<div class="nd nd--side nd--' + sd.cls + '" style="left:' + sideX + 'px;top:' + sideY +
         'px;width:' + W_SIDE + 'px;height:' + H_SIDE + 'px"><b>' + esc(d.title) + '</b><span>' + esc(d.sub) + '</span></div>');
 
-      /* 端 → 根 */
       if (sd.dir < 0) wires.push(wire(sideX + W_SIDE, sideY + H_SIDE / 2, rootX, cy, "w" + sd.cls));
       else wires.push(wire(rootX + W_ROOT, cy, sideX, sideY + H_SIDE / 2, "w" + sd.cls));
 
       var y = top;
       for (var i = 0; i < n; i++) {
-        var m = d.mods[i], bh = blockH(sd.k, i);
-        var modX = sd.dir < 0 ? sideX - GAP_X - W_MOD : sideX + W_SIDE + GAP_X;
+        var g = d.groups[i], gh = grpH(sd.k, i);
+        var gX = sd.dir < 0 ? sideX - GAP_X1 - W_GRP : sideX + W_SIDE + GAP_X1;
         var closed = !!state.closed[sd.k + i];
 
-        nodes.push('<div class="nd nd--mod nd--m' + sd.cls + (closed ? " is-closed" : "") +
-          '" data-mod="' + sd.k + i + '" style="left:' + modX + 'px;top:' + y + 'px;width:' + W_MOD +
-          'px;height:' + bh + 'px;z-index:2" title="点击折叠 / 展开">' +
-          '<div class="mh"><h4>' + esc(m.name) + '</h4><span class="path">' + esc(m.path) + '</span>' +
-          '<span class="fold">' + (closed ? "+" : "−") + "</span></div></div>");
+        nodes.push('<div class="nd nd--grp nd--g' + sd.cls + (closed ? " is-closed" : "") +
+          '" data-grp="' + sd.k + i + '" style="left:' + gX + 'px;top:' + y + 'px;width:' + W_GRP +
+          'px;height:' + H_GRP + 'px;z-index:2" title="点击折叠 / 展开">' +
+          "<h4>" + esc(g.name) + '</h4><span class="n">' + g.items.length + '</span>' +
+          '<span class="fold">' + (closed ? "+" : "−") + "</span></div>");
 
-        /* 端 → 模块 */
-        if (sd.dir < 0) wires.push(wire(sideX, sideY + H_SIDE / 2, modX + W_MOD, y + H_MOD / 2, "w" + sd.cls));
-        else wires.push(wire(sideX + W_SIDE, sideY + H_SIDE / 2, modX, y + H_MOD / 2, "w" + sd.cls));
+        if (sd.dir < 0) wires.push(wire(sideX, sideY + H_SIDE / 2, gX + W_GRP, y + H_GRP / 2, "w" + sd.cls));
+        else wires.push(wire(sideX + W_SIDE, sideY + H_SIDE / 2, gX, y + H_GRP / 2, "w" + sd.cls));
 
         if (!closed) {
-          var chX = sd.dir < 0 ? modX - GAP_X - W_CHILD : modX + W_MOD + GAP_X;
-          for (var j = 0; j < m.items.length; j++) {
-            var chY = y + H_MOD + 4 + j * H_CHILD;
-            nodes.push('<div class="nd nd--child nd--c' + sd.cls + '" style="left:' + chX + 'px;top:' + chY +
-              'px;width:' + W_CHILD + 'px;height:' + (H_CHILD - 4) + 'px">' + esc(m.items[j]) + "</div>");
-            if (sd.dir < 0) wires.push(wire(chX + W_CHILD, chY + (H_CHILD - 4) / 2, modX, y + H_MOD / 2, "wc" + sd.cls));
-            else wires.push(wire(modX + W_MOD, y + H_MOD / 2, chX, chY + (H_CHILD - 4) / 2, "wc" + sd.cls));
+          var itX = sd.dir < 0 ? gX - GAP_X2 - W_ITEM : gX + W_GRP + GAP_X2;
+          for (var j = 0; j < g.items.length; j++) {
+            var it = g.items[j];
+            var itY = y + H_GRP + 5 + j * (H_ITEM + GAP_ITEM);
+            nodes.push('<div class="nd nd--item nd--i' + sd.cls + '" style="left:' + itX + 'px;top:' + itY +
+              'px;width:' + W_ITEM + 'px;height:' + H_ITEM + 'px"><h5>' + esc(it.n) + "</h5><p>" + esc(it.d) + "</p></div>");
+            if (sd.dir < 0) wires.push(wire(itX + W_ITEM, itY + H_ITEM / 2, gX, y + H_GRP / 2, "wc" + sd.cls));
+            else wires.push(wire(gX + W_GRP, y + H_GRP / 2, itX, itY + H_ITEM / 2, "wc" + sd.cls));
           }
         }
-        y += bh + GAP_MOD;
+        y += gh + GAP_GRP;
       }
     });
 
@@ -341,7 +284,7 @@
       '<svg class="wires" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' +
       '<style>.wt,.ws{fill:none;stroke-width:2}.wc-t,.wc-s{fill:none;stroke-width:1.4}' +
       ".wt{stroke:rgba(67,83,255,.40)}.ws{stroke:rgba(23,201,168,.44)}" +
-      ".wc-t{stroke:rgba(67,83,255,.26)}.wc-s{stroke:rgba(23,201,168,.30)}</style>" +
+      ".wc-t{stroke:rgba(67,83,255,.24)}.wc-s{stroke:rgba(23,201,168,.28)}</style>" +
       wires.join("") + "</svg>" + nodes.join("");
 
     applyScale();
@@ -364,9 +307,9 @@
 
   /* ============ 交互 ============ */
   canvas.addEventListener("click", function (e) {
-    var el = e.target.closest("[data-mod]");
+    var el = e.target.closest("[data-grp]");
     if (!el) return;
-    var k = el.getAttribute("data-mod");
+    var k = el.getAttribute("data-grp");
     if (state.closed[k]) delete state.closed[k]; else state.closed[k] = 1;
     render();
   });
@@ -382,7 +325,7 @@
     state.closed = {};
     if (!any) {
       ["teacher", "student"].forEach(function (k) {
-        DATA[k].mods.forEach(function (m, i) { state.closed[k + i] = 1; });
+        DATA[k].groups.forEach(function (g, i) { state.closed[k + i] = 1; });
       });
       this.textContent = "全部展开";
     } else {
