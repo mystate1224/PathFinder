@@ -36,3 +36,9 @@ data/browser/
 .tmp/
 .tmppf/
 data/tmp-*
+
+# 参赛素材与视频产物（体积大，不入库）
+寻径团队材料/
+寻径视频/
+*.zip
+test2.png

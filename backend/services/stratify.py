@@ -21,13 +21,13 @@ from typing import Any, Iterable, Sequence
 
 import db
 import llm
-from services import taxonomy as tax
+from services import evidence, taxonomy as tax
 
 DIRECTION_KEYWORDS: dict[str, list[str]] = tax.DIRECTION_KEYWORDS
 RESEARCH_DIRECTIONS: set[str] = tax.RESEARCH_DIRECTIONS
 ENGINEERING_DIRECTIONS: set[str] = tax.ENGINEERING_DIRECTIONS
 
-# 五维能力的展示顺序与中文名
+# 五维能力的展示顺序与中文名（旧口径，仅作兜底保留）
 ABILITY_KEYS: list[tuple[str, str]] = [
     ("foundation", "专业基础"),
     ("practice", "实践能力"),
@@ -35,6 +35,19 @@ ABILITY_KEYS: list[tuple[str, str]] = [
     ("communication", "沟通协作"),
     ("driveself", "自驱力"),
 ]
+
+# 画像 v2 六维（当前主口径）：D1~D6
+ABILITY_KEYS_V2: list[tuple[str, str]] = [
+    ("D1", "知识掌握"),
+    ("D2", "分析推理"),
+    ("D3", "工具实践"),
+    ("D4", "研究创新"),
+    ("D5", "协作沟通"),
+    ("D6", "自主发展"),
+]
+
+# v2 生效的最低置信度：低于它说明证据不够，回落到旧口径（双引擎纪律）
+V2_MIN_CONF = 0.50
 
 # 分层引擎的 schema（双引擎共用，保证两条路返回结构一致）
 SCHEMA = (
@@ -264,6 +277,94 @@ def layer_badge(track: str, level: str) -> str:
     return f"{track or '未定'} · {level or 'B'} 层"
 
 
+def ability_pairs_of(profile: dict) -> list[dict]:
+    """画像能力对（前端雷达图直接用）。
+
+    六维（v2）优先；库里还是旧五维时按旧键输出，保证老数据也能显示。
+    """
+    ability = profile.get("ability")
+    if not isinstance(ability, dict):
+        ability = db.jload(ability, {}) or {}
+    if any(k in ability for k in ("D1", "D2", "D3", "D4", "D5", "D6")):
+        return [{"name": name, "value": float(ability.get(key, 0) or 0)}
+                for key, name in ABILITY_KEYS_V2]
+    return [{"name": name, "value": float(ability.get(key, 0) or 0)}
+            for key, name in ABILITY_KEYS]
+
+
+def recompute_profile(student_id: int, prev_track: str = "") -> tuple[dict, str]:
+    """画像主口径：**六维 v2 优先**，证据不足则回落旧规则版。
+
+    结论写入 ``student_profiles.track / grade_level / ability`` —— 分层答疑、
+    匹配打分、成长路线与驾驶舱分布都读这几列，所以切换后整条链路自动生效。
+
+    两条降级纪律（与项目的双引擎一致）：
+      * v2 计算异常 → 回落旧口径；
+      * v2 置信度 < ``V2_MIN_CONF``（证据太少）→ 回落旧口径，避免给出没依据的结论。
+    """
+    prof = db.student_profile(student_id) or {}
+    try:
+        v2 = evidence.profile_v2(
+            student_id,
+            prev_track=prev_track or str(prof.get("track") or ""),
+        )
+    except Exception as exc:  # noqa: BLE001 - 画像不能因为试算异常而算不出来
+        v2 = {"error": f"{type(exc).__name__}: {exc}"}
+
+    conf = float(v2.get("conf") or 0)
+    if not v2.get("error") and conf >= V2_MIN_CONF:
+        ability = {d["key"]: d["value"] for d in v2["dims_named"]}
+        # 业务字段只认二元主标签与 ABC：待定按差值方向落一侧，理由里写明"双轨并进"
+        track = v2.get("track")
+        if track not in ("学业型", "事业型"):
+            track = "学业型" if float(v2.get("delta") or 0) >= 0 else "事业型"
+        level = v2.get("level") if v2.get("level") in ("A", "B", "C") else "B"
+        return {
+            "track": track,
+            "grade_level": level,
+            "interests": prof.get("interests") or [],
+            "ability": ability,
+            "ability_conf": v2.get("conf_dims") or {},
+            "gpa": prof.get("gpa") or 0,
+            "research_intent": prof.get("research_intent") or 3.0,
+            "job_intent": prof.get("job_intent") or 3.0,
+            "reason": v2.get("reason", ""),
+            "dims": v2.get("dims") or {},
+            "dims_named": v2.get("dims_named") or [],
+            "profile_source": "v2",
+            "profile_conf": conf,
+            "conf": conf,
+            "s_academic": v2.get("s_academic"),
+            "s_career": v2.get("s_career"),
+            "delta": v2.get("delta"),
+            "level_score": v2.get("level_score"),
+            # 与 profile_v2() 的字段形状保持一致，前端不需要分支判断
+            "conf": conf,
+            "s_academic": v2.get("s_academic"),
+            "s_career": v2.get("s_career"),
+        }, "rule-v2"
+
+    # ---- 兜底：旧规则口径
+    old, engine = stratify(
+        gpa=float(prof.get("gpa") or 0),
+        research_intent=float(prof.get("research_intent") or 3.0),
+        job_intent=float(prof.get("job_intent") or 3.0),
+        interests=db.jload(prof.get("interests"), []) or [],
+    )
+    old["interests"] = db.jload(prof.get("interests"), []) or []
+    old["profile_source"] = "v1-fallback"
+    old["profile_conf"] = round(conf, 2)
+    # 与 v2 分支保持同样的字段形状，前端不用分支判断
+    old["dims"] = old.get("ability") or {}
+    old["dims_named"] = ability_pairs_of(old)
+    if v2.get("error"):
+        old["reason"] = f"六维试算异常，已回落旧口径（{v2['error']}）。{old.get('reason', '')}"
+    else:
+        old["reason"] = (f"六维证据不足（置信度 {conf:.2f} < {V2_MIN_CONF}），"
+                         f"暂用旧口径：{old.get('reason', '')}")
+    return old, "rule-v1"
+
+
 def update_intent(
     user_id: int,
     research_intent: float | None = None,
@@ -288,13 +389,26 @@ def update_intent(
         if direction and direction not in merged:
             merged.append(direction)
 
-    result, engine = stratify(
-        gpa=gpa,
-        research_intent=research,
-        job_intent=job,
-        interests=merged,
-        extra_text=extra_text,
+    # 先把自评与兴趣落库，再走主口径重算 —— 自评只影响 D6（自主发展）15% 的权重，
+    # 主标签与层次由六维综合结果决定，不再由自评直接判定。
+    db.execute(
+        "INSERT INTO student_profiles "
+        "(user_id, track, grade_level, interests, ability, gpa, research_intent, job_intent, reason, engine) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
+        "interests=excluded.interests, research_intent=excluded.research_intent, "
+        "job_intent=excluded.job_intent",
+        (
+            user_id,
+            profile.get("track", ""),
+            profile.get("grade_level", "B"),
+            db.jdump(merged),
+            db.jdump(profile.get("ability") or {}),
+            gpa, research, job,
+            profile.get("reason", ""),
+            "rule",
+        ),
     )
+    result, engine = recompute_profile(user_id)
     save_profile(user_id, result, engine)
     return result, engine
 

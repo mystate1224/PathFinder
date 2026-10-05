@@ -1867,7 +1867,7 @@
           "」（" + PF.num(weak.value, 1) + "）：" +
           (Number(best.value) - Number(weak.value) >= 1.2
             ? "长短差得比较明显，补短板比继续加长板划算。"
-            : "五维比较均衡，可以往任一方向加任务。") },
+            : "六维比较均衡，可以往任一方向加任务。") },
       { tag: "画像 · 定位", name: "② 按什么口径带他",
         desc: (p.track || "—") + " · " + (p.grade_level || "—") + " 层（" + (p.layer || "") +
           "）——" + (p.track === "学业型"
@@ -1941,7 +1941,7 @@
       "</div>" +
       '<div class="radar-wrap">' + PF.radar(ab, { max: 5 }) + PF.radarTips(ab) + "</div>" +
       "</div>";
-    html += '<div class="dm-lead">图是这个学生真实的五维能力（数据来源：画像库）。' +
+    html += '<div class="dm-lead">图是这个学生真实的六维能力（数据来源：画像库）。' +
       "下面两句是照着图读出来的，不是套话：</div>";
     html += PF.demoBlocks(PF.coachReading(r));
     html += '<div class="dm-note">' + PF.icon("target", 13) +

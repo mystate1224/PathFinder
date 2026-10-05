@@ -1119,10 +1119,14 @@ def test_demo_accounts(c: Client) -> None:
     c.check("未登录也能取到演示账号", lambda:
             f"{len(teachers)} 个教师 + {len(students)} 个学生")
 
-    c.check("学生恰好两个：学业型一个、事业型一个", lambda: (
-        lambda ts: (ts == ["学业型", "事业型"] and "各 1 个") or
+    # 主演示学生（不含画像 v2 测试账号）必须恰好两个：一学业一事业
+    main_students = [s for s in students if s.get("group") != "test"]
+    c.check("主演示学生恰好两个：学业型一个、事业型一个", lambda: (
+        lambda ts: (ts == ["学业型", "事业型"] and
+                    "各 1 个" + (f"（另有 {len(students) - len(main_students)} 个画像 v2 测试账号）"
+                                 if len(students) != len(main_students) else "")) or
         (_ for _ in ()).throw(AssertionError(f"实际主标签 {ts}"))
-    )([s.get("track") for s in students]))
+    )([s.get("track") for s in main_students]))
 
     def _verify(s: dict):
         stu = Client(c.base)
@@ -1133,7 +1137,7 @@ def test_demo_accounts(c: Client) -> None:
         stu.logout()
         return f"{s['username']} 卡片与画像一致（{prof.get('track')} · {prof.get('grade_level')} 层）"
 
-    for _s in students:
+    for _s in main_students:
         c.check(f"演示账号 {_s.get('username')} 类型一致", lambda _x=_s: _verify(_x))
 
 

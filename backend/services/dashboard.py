@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Sequence
 
 import db
-from services import planner, resources, tutor
+from services import evidence, planner, resources, stratify, tutor
 
 # 行政班的中文全名（班级切换器与驾驶舱标题用；不在表里也能正常显示班号）
 CLASS_LABELS: dict[str, str] = {
@@ -140,12 +140,7 @@ def overview(teacher: dict, level: str = "", track: str = "", keyword: str = "",
             row["track"] if row["track"] in ("学业型", "事业型") else "学业型",
             row["grade_level"],
         )["style"]
-        row["ability_pairs"] = [
-            {"name": name, "value": float(row["ability"].get(key, 0) or 0)}
-            for key, name in (("foundation", "专业基础"), ("practice", "实践能力"),
-                              ("research", "科研素养"), ("communication", "沟通协作"),
-                              ("driveself", "自驱力"))
-        ]
+        row["ability_pairs"] = stratify.ability_pairs_of(row)
         row["task_count"] = db.scalar(
             "SELECT COUNT(*) FROM tasks WHERE student_id = ? AND status <> 'done'",
             (row["id"],), 0,
@@ -236,12 +231,7 @@ def student_detail(teacher: dict, student_id: int) -> dict:
     profile["layer"] = tutor.layer_label(profile["track"], profile["grade_level"])
     profile["style"] = tutor.cell_of(profile["track"], profile["grade_level"])["style"]
     ability = db.jload(profile.get("ability"), {})
-    profile["ability_pairs"] = [
-        {"name": name, "value": float(ability.get(key, 0) or 0)}
-        for key, name in (("foundation", "专业基础"), ("practice", "实践能力"),
-                          ("research", "科研素养"), ("communication", "沟通协作"),
-                          ("driveself", "自驱力"))
-    ]
+    profile["ability_pairs"] = stratify.ability_pairs_of(profile)
     profile["interests"] = db.jload(profile.get("interests"), [])
 
     tasks = db.query(
@@ -280,12 +270,7 @@ def student_self(student_id: int) -> dict:
     profile["next_step"] = tutor.cell_of(profile["track"], profile["grade_level"])["next"]
     profile["interests"] = db.jload(profile.get("interests"), [])
     ability = db.jload(profile.get("ability"), {})
-    profile["ability_pairs"] = [
-        {"name": name, "value": float(ability.get(key, 0) or 0)}
-        for key, name in (("foundation", "专业基础"), ("practice", "实践能力"),
-                          ("research", "科研素养"), ("communication", "沟通协作"),
-                          ("driveself", "自驱力"))
-    ]
+    profile["ability_pairs"] = stratify.ability_pairs_of(profile)
 
     tasks = db.query(
         "SELECT * FROM tasks WHERE student_id = ? ORDER BY status, id DESC", (student_id,)
@@ -300,12 +285,30 @@ def student_self(student_id: int) -> dict:
     )
     route, engine = planner.roadmap(profile, mastery)
 
+    # 画像 v2（六维）已转正为**生效口径**：结论写进 track / grade_level / ability，
+    # 分层答疑、匹配打分、成长路线与驾驶舱分布都读这几列，因此整条链路自动生效。
+    # 证据不足时 recompute_profile 会自行回落旧规则版（双引擎兜底纪律）。
+    try:
+        # recompute_profile = 生效口径：六维 v2 优先，证据不足自动回落旧规则版，
+        # 所以卡片上显示的结论与推荐/匹配实际使用的是同一份。
+        v2, _e2 = stratify.recompute_profile(
+            student_id, prev_track=str(profile.get("track_v2") or ""))
+        db.execute(
+            "UPDATE student_profiles SET ability_v2=?, ability_conf=?, track_v2=?, level_v2=? "
+            "WHERE user_id=?",
+            (db.jdump(v2.get("dims") or {}),
+             db.jdump(v2.get("conf_dims") or {}), v2.get("track", ""), v2.get("level", ""), student_id),
+        )
+    except Exception as exc:  # noqa: BLE001 - 画像试算失败不能拖垮整个画像页
+        v2 = {"error": f"{type(exc).__name__}: {exc}"}
+
     return {
         "user": {
             "id": user.get("id"), "username": user.get("username"), "name": user.get("name"),
             "class_id": user.get("class_id"), "class_name": user.get("class_name"),
         },
         "profile": profile,
+        "profile_v2": v2,
         "tasks": tasks,
         "materials": materials,
         "mastery": mastery,
@@ -367,12 +370,7 @@ def account_profile(user: dict) -> dict:
         "style": tutor.cell_of(track, level)["style"],
         "gpa": float(prof.get("gpa") or 0),
         "interests": db.jload(prof.get("interests"), []),
-        "ability_pairs": [
-            {"name": name, "value": float(ability.get(key, 0) or 0)}
-            for key, name in (("foundation", "专业基础"), ("practice", "实践能力"),
-                              ("research", "科研素养"), ("communication", "沟通协作"),
-                              ("driveself", "自驱力"))
-        ],
+        "ability_pairs": stratify.ability_pairs_of(prof),
         "stats": [
             {"label": "在办任务", "value": db.scalar(
                 "SELECT COUNT(*) FROM tasks WHERE student_id=? AND status<>'done'", (uid,), 0)},

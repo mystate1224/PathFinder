@@ -321,6 +321,10 @@ DEMO_TEACHERS: list[tuple[str, str]] = [
 ]
 DEMO_TRACKS: tuple[str, ...] = ("学业型", "事业型")
 
+# 画像 v2 的测试账号：显式列出，路演与测试时可一键登录。
+# 与主演示账号的区别是带 ``group="test"``，界面文案会标明"画像 v2 测试"。
+DEMO_TEST_STUDENTS: tuple[str, ...] = ("test_acad_b", "test_career_a")
+
 
 def _demo_accounts() -> list[dict]:
     """按真实画像挑演示账号：每种主标签各取一个（账号序最小、每次演示都是同一批人）。"""
@@ -357,6 +361,27 @@ def _demo_accounts() -> list[dict]:
             "track": track,
             "grade_level": str(row.get("grade_level") or "B"),
             "label": f"学生 · {track} · {row.get('grade_level') or 'B'} 层",
+            "group": "main",
+        })
+
+    for username in DEMO_TEST_STUDENTS:
+        row = db.user_by_username(username)
+        if not row:
+            continue
+        prof = db.student_profile(int(row["id"])) or {}
+        track = str(prof.get("track") or "学业型")
+        level = str(prof.get("grade_level") or "B")
+        accounts.append({
+            "username": row.get("username"),
+            "name": row.get("name"),
+            "role": "student",
+            "track": track,
+            "grade_level": level,
+            # 顺带把 v2 试算结论写进文案，登录页即可看出新旧口径的差异
+            "label": f"画像 v2 测试 · {track} · {level} 层" + (
+                f"（v2 试算 {prof.get('track_v2')} · {prof.get('level_v2')} 层）"
+                if prof.get("track_v2") else ""),
+            "group": "test",
         })
     return accounts
 

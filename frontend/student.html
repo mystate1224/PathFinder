@@ -94,6 +94,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           "</div>" +
         "</div></div>" +
 
+        profileV2Card(d.profile_v2) +
+
         '<div class="grid grid-4">' +
           statCard("clipboard", "待办任务", (s.tasks_todo || 0) + ' <span class="t-sm">条</span>', "来自你的成长计划", (s.tasks_todo || 0) ? "warn" : "") +
           statCard("layers", "我的资料", (s.materials || 0) + ' <span class="t-sm">份</span>', "上传后自动抽知识点", "") +
@@ -102,14 +104,6 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         "</div>" +
 
         '<div class="grid grid-2 mt-5" style="gap:16px">' +
-          '<div class="card"><div class="card__head"><h3>能力画像</h3>' +
-            '<div class="card__head-actions"><span class="t-xs">每项满分 5 分</span></div></div>' +
-            '<div class="card__body stack-sm">' +
-              PF.radar(abilityPairs(p.ability_pairs), { max: 5, label: "五维能力雷达图" }) +
-              PF.radarTips(abilityPairs(p.ability_pairs)) +
-              '<p class="t-xs mt-3">由课程成绩、作业表现、上传材料与答疑提问综合推导，会随数据积累逐步细化。悬停顶点可看单项分数。</p>' +
-            "</div></div>" +
-
           '<div class="card"><div class="card__head"><h3>画像解读</h3>' +
             '<div class="card__head-actions">' + PF.engineBadge(p.engine) + "</div></div>" +
             '<div class="card__body stack">' +
@@ -181,6 +175,51 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     return PF.arr(pairs).map(function (a) {
       return { name: ABILITY_LABEL[a.name] || a.name || "—", value: Number(a.value) || 0 };
     });
+  }
+
+  // 学业画像卡片：六维 v2 为当前生效的判定口径，参与推荐与匹配
+  function profileV2Card(v2) {
+    if (!v2 || v2.error) {
+      return '<div class="card mb-5"><div class="card__body">' +
+        '<span class="t-xs">画像引擎 · 六维判定</span>' +
+        '<div class="t-sm t-dim mt-2">暂不可用' + (v2 && v2.error ? "：" + PF.esc(v2.error) : "") + "</div>" +
+        "</div></div>";
+    }
+    var dims = PF.arr(v2.dims_named);
+    var confPct = Math.round((Number(v2.conf) || 0) * 100);
+    var tone = v2.track === "学业型" ? "brand" : (v2.track === "事业型" ? "ok" : "");
+    return '<div class="card mb-5">' +
+      '<div class="card__head"><h3>学业画像 · 六维判定</h3>' +
+        '<div class="card__head-actions">' +
+          '<span class="chip' + (tone ? " chip--" + tone : "") + '">' + PF.esc(v2.track || "待定") +
+            (v2.level ? " · " + PF.esc(v2.level) + " 层" : "") + "</span>" +
+          '<span class="t-xs">置信度 ' + confPct + "%</span>" +
+        "</div></div>" +
+      '<div class="card__body">' +
+        '<div class="row" style="gap:18px;align-items:flex-start;flex-wrap:wrap">' +
+          '<div style="flex:0 0 300px">' +
+            PF.radar(dims.map(function (d) { return { name: d.name, value: Number(d.value) || 0 }; }),
+                     { max: 5, label: "六维能力雷达图" }) +
+          "</div>" +
+          '<div class="flex-1" style="min-width:250px">' +
+            '<div class="t-body" style="line-height:1.75">' + PF.esc(v2.reason || "") + "</div>" +
+            '<div class="row mt-3" style="gap:10px;flex-wrap:wrap">' +
+              '<span class="t-xs">学业子指数 <b>' + PF.num(v2.s_academic, 2) + "</b></span>" +
+              '<span class="t-xs">事业子指数 <b>' + PF.num(v2.s_career, 2) + "</b></span>" +
+              '<span class="t-xs">差值 <b>' + PF.num(v2.delta, 2) + "</b></span>" +
+            "</div>" +
+            '<details class="mt-3"><summary class="t-xs" style="cursor:pointer">各维度置信度</summary>' +
+              '<div class="mt-2">' + dims.map(function (d) {
+                return '<div class="row" style="gap:8px;justify-content:space-between">' +
+                  '<span class="t-xs">' + PF.esc(d.name) + " " + PF.num(d.value, 2) + "</span>" +
+                  '<span class="t-xs t-dim">' + Math.round((Number(d.conf) || 0) * 100) + "%</span></div>";
+              }).join("") + "</div>" +
+            "</details>" +
+          "</div>" +
+        "</div>" +
+        '<p class="t-xs mt-3">六维依据 CEEAA 工程教育认证毕业要求与人社部职业核心能力设计，由成绩、作业要点、知识点掌握度、答疑提问、团队参与与任务完成度推导。' +
+          '<b>本卡片即当前生效的判定口径</b>，参与推荐与师生匹配。' +
+      "</div></div>";
   }
 
   function statCard(icon, label, num, hint, tone) {

@@ -303,6 +303,16 @@ CREATE TABLE IF NOT EXISTS kp_mastery (
     UNIQUE (student_id, kp_name)
 );
 
+-- 画像 v2：单科成绩（D1 知识掌握的第二个硬证据，也让"偏科"可被识别）
+CREATE TABLE IF NOT EXISTS course_grades (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    course     TEXT NOT NULL DEFAULT '',
+    score      REAL NOT NULL DEFAULT 0,
+    term       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
 -- 备课文件夹：教师可以**先建好空文件夹**再把产物移进去，所以文件夹不能只靠
 -- artifacts.folder 分组推导（空的就推导不出来），必须单独登记一条。
 CREATE TABLE IF NOT EXISTS prep_folders (
@@ -349,7 +359,19 @@ _COLUMN_UPGRADES: dict[str, list[tuple[str, str]]] = {
     "student_profiles": [
         ("research_intent", "REAL NOT NULL DEFAULT 3"),
         ("job_intent", "REAL NOT NULL DEFAULT 3"),
+        # 画像 v2（六维试算）：与旧五维并存，v2 尚未接管业务判定
+        ("ability_v2", "TEXT NOT NULL DEFAULT '{}'"),
+        ("ability_conf", "TEXT NOT NULL DEFAULT '{}'"),
+        ("track_v2", "TEXT NOT NULL DEFAULT ''"),
+        ("level_v2", "TEXT NOT NULL DEFAULT ''"),
     ],
+    # 画像 v2 证据：作业要点命中数（D2 分析推理最可靠的证据）
+    "homework_submissions": [
+        ("points_hit", "REAL NOT NULL DEFAULT -1"),
+        ("points_total", "REAL NOT NULL DEFAULT -1"),
+    ],
+    # 画像 v2 证据：追问深度按会话统计（E2.3）
+    "chat_messages": [("session_id", "TEXT NOT NULL DEFAULT ''")],
     "materials": [
         ("category", "TEXT NOT NULL DEFAULT '未分类'"),
         ("stored", "TEXT NOT NULL DEFAULT ''"),
