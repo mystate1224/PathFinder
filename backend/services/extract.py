@@ -113,6 +113,19 @@ def kind_by_ext(filename: str) -> str:
     return "courseware"
 
 
+def media_type_by_ext(filename: str) -> str:
+    """媒体类型三分类（管理台「图片/文档/课件」筛选用），与 kind 互不干扰。
+
+    image = 纯图片；slide = 幻灯片类（ppt/pptx）；doc = 其余一切有文字层的文件。
+    """
+    ext = ext_of(filename)
+    if ext in IMAGE_EXTS:
+        return "image"
+    if ext in {".ppt", ".pptx"}:
+        return "slide"
+    return "doc"
+
+
 def course_from_filename(filename: str) -> str:
     """从文件名推课程名：``2026高等数学-第3讲.md`` → ``2026高等数学``。"""
     stem = os.path.splitext(os.path.basename(filename or ""))[0]
@@ -467,17 +480,26 @@ def save_material(
     parsed: dict,
     engine: str,
     shared: int = 1,
+    college_code: str = "",
+    major_code: str = "",
+    class_code: str = "",
+    media_type: str = "",
 ) -> int:
     """入一条资料。``shared=0`` = 只进自己的资料库，不进「教师共享」池。
 
     一键备课生成的 PPT 就是这一类：老师存它是为了自己随时打开放映，
     不等于要发给学生，所以默认不出现在学生的共享列表里。
+    ``college/major/class`` 归属为空 = 不限范围（全员可见）；
+    ``media_type`` 缺省时按扩展名自动判定（image / slide / doc）。
     """
     return db.execute(
-        "INSERT INTO materials (owner_id, kind, category, filename, stored, raw_text, parsed, engine, created_at, shared) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO materials (owner_id, kind, category, filename, stored, raw_text, parsed, engine, "
+        "created_at, shared, college_code, major_code, class_code, media_type) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (owner_id, kind, category, filename, stored, raw_text,
-         db.jdump(parsed), engine, db.now(), 1 if shared else 0),
+         db.jdump(parsed), engine, db.now(), 1 if shared else 0,
+         str(college_code or ""), str(major_code or ""), str(class_code or ""),
+         str(media_type or "") or media_type_by_ext(filename)),
     )
 
 

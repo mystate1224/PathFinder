@@ -563,27 +563,48 @@ def test_student(c: Client) -> None:
                   f"{d['profile']['layer']}｜任务 {len(d['tasks'])} 条｜材料 {len(d['materials'])} 份"
     )(c.api("GET", "/api/student/profile")))
 
+    def profile_v2_no_error():
+        """六维试算不许静默降级。
+
+        v2 异常会被 try/except 包成 ``profile_v2.error``「回落旧口径」，页面照常渲染 ——
+        曾因 _COLUMN_UPGRADES 同表 key 写重、points_hit 永远补不上，线上老库
+        全员「六维试算异常」而冒烟全绿。这里显式锁住：v2 必须算出来且无 error。
+        """
+        d = c.api("GET", "/api/student/profile")
+        v2 = d.get("profile_v2") or {}
+        need(not v2.get("error"), f"六维试算异常：{v2.get('error')}")
+        need(v2.get("track") in ("学业型", "事业型"), f"六维主标签异常：{v2.get('track')}")
+        need(len(v2.get("dims_named") or []) == 6, "六维应输出 6 个维度分")
+        return f"{v2.get('track')} · 置信度 {round((v2.get('conf') or 0) * 100)}%，六维齐全"
+    c.check("六维画像无静默降级（回归 s.points_hit 补列丢失）", profile_v2_no_error)
+
     def reason_branches():
         """画像理由必须写清判定依据。
 
         曾经出现过「科研倾向 3.6 / 就业倾向 3.4，却判为事业型」的画像 —— 逻辑没错
         （两者接近时改由兴趣方向定夺），但理由里不说，页面上就自相矛盾。
-        因此两种分支都要锁住：悬殊写「明显高于」，接近写「按兴趣方向定夺」。
+        v2 六维转正后理由换成子指数格式（「学业子指数…差值…判为学业型」），
+        旧规则回落时仍是「明显高于 / 按兴趣方向定夺」—— 两种口径都必须自洽。
         """
         def _set(res: float, job: float) -> dict:
             c.api("POST", "/api/student/profile",
                   {"research_intent": res, "job_intent": job})
             return c.api("GET", "/api/student/profile")["profile"]
 
+        def _ok(reason: str, track: str, expect: str) -> bool:
+            if "学业子指数" in reason:
+                return f"判为{track}" in reason and "差值" in reason
+            return expect in reason
+
         far = _set(4.2, 2.6)
         need(far.get("track") == "学业型", f"4.2/2.6 应判学业型，实际 {far.get('track')}")
-        need("明显高于" in str(far.get("reason") or ""),
+        need(_ok(str(far.get("reason") or ""), "学业型", "明显高于"),
              f"倾向悬殊却没写明依据：{far.get('reason')}")
         near = _set(3.2, 3.0)
-        need("两项倾向接近" in str(near.get("reason") or ""),
-             f"倾向接近却没说明按兴趣方向定夺：{near.get('reason')}")
+        need(_ok(str(near.get("reason") or ""), str(near.get("track")), "两项倾向接近"),
+             f"倾向接近却没说明判定依据：{near.get('reason')}")
         _set(4.2, 2.6)  # 复原，避免影响后续用例
-        return "悬殊 → 「明显高于」；接近 → 「两项倾向接近，按兴趣方向定夺」（已复原 4.2/2.6）"
+        return "悬殊/接近两种情形的理由都写明判定依据（已复原 4.2/2.6）"
     c.check("画像理由写清判定依据（数字与结论不自相矛盾）", reason_branches)
 
     def intent_update():
@@ -1227,6 +1248,198 @@ def test_admin(c: Client) -> None:
     adm.logout()
 
 
+def test_admin_kb_org(c: Client) -> None:
+    """v7.29 管理台知识库重构：列表回归 / 归属联动 / 组织字典 / 媒体类型 / 学生端范围。
+
+    上传的临时资料与临时字典条目用完即删，不污染演示库。
+    """
+    print("\n=== 管理端 · 知识库重构（v7.29） ===")
+    adm = Client(c.base)
+    adm.login("admin")
+
+    # ---- 79 资料列表（回归：原 SQL 引用不存在的 m.title 列直接崩）
+    doc = adm.api("GET", "/api/admin/materials")
+    mats = doc.get("materials") or []
+    need(len(mats) > 0, "资料列表为空")
+    need(all(str(m.get("title") or "") for m in mats), "资料缺少 title 兼容字段")
+    stats = doc.get("stats") or {}
+    need("by_media" in stats and "by_college" in stats, "资料统计（by_media/by_college）缺失")
+    c.check("资料列表可用（回归 no such column: m.title）+ 统计", lambda:
+            f"{len(mats)} 份资料，media 分布 {stats.get('by_media')}")
+
+    # ---- 80 改归属：给班级应连带推导专业/学院
+    target = mats[0]
+    adm.api("PUT", f"/api/admin/materials/{target['id']}",
+            {"category": "课程资料", "class_code": "CS2301"})
+    hit = [m for m in (adm.api("GET", "/api/admin/materials?klass=CS2301").get("materials") or [])
+           if m["id"] == target["id"]]
+    need(hit, "按班级筛选未命中刚改归属的资料")
+    need(hit[0].get("major_code") == "CS" and hit[0].get("college_code") == "CS",
+         f"班级归属未连带专业/学院：{hit[0]}")
+    adm.api("PUT", f"/api/admin/materials/{target['id']}", {"class_code": ""})  # 还原为全员可见
+    c.check("资料改归属（班级 → 连带专业/学院）+ 筛选 + 还原", lambda:
+            f"资料 id={target['id']} 归属 CS/CS/CS2301 → 已清空")
+
+    # ---- 81 组织字典：2 学院 / 3 专业 / 6 班 + 临时条目建改
+    tree = adm.api("GET", "/api/admin/org/tree")
+    colleges = tree.get("colleges") or []
+    majors = [m for co in colleges for m in (co.get("majors") or [])]
+    classes = [k for m in majors for k in (m.get("classes") or [])]
+    need(len(colleges) == 2 and len(majors) == 3 and len(classes) == 6,
+         f"组织树应为 2/3/6，实际 {len(colleges)}/{len(majors)}/{len(classes)}")
+    cs2301 = next((k for k in classes if k.get("code") == "CS2301"), None)
+    need(cs2301 and int(cs2301.get("students") or 0) >= 12, "CS2301 学生计数异常")
+    tmp_co = adm.api("POST", "/api/admin/org/college", {"code": "TMPX", "name": "冒烟临时学院"})
+    tmp_mj = adm.api("POST", "/api/admin/org/major",
+                     {"code": "TMPM", "name": "冒烟临时专业", "college_id": tmp_co["id"]})
+    tmp_cl = adm.api("POST", "/api/admin/org/class",
+                     {"code": "TMPX2301", "name": "冒烟临时班级", "major_id": tmp_mj["id"]})
+    adm.api("PUT", f"/api/admin/org/college/{tmp_co['id']}", {"name": "冒烟临时学院（改名）"})
+    c.check("组织树 2 学院 / 3 专业 / 6 班 + 临时三级条目建改", lambda:
+            f"CS2301 学生 {cs2301['students']} 人；临时 id {tmp_co['id']}/{tmp_mj['id']}/{tmp_cl['id']}")
+
+    # ---- 82 删除保护：下游有数据就拒绝（409），无下游才放行
+    guard = False
+    try:
+        adm.api("DELETE", f"/api/admin/org/major/{tmp_mj['id']}")  # 专业下还有班级
+    except AssertionError as exc:
+        guard = "409" in str(exc) or "班级" in str(exc)
+    need(guard, "专业下还有班级时删除应被拦截")
+    guard2 = False
+    try:
+        adm.api("DELETE", f"/api/admin/org/class/{cs2301['id']}")  # 班级里还有学生
+    except AssertionError as exc:
+        guard2 = "409" in str(exc) or "学生" in str(exc)
+    need(guard2, "班级还有学生时删除应被拦截")
+    adm.api("DELETE", f"/api/admin/org/class/{tmp_cl['id']}")
+    adm.api("DELETE", f"/api/admin/org/major/{tmp_mj['id']}")
+    adm.api("DELETE", f"/api/admin/org/college/{tmp_co['id']}")
+    c.check("字典删除保护（有班级/有学生的层级被拦）+ 临时条目清理", lambda:
+            "两级拦截生效，临时条目已删")
+
+    # ---- 83 上传：媒体类型判定 + 班级归属连带推导（管理台上传进学生可见公用池）
+    body, ctype = multipart(
+        {"category": "课程资料", "class_code": "CS2301"},
+        [("files", "冒烟联测-图片.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32),
+         ("files", "冒烟联测-文档.md", "# 冒烟联测\n\n组织归属与媒体类型测试。".encode("utf-8"))],
+    )
+    up = adm.form("/api/materials/upload", body, ctype)
+    files = {f.get("filename"): f for f in (up.get("files") or [])}
+    png1 = files.get("冒烟联测-图片.png") or {}
+    md1 = files.get("冒烟联测-文档.md") or {}
+    need(png1.get("media_type") == "image", f"png 应判为 image，实际 {png1.get('media_type')}")
+    need(md1.get("media_type") == "doc", f"md 应判为 doc，实际 {md1.get('media_type')}")
+    need((md1.get("scope") or {}).get("class") == "CS2301", "上传归属未按班号落库")
+    body2, ctype2 = multipart(
+        {"category": "课程资料", "class_code": "AI2301"},
+        [("files", "冒烟联测-外班.md", "# 冒烟联测外班\n\n不应被 CS2301 学生看到。".encode("utf-8"))],
+    )
+    up2 = adm.form("/api/materials/upload", body2, ctype2)
+    md2 = ((up2.get("files") or [{}])[0])
+    c.check("上传媒体类型判定 + 归属连带推导（管理台上传入公用池）", lambda:
+            f"png→image / md→doc / md 归属 {md1.get('scope')}")
+
+    # ---- 84 学生端范围过滤：本班可见、外班不可见、不限范围全员可见
+    stu = Client(c.base)
+    stu.login("stu01")
+    shared = (stu.api("GET", "/api/materials").get("shared")) or []
+    ids = {int(s["id"]) for s in shared}
+    need(int(png1["material_id"]) in ids, "不限范围的资料应全员可见")
+    need(int(md1["material_id"]) in ids, "本班（CS2301）资料应可见")
+    need(int(md2.get("material_id") or 0) not in ids, "外班（AI2301）资料不应可见")
+    c.check("学生端范围可见（本班 + 全员，外班不可见）", lambda:
+            f"stu01 可见 {len(ids)} 份公用资料")
+    stu.logout()
+
+    # ---- 85 知识点：关键词检索回归（原 summary 列崩点）+ 统计
+    kpd = adm.api("GET", "/api/admin/knowledge-points")
+    need("stats" in kpd and "by_difficulty" in (kpd.get("stats") or {}), "知识点统计缺失")
+    kp2 = adm.api("POST", "/api/admin/knowledge-points",
+                  {"name": "临时知识点2", "course": "冒烟测试", "difficulty": "A",
+                   "source_ref": "冒烟·临时", "keywords": ["冒烟"]})
+    got = (adm.api("GET", "/api/admin/knowledge-points?keyword="
+                   + urllib.parse.quote("临时知识点2")).get("knowledge_points") or [])
+    need(got and got[0].get("source_ref") == "冒烟·临时", "关键词检索（source_ref）未命中")
+    need(got[0].get("keywords") == ["冒烟"], f"keywords 应为列表，实际 {got[0].get('keywords')}")
+    adm.api("DELETE", f"/api/admin/knowledge-points/{kp2['id']}")
+    c.check("知识点检索（回归 summary 崩点）+ keywords 列序修复 + stats", lambda:
+            f"难度分布 {(kpd.get('stats') or {}).get('by_difficulty')}")
+
+    # ---- 87 用户管理按组织筛选（学院 / 专业 / 班级）
+    by_class = adm.api("GET", "/api/admin/users?role=student&klass=CS2301").get("users") or []
+    by_major = adm.api("GET", "/api/admin/users?role=student&major=AI").get("users") or []
+    by_college = adm.api("GET", "/api/admin/users?role=student&college=SE").get("users") or []
+    need(len(by_class) == 12, f"CS2301 应 12 名学生，实际 {len(by_class)}")
+    need(len(by_major) == 24, f"AI 专业应 24 名学生，实际 {len(by_major)}")
+    need(len(by_college) == 12, f"SE 学院应 12 名学生，实际 {len(by_college)}")
+    c.check("用户按 学院/专业/班级 筛选", lambda:
+            f"班级 12 / 专业 24 / 学院 12（学生）")
+
+    # ---- 88 管理员个人中心不落学生画像（此前会显示「学业型 · C 层」假画像）
+    me = adm.api("GET", "/api/account/profile")
+    need(me.get("role_text") == "管理员", f"管理员 role_text 应为「管理员」，实际 {me.get('role_text')}")
+    need("track" not in me and "grade_level" not in me, "管理员不应返回主标签/学业层次")
+    need(any(s.get("label") == "平台用户" for s in (me.get("stats") or [])), "管理员统计口径缺失")
+    c.check("管理员个人中心口径（无学生画像字段）", lambda:
+            f"role_text={me.get('role_text')}，统计 {len(me.get('stats') or [])} 项")
+
+    # ---- 89 运维体检：索引 / 孤儿 / 磁盘 / 活跃度 都要有可判定的数字
+    h = adm.api("GET", "/api/admin/ops/health")
+    need("index" in h and "orphans" in h and "disk" in h, "体检报告字段缺失")
+    need(h["index"].get("materials", 0) > 0, "体检应看到资料")
+    need(h["index"].get("indexed_materials", 0) > 0, "至少应有资料进了索引")
+    c.check("运维体检（索引 / 孤儿 / 磁盘 / 活跃度）", lambda:
+            f"FTS={'可用' if h['index'].get('fts_ok') else '降级'}，索引覆盖 "
+            f"{h['index'].get('indexed_materials')}/{h['index'].get('materials')}，"
+            f"未索引 {h['index'].get('unindexed')}")
+
+    # ---- 90 一键运维：重建索引（幂等）+ 清理孤儿（不动资料）
+    mats_before = adm.api("GET", "/api/admin/materials")["stats"]["materials"]
+    ri = adm.api("POST", "/api/admin/ops/reindex", {})
+    need(ri.get("materials", 0) > 0, "重建索引应覆盖资料")
+    cl = adm.api("POST", "/api/admin/ops/cleanup", {})
+    mats_after = adm.api("GET", "/api/admin/materials")["stats"]["materials"]
+    need(mats_after == mats_before, f"清理孤儿数据不应删资料：{mats_before} → {mats_after}")
+    c.check("一键运维（重建索引 / 清理孤儿，不删资料）", lambda:
+            f"重建 {ri.get('materials')} 份 / {ri.get('fts_chunks')} 片段；清理 "
+            f"{cl.get('knowledge_points')} 知识点（资料仍是 {mats_after} 份）")
+
+    # ---- 91 教师任教班级：读 → 改 → 读 → 复原
+    tcs = adm.api("GET", "/api/admin/teacher-classes").get("teachers") or []
+    need(len(tcs) >= 3, f"应列出全部教师，实际 {len(tcs)}")
+    target = next((t for t in tcs if t.get("username") == "teacher"), tcs[0])
+    original = list(target.get("classes") or [])
+    changed = ["CS2301"] if "CS2301" not in original else ["CS2303"]
+    # 注意：set_teacher_classes 会自动把「主班」并入任教清单（避免人在主班却看不到自己班）
+    main = str(target.get("class_id") or "")
+    expected = sorted(set(changed) | ({main} if main else set()))
+    adm.api("PUT", f"/api/admin/teacher-classes/{target['id']}", {"class_ids": changed})
+    after = [t for t in (adm.api("GET", "/api/admin/teacher-classes").get("teachers") or [])
+             if t["id"] == target["id"]][0]
+    need(sorted(after.get("classes") or []) == expected,
+         f"任教班级未生效：{after.get('classes')}（期望 {expected}）")
+    adm.api("PUT", f"/api/admin/teacher-classes/{target['id']}", {"class_ids": original})  # 复原
+    c.check("教师任教班级读写（驾驶舱切换器数据源）", lambda:
+            f"{target.get('username')}：{changed} → 实际 {after.get('classes')}（主班自动并入）→ 已复原")
+
+    # ---- 92 操作审计：上面的写操作都应留下记录
+    logs = adm.api("GET", "/api/admin/logs").get("logs") or []
+    need(len(logs) > 0, "应能读到操作日志")
+    actions = {str(l.get("action") or "") for l in logs}
+    need("设置任教班级" in actions, f"任教班级改动未记日志，现有：{sorted(actions)}")
+    need("清理孤儿数据" in actions, "运维操作未记日志")
+    filtered = adm.api("GET", "/api/admin/logs?action=" + urllib.parse.quote("设置任教班级")).get("logs") or []
+    need(filtered and all(l.get("action") == "设置任教班级" for l in filtered), "按操作类型筛选未生效")
+    c.check("操作审计日志（写入 + 按类型筛选）", lambda:
+            f"{len(logs)} 条记录，类型 {len(actions)} 种；筛选「设置任教班级」命中 {len(filtered)} 条")
+
+    # ---- 清理上传的临时资料（连带知识点与导入记录）
+    for mid in (png1.get("material_id"), md1.get("material_id"), md2.get("material_id")):
+        if mid:
+            adm.api("DELETE", f"/api/admin/materials/{int(mid)}")
+    adm.logout()
+
+
 def _raw_no_redirect(url: str, cookie: str = ""):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *a, **kw):  # noqa: D102
@@ -1320,6 +1533,7 @@ def main() -> int:
         test_guards(client)
         test_demo_accounts(client)
         test_admin(client)
+        test_admin_kb_org(client)
 
         total = client.passes + len(client.fails)
         print("\n" + "=" * 68)

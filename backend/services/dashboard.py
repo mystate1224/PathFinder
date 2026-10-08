@@ -333,11 +333,24 @@ def account_profile(user: dict) -> dict:
         "username": user.get("username") or "",
         "name": user.get("name") or "",
         "role": role,
-        "role_text": "教师" if is_teacher else "学生",
+        "role_text": "教师" if is_teacher else ("管理员" if role == "admin" else "学生"),
         "class_id": cid,
         "class_name": str(user.get("class_name") or ""),
         "class_label": class_label(cid) if cid else "",
     }
+
+    if role == "admin":
+        # 管理员不是学生：不落任何画像/分层字段（此前会掉进学生分支，
+        # 显示默认的「学业型 · C 层」假画像）。给管理口径的统计即可。
+        data.update({
+            "stats": [
+                {"label": "平台用户", "value": db.scalar("SELECT COUNT(*) FROM users", (), 0)},
+                {"label": "知识库资料", "value": db.scalar("SELECT COUNT(*) FROM materials", (), 0)},
+                {"label": "知识点", "value": db.scalar("SELECT COUNT(*) FROM knowledge_points", (), 0)},
+                {"label": "作业", "value": db.scalar("SELECT COUNT(*) FROM homework", (), 0)},
+            ],
+        })
+        return data
 
     if is_teacher:
         prof = db.teacher_profile(uid) or {}

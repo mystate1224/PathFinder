@@ -35,6 +35,19 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   const host = PF.$("#tabs-host", view);
 
   /* ------------------------------------------------------------ 小工具 */
+  /* 知识库标签的跨渲染状态：必须声明在 PF.tabs() 之前（TDZ 陷阱） */
+  const KB = {
+    tree: null,        // 组织树缓存 { colleges: [...] }
+    stats: null,       // 知识库统计缓存
+    filter: { college: "", major: "", klass: "", media: "", kw: "" },
+    kpFilter: { course: "", difficulty: "", kw: "" },
+  };
+  const USER_FILTER = { college: "", major: "", klass: "" };  // 用户管理标签的组织筛选
+
+  const MEDIA_LABEL = { image: "图片", doc: "文档", slide: "课件" };
+  const MEDIA_ICON = { image: "image", doc: "file", slide: "layers" };
+  const KB_CATEGORIES = ["未分类", "课程资料", "课件", "科研成果", "教学备课", "个人材料"];
+
   function statCard(icon, label, num, hint, tone) {
     return '<div class="stat">' +
       '<div class="stat__ico' + (tone ? " stat__ico--" + tone : "") + '">' + PF.icon(icon, 18) + "</div>" +
@@ -142,17 +155,55 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
               (rt.last_error ? "　最近一次错误：" + PF.esc(rt.last_error) : "") + "</div>" +
             '<div class="t-sm">管理端新增并激活模型后，下一次调用即生效（无需重启）；' +
               "没配任何模型时自动回落到 .env，再不行就走规则引擎 —— 演示永远不中断。</div>" +
-          "</div></div>";
+          "</div></div>" +
+        '<div class="card mt-5"><div class="card__head"><h3>' + PF.icon("shield", 15) + " 数据健康速览</h3>" +
+          '<div class="card__head-actions"><button class="btn btn--sm" id="ov-ops">前往运维体检' +
+            PF.icon("chevronRight", 13) + "</button></div></div>" +
+          '<div class="card__body" id="ov-health">' + PF.loading("正在读取体检结果") + "</div></div>";
+
+      PF.get("/api/admin/ops/health").then(function (h) {
+        const ix = h.index || {}, or = h.orhpans || h.orphans || {}, act = h.activity || {};
+        PF.$("#ov-health", box).innerHTML =
+          '<div class="grid grid-4">' +
+            statCard("layers", "检索索引", (ix.fts_ok ? "FTS 可用" : "已降级 LIKE"),
+                     ix.fts_ok ? (ix.fts_chunks + " 个片段") : "老版本 SQLite 不支持 trigram", "") +
+            statCard("file", "索引覆盖", (ix.indexed_materials || 0) + "/" + (ix.materials || 0),
+                     (ix.unindexed || 0) ? (ix.unindexed + " 份正文未进索引") : "全部资料已索引", "") +
+            statCard("target", "孤儿数据", (or.knowledge_points || 0) + ' <span class="t-sm">个知识点</span>',
+                     "失效导入 " + (or.imports || 0) + " · 文件缺失 " + (or.missing_files || 0),
+                     (or.knowledge_points || or.imports || or.missing_files) ? "warn" : "info") +
+            statCard("message", "近 7 天活跃", (act.chats_7d || 0) + ' <span class="t-sm">条问答</span>',
+                     "提交 " + (act.submissions_7d || 0) + " · 上传 " + (act.materials_7d || 0), "") +
+          "</div>";
+      }).catch(function () {
+        PF.$("#ov-health", box).innerHTML = '<div class="t-sm t-dim">体检接口暂不可用</div>';
+      });
+      const toOps = PF.$("#ov-ops", box);
+      if (toOps) toOps.addEventListener("click", function () { PF.state.tabs.go("ops"); });
     }).catch(function (e) {
       box.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
     });
   }
 
   /* ============================================================ 标签二：用户管理 */
+  /** 组织字典里的班级下拉选项（新增 / 编辑学生的行政班用） */
+  function userClassOptions() {
+    const out = [{ value: "", label: "未分配班级" }];
+    (KB.tree && KB.tree.colleges || []).forEach(function (co) {
+      (co.majors || []).forEach(function (mj) {
+        (mj.classes || []).forEach(function (cl) {
+          out.push({ value: cl.code, label: (mj.name || mj.code) + " · " + (cl.name || cl.code) + "（" + cl.code + "）" });
+        });
+      });
+    });
+    return out;
+  }
+
   function renderUsers(box) {
     box.innerHTML =
       '<div class="card mb-5"><div class="card__body">' +
-        '<div class="row" style="gap:10px;flex-wrap:wrap">' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap" id="u-scope"></div>' +
+        '<div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">' +
           '<select class="select" id="u-role" style="width:130px">' +
             '<option value="">全部角色</option>' +
             '<option value="student">学生</option>' +
@@ -162,10 +213,29 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           '<input class="input" id="u-kw" placeholder="按账号 / 姓名 / 班级搜索" style="width:240px">' +
           '<button class="btn btn--primary" id="u-search">' + PF.icon("search", 15) + "搜索</button>" +
           '<div class="spacer"></div>' +
+          '<span class="t-xs t-dim" id="u-count"></span>' +
           '<button class="btn" id="u-new">' + PF.icon("plus", 15) + "新增用户</button>" +
         "</div>" +
+        '<div class="t-xs t-dim mt-2">组织筛选：学院 → 专业 → 班级 级联；教师与管理员没有行政班，组织筛选只命中学生。</div>' +
       "</div></div>" +
-      '<div id="u-body">' + PF.loading("正在读取用户") + "</div>";
+      '<div id="u-body">' + PF.loading("正在读取用户") + "</div>" +
+      '<div class="card mt-5"><div class="card__head"><h3>' + PF.icon("grid", 15) + " 教师任教班级</h3>" +
+        '<div class="card__head-actions"><span class="t-xs t-dim">驾驶舱班级切换器的数据源</span></div></div>' +
+        '<div class="card__body" id="u-teach">' + PF.loading("正在读取任教关系") + "</div></div>";
+
+    function paintScope() {
+      scopeSelects("#u-scope", box,
+        { college: USER_FILTER.college, major: USER_FILTER.major, klass: USER_FILTER.klass },
+        function (next) {
+          USER_FILTER.college = next.college;
+          USER_FILTER.major = next.major;
+          USER_FILTER.klass = next.klass;
+          load();
+        });
+    }
+    if (KB.tree) paintScope();
+    else PF.get("/api/admin/org/tree").then(function (t) { KB.tree = t; paintScope(); })
+         .catch(function () { /* 字典读取失败时仅失去组织筛选，列表仍可用 */ });
 
     function load() {
       const qs = new URLSearchParams();
@@ -173,10 +243,15 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       const kw = PF.$("#u-kw", box).value.trim();
       if (role) qs.set("role", role);
       if (kw) qs.set("keyword", kw);
+      if (USER_FILTER.klass) qs.set("klass", USER_FILTER.klass);
+      else if (USER_FILTER.major) qs.set("major", USER_FILTER.major);
+      else if (USER_FILTER.college) qs.set("college", USER_FILTER.college);
       const bodyEl = PF.$("#u-body", box);
       bodyEl.innerHTML = PF.loading("正在读取用户");
       PF.get("/api/admin/users" + (qs.toString() ? "?" + qs.toString() : "")).then(function (d) {
         const list = PF.arr(d.users);
+        const countEl = PF.$("#u-count", box);
+        if (countEl) countEl.textContent = "共 " + list.length + " 人";
         bodyEl.innerHTML = '<div class="card"><div class="card__body card__body--flush">' +
           PF.table([
             { label: "账号", render: function (r) {
@@ -221,7 +296,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         { key: "name", label: "姓名", value: r.name || "" },
       ];
       if (r.role === "student") {
-        fields.push({ key: "class_id", label: "行政班", value: r.class_id || "" });
+        fields.push({ key: "class_id", label: "行政班（学院 / 专业 / 班级）", type: "select",
+          value: r.class_id || "", options: userClassOptions() });
         fields.push({ key: "class_name", label: "教学班", value: r.class_name || "" });
         fields.push({ key: "track", label: "主标签", type: "select", value: r.track || "学业型",
           options: [{ value: "学业型", label: "学业型" }, { value: "事业型", label: "事业型" }] });
@@ -267,7 +343,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           options: [{ value: "student", label: "学生" }, { value: "teacher", label: "教师" },
                     { value: "admin", label: "管理员" }] },
         { key: "password", label: "初始密码", type: "password", value: "123456" },
-        { key: "class_id", label: "行政班（学生填）", placeholder: "如 CS2301" },
+        { key: "class_id", label: "行政班（学生填，按学院 / 专业 / 班级选）", type: "select",
+          value: USER_FILTER.klass || "", options: userClassOptions() },
         { key: "gpa", label: "绩点（学生填，百分制）", placeholder: "如 85" },
       ], "创建");
       if (!out) return;
@@ -275,75 +352,584 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     });
 
     load();
+    loadTeacherClasses(box);
+  }
+
+  /* ------------------------------------------------ 教师任教班级 */
+  /** 教师 ↔ 任教班级：驾驶舱右上角的班级切换器读的就是这张表 */
+  function loadTeacherClasses(box) {
+    const el = PF.$("#u-teach", box);
+    if (!el) return;
+    el.innerHTML = PF.loading("正在读取任教关系");
+    PF.get("/api/admin/teacher-classes").then(function (d) {
+      const list = PF.arr(d.teachers);
+      el.innerHTML = list.length
+        ? list.map(function (t) {
+            return '<div class="row" style="gap:8px;flex-wrap:wrap;padding:8px 0;' +
+              'border-bottom:1px solid var(--line,#e6e9f2)">' +
+              '<span class="t-strong">' + PF.esc(t.name || t.username) + "</span>" +
+              '<span class="t-xs t-dim">' + PF.esc(t.username) + " · 主班 " +
+                PF.esc(t.class_id || "—") + "</span>" +
+              (PF.arr(t.classes).length
+                ? PF.arr(t.classes).map(function (c) {
+                    return '<span class="chip">' + PF.esc(c) + "</span>"; }).join("")
+                : '<span class="t-xs t-dim">未分配任教班级</span>') +
+              '<div class="spacer"></div>' +
+              '<button class="btn btn--sm" data-tc="' + t.id + '">编辑任教班级</button></div>';
+          }).join("")
+        : '<div class="t-sm t-dim">还没有教师账号</div>';
+      PF.$$("[data-tc]", el).forEach(function (b) {
+        b.addEventListener("click", function () {
+          editTeacherClasses(box, list, Number(b.dataset.tc));
+        });
+      });
+    }).catch(function (e) {
+      el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+    });
+  }
+
+  async function editTeacherClasses(box, list, teacherId) {
+    const t = (list || []).find(function (x) { return Number(x.id) === teacherId; }) || {};
+    if (!KB.tree) {
+      try { KB.tree = await PF.get("/api/admin/org/tree"); }
+      catch (e) { PF.toast(e.message || "组织字典读取失败", "warn"); return; }
+    }
+    const colleges = (KB.tree && KB.tree.colleges) || [];
+    const chosen = {};
+    PF.arr(t.classes).forEach(function (c) { chosen[c] = true; });
+    const body = '<div class="stack">' +
+      colleges.map(function (co) {
+        return '<div><div class="t-sm t-strong">' + PF.esc(co.name || co.code) + "</div>" +
+          (co.majors || []).map(function (mj) {
+            return '<div class="row" style="gap:8px;flex-wrap:wrap;padding:4px 0 4px 12px">' +
+              '<span class="t-xs t-dim" style="min-width:120px">' + PF.esc(mj.name || mj.code) + "</span>" +
+              (mj.classes || []).map(function (cl) {
+                return '<label class="row" style="gap:4px"><input type="checkbox" data-cls="' +
+                  PF.esc(cl.code) + '"' + (chosen[cl.code] ? " checked" : "") + '>' +
+                  '<span class="t-xs">' + PF.esc(cl.name || cl.code) + "</span></label>";
+              }).join("") + "</div>";
+          }).join("") + "</div>";
+      }).join("") +
+      '<div class="t-xs t-dim">主班会自动并入任教清单；取消勾选即移除该班的可查看权限。</div></div>';
+
+    const m = PF.modal({
+      title: "任教班级 · " + (t.name || t.username),
+      width: "wide",
+      body: body,
+      actions: [
+        { label: "取消" },
+        { label: "保存", type: "primary", onClick: async function () {
+            const ids = PF.$$('input[data-cls]', m.body)
+              .filter(function (i) { return i.checked; })
+              .map(function (i) { return i.dataset.cls; });
+            try {
+              await PF.api("/api/admin/teacher-classes/" + teacherId, {
+                method: "PUT", body: { class_ids: ids },
+              });
+              PF.toast("任教班级已更新", "ok");
+              loadTeacherClasses(box);
+              return false;
+            } catch (e) {
+              PF.toast(e.message || "保存失败", "warn");
+              return true;
+            }
+          } },
+      ],
+    });
   }
 
   /* ============================================================ 标签三：知识库 */
-  function renderKB(box) {
-    box.innerHTML =
-      '<div class="card mb-5"><div class="card__head"><h3>' + PF.icon("layers", 15) + " 资料</h3>" +
-        '<div class="card__head-actions"><button class="btn btn--sm" id="kb-reload">' +
-          PF.icon("refresh", 14) + "刷新</button></div></div>" +
-        '<div class="card__body card__body--flush"><div id="kb-mat">' + PF.loading("正在读取资料") + "</div></div></div>" +
-      '<div class="card"><div class="card__head"><h3>' + PF.icon("target", 15) + " 知识点</h3>" +
-        '<div class="card__head-actions"><button class="btn btn--sm" id="kb-new">' +
-          PF.icon("plus", 14) + "新增知识点</button></div></div>" +
-        '<div class="card__body card__body--flush"><div id="kb-kp">' + PF.loading("正在读取知识点") + "</div></div></div>";
+  function kbOrgMaps() {
+    /* 从组织树缓存构造 code→名称 映射，供归属链展示 */
+    const college = {}, major = {}, klass = {};
+    (KB.tree && KB.tree.colleges || []).forEach(function (co) {
+      college[co.code] = co.name || co.code;
+      (co.majors || []).forEach(function (mj) {
+        major[mj.code] = mj.name || mj.code;
+        (mj.classes || []).forEach(function (cl) { klass[cl.code] = cl.name || cl.code; });
+      });
+    });
+    return { college: college, major: major, klass: klass };
+  }
 
-    function loadMats() {
-      const el = PF.$("#kb-mat", box);
-      el.innerHTML = PF.loading("正在读取资料");
-      PF.get("/api/admin/materials").then(function (d) {
-        const list = PF.arr(d.materials);
-        el.innerHTML = PF.table([
-          { label: "标题", render: function (r) {
-              return '<div><div class="t-strong">' + PF.esc(r.title || r.filename) + "</div>" +
-                '<div class="t-xs t-dim">' + PF.esc(r.filename || "") + "</div></div>"; } },
-          { label: "归属", cls: "w-md", render: function (r) {
-              return PF.esc(r.owner_name || r.owner || "—"); } },
-          { label: "分类", cls: "w-md", render: function (r) {
-              return '<span class="chip">' + PF.esc(r.category || "未分类") + "</span>"; } },
-          { label: "共享", cls: "w-sm", render: function (r) {
-              return r.shared ? '<span class="badge badge--ok">共享</span>' : '<span class="t-dim">私有</span>'; } },
-          { label: "", cls: "w-md nowrap", render: function (r) {
-              return '<button class="btn btn--sm" data-medit="' + r.id + '">改分类</button> ' +
-                '<button class="btn btn--sm btn--danger" data-mdel="' + r.id + '">删除</button>'; } },
-        ], list, { empty: { icon: "layers", title: "还没有资料", desc: "教师或学生上传后会出现在这里。" } });
+  function kbScopeChips(r, maps) {
+    const parts = [];
+    if (r.class_code) parts.push(maps.klass[r.class_code] || r.class_code);
+    else if (r.major_code) parts.push(maps.major[r.major_code] || r.major_code);
+    else if (r.college_code) parts.push(maps.college[r.college_code] || r.college_code);
+    if (!parts.length) return '<span class="chip chip--ok">全员可见</span>';
+    return '<span class="chip">' + PF.esc(parts[0]) + "</span>";
+  }
 
-        PF.$$("[data-medit]", el).forEach(function (b) {
-          b.addEventListener("click", async function () {
-            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.medit); }) || {};
-            const out = await askForm("修改资料 · " + (r.title || r.filename || ""), [
-              { key: "title", label: "标题", value: r.title || "" },
-              { key: "category", label: "分类", value: r.category || "未分类" },
-            ]);
-            if (!out) return;
-            if (await call("put", "/api/admin/materials/" + r.id, out)) loadMats();
-          });
-        });
-        PF.$$("[data-mdel]", el).forEach(function (b) {
-          b.addEventListener("click", async function () {
-            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.mdel); }) || {};
-            const ok = await PF.confirm({
-              title: "删除资料",
-              text: "确定删除「" + (r.title || r.filename || "") + "」？",
-              detail: "该资料下的知识点会一并清掉；磁盘文件保留，避免误删不可恢复。",
-              okText: "删除", danger: true,
-            });
-            if (!ok) return;
-            if (await call("delete", "/api/admin/materials/" + r.id)) loadMats();
-          });
-        });
-      }).catch(function (e) {
-        el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+  function kbMediaBadge(t) {
+    const key = MEDIA_LABEL[t] ? t : "doc";
+    const cls = key === "image" ? "badge--info" : key === "slide" ? "badge--brand" : "";
+    return '<span class="badge ' + cls + '">' + MEDIA_LABEL[key] + "</span>";
+  }
+
+  function kbBarRows(rows, nameKey, countKey) {
+    /* 逐行分布清单（.dist-row + .dist-bar），复用全站统计语言 */
+    const max = Math.max.apply(null, [1].concat(rows.map(function (r) { return Number(r[countKey]) || 0; })));
+    return rows.map(function (r) {
+      const pct = Math.round((Number(r[countKey]) || 0) / max * 100);
+      return '<div class="dist-row"><div class="dist-row__top">' +
+        '<span class="dist-row__name">' + PF.esc(r[nameKey] || "—") + "</span>" +
+        '<span class="dist-row__num">' + (Number(r[countKey]) || 0) + "</span></div>" +
+        '<div class="dist-bar"><span style="width:' + pct + '%"></span></div></div>';
+    }).join("");
+  }
+
+  /** 级联归属选择器（知识库 / 用户管理共用）：change 时重渲染下游选项并回调 */
+  function scopeSelects(rootSel, box, value, onChange) {
+    value = value || { college: "", major: "", klass: "" };
+    const maps = kbOrgMaps();
+    const colleges = (KB.tree && KB.tree.colleges) || [];
+    const co = colleges.find(function (c) { return c.code === value.college; });
+    const majors = co ? (co.majors || []) : [];
+    const mj = majors.find(function (m) { return m.code === value.major; });
+    const classes = mj ? (mj.classes || []) : [];
+    const el = PF.$(rootSel, box);
+    if (!el) return;
+    el.innerHTML =
+      '<select class="select select--sm" data-scope="college" style="width:150px">' +
+        '<option value="">全部学院</option>' +
+        colleges.map(function (c) { return '<option value="' + PF.esc(c.code) + '"' +
+          (c.code === value.college ? " selected" : "") + ">" + PF.esc(c.name || c.code) + "</option>"; }).join("") +
+      "</select>" +
+      '<select class="select select--sm" data-scope="major" style="width:150px">' +
+        '<option value="">全部专业</option>' +
+        majors.map(function (m) { return '<option value="' + PF.esc(m.code) + '"' +
+          (m.code === value.major ? " selected" : "") + ">" + PF.esc(m.name || m.code) + "</option>"; }).join("") +
+      "</select>" +
+      '<select class="select select--sm" data-scope="klass" style="width:150px">' +
+        '<option value="">全部班级</option>' +
+        classes.map(function (k) { return '<option value="' + PF.esc(k.code) + '"' +
+          (k.code === value.klass ? " selected" : "") + ">" + PF.esc(k.name || k.code) + "</option>"; }).join("") +
+      "</select>";
+    PF.$$("[data-scope]", el).forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        const next = {
+          college: PF.$('[data-scope="college"]', el).value,
+          major: PF.$('[data-scope="major"]', el).value,
+          klass: PF.$('[data-scope="klass"]', el).value,
+        };
+        if (sel.dataset.scope === "college" && next.college !== value.college) { next.major = ""; next.klass = ""; }
+        if (sel.dataset.scope === "major" && next.major !== value.major) { next.klass = ""; }
+        scopeSelects(rootSel, box, next, onChange);
+        if (onChange) onChange(next);
+      });
+    });
+  }
+
+  /** 知识库侧包装：绑定到 KB.filter，仅筛选条（data-bind="filter"）触发刷新 */
+  function kbScopeSelects(rootSel, box, value) {
+    scopeSelects(rootSel, box, value, function (next) {
+      const el = PF.$(rootSel, box);
+      if (el && el.dataset.bind === "filter") {
+        KB.filter.college = next.college; KB.filter.major = next.major; KB.filter.klass = next.klass;
+        kbLoadMats(box);
+      }
+    });
+  }
+
+  /** 上传资料弹窗：拖放/多选 + 分类 + 三级归属（可全空 = 全员可见） */
+  function kbUploadDialog(box) {
+    let picked = [];
+    const m = PF.modal({
+      title: "上传资料",
+      width: "wide",
+      body: '<div class="stack">' +
+        '<div class="drop" id="kb-up-drop">' + PF.icon("upload", 20) +
+          '<div class="t-sm t-strong mt-2">点击选择或拖拽文件到这里</div>' +
+          '<div class="t-xs t-dim mt-2">支持 md / txt / pdf / docx / pptx / 图片，可多选</div>' +
+          '<input type="file" id="kb-up-file" multiple hidden>' + "</div>" +
+        '<div id="kb-up-files" class="row" style="gap:6px;flex-wrap:wrap"></div>' +
+        '<div class="form-2col">' +
+          '<div><div class="t-sm t-strong mb-2">分类</div>' +
+            '<select class="input" id="kb-up-cat">' +
+              KB_CATEGORIES.map(function (c) { return '<option>' + PF.esc(c) + "</option>"; }).join("") +
+            "</select></div>" +
+          '<div><div class="t-sm t-strong mb-2">可见范围</div>' +
+            '<div class="row" style="gap:8px;flex-wrap:wrap" id="kb-up-scope"></div>' +
+            '<div class="t-xs t-dim mt-2">不选 = 全员可见；选到班级 = 仅该班学生可见</div></div>' +
+        "</div></div>",
+      actions: [
+        { label: "取消" },
+        { label: "上传", type: "primary", onClick: async function () {
+            if (!picked.length) { PF.toast("请先选择文件", "warn"); return true; }
+            const fd = new FormData();
+            picked.forEach(function (f) { fd.append("files", f, f.name); });
+            fd.append("category", PF.$("#kb-up-cat", m.body).value);
+            fd.append("college_code", PF.$('[data-scope="college"]', PF.$("#kb-up-scope", m.body)).value);
+            fd.append("major_code", PF.$('[data-scope="major"]', PF.$("#kb-up-scope", m.body)).value);
+            fd.append("class_code", PF.$('[data-scope="klass"]', PF.$("#kb-up-scope", m.body)).value);
+            try {
+              const res = await PF.post("/api/materials/upload", null, { form: fd });
+              const s = res.summary || {};
+              PF.toast("上传完成：成功 " + (s.ok || 0) + " 份，知识点 " + (s.knowledge_points || 0) +
+                " 个，索引 " + (s.chunks || 0) + " 片", "ok");
+              kbLoadAll(box);
+              return false;  // 关闭弹窗
+            } catch (e) {
+              PF.toast(e.message || "上传失败", "warn");
+              return true;   // 保留弹窗让用户重试
+            }
+          } },
+      ],
+    });
+    const drop = PF.$("#kb-up-drop", m.body);
+    const file = PF.$("#kb-up-file", m.body);
+    function paint() {
+      PF.$("#kb-up-files", m.body).innerHTML = picked.map(function (f, i) {
+        return '<span class="file-pill">' + PF.esc(f.name) +
+          ' <button data-rm="' + i + '" style="border:none;background:none;cursor:pointer;color:inherit">×</button></span>';
+      }).join("");
+      PF.$$("[data-rm]", PF.$("#kb-up-files", m.body)).forEach(function (b) {
+        b.addEventListener("click", function () { picked.splice(Number(b.dataset.rm), 1); paint(); });
       });
     }
+    drop.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () {
+      picked = picked.concat(Array.prototype.slice.call(file.files || []));
+      paint();
+    });
+    drop.addEventListener("dragover", function (e) { e.preventDefault(); });
+    drop.addEventListener("drop", function (e) {
+      e.preventDefault();
+      picked = picked.concat(Array.prototype.slice.call(e.dataTransfer.files || []));
+      paint();
+    });
+    el_scope_init(m.body);
+    function el_scope_init(root) { kbScopeSelects("#kb-up-scope", root, { college: "", major: "", klass: "" }); }
+  }
 
-    function loadKps() {
-      const el = PF.$("#kb-kp", box);
-      el.innerHTML = PF.loading("正在读取知识点");
-      PF.get("/api/admin/knowledge-points").then(function (d) {
-        const list = PF.arr(d.knowledge_points);
-        el.innerHTML = PF.table([
+  /** 归属字典维护入口（第三个卡片） */
+  function kbDictDialog(box, level, parent) {
+    const titles = { college: "新增学院", major: "新增专业", class: "新增班级" };
+    const fields = [{ key: "code", label: "编码", placeholder: level === "class" ? "如 CS2304（与行政班同口径）" : "如 CS / AI" },
+                    { key: "name", label: "名称", placeholder: "中文名" }];
+    if (level === "major") fields.unshift({ key: "college_id", label: "上级学院", type: "select",
+      value: parent ? parent.id : "",
+      options: (KB.tree && KB.tree.colleges || []).map(function (c) { return { value: c.id, label: c.name || c.code }; }) });
+    if (level === "class") fields.unshift({ key: "major_id", label: "上级专业", type: "select",
+      value: parent ? parent.id : "",
+      options: (KB.tree && KB.tree.colleges || []).flatMap(function (c) {
+        return (c.majors || []).map(function (mj) { return { value: mj.id, label: (c.name || c.code) + " / " + (mj.name || mj.code) }; });
+      }) });
+    return askForm(titles[level], fields, "新增").then(async function (out) {
+      if (!out) return;
+      if (level === "class") out.grade = (out.code || "").replace(/[^\d]/g, "").slice(0, 4);
+      if (await call("post", "/api/admin/org/" + level, out)) kbLoadAll(box);
+    });
+  }
+
+  async function kbDictRename(box, level, item) {
+    const out = await askForm("改名 · " + (item.name || item.code), [
+      { key: "name", label: "名称", value: item.name || "" },
+    ], "保存");
+    if (!out) return;
+    if (await call("put", "/api/admin/org/" + level + "/" + item.id, out)) kbLoadAll(box);
+  }
+
+  async function kbDictDelete(box, level, item) {
+    const labels = { college: "学院", major: "专业", class: "班级" };
+    const ok = await PF.confirm({
+      title: "删除" + labels[level],
+      text: "确定删除「" + (item.name || item.code) + "」？",
+      detail: "下游还有专业 / 班级 / 学生 / 资料时会被拒绝，不会产生孤儿数据。",
+      okText: "删除", danger: true,
+    });
+    if (!ok) return;
+    try {
+      await PF.del("/api/admin/org/" + level + "/" + item.id);
+      PF.toast("已删除", "ok");
+      kbLoadAll(box);
+    } catch (e) {
+      const msg = e.message || "删除失败";
+      // 班级还挂着资料：让管理员选一个迁入班级，资料随迁（学生不迁，前端先行校验过）
+      if (level === "class" && msg.indexOf("迁入") >= 0) {
+        const classes = [];
+        (KB.tree && KB.tree.colleges || []).forEach(function (co) {
+          (co.majors || []).forEach(function (mj) {
+            (mj.classes || []).forEach(function (cl) {
+              if (cl.id !== item.id) classes.push({ value: cl.code, label: (mj.name || mj.code) + " / " + (cl.name || cl.code) });
+            });
+          });
+        });
+        if (!classes.length) { PF.toast(msg, "warn"); return; }
+        const out = await askForm("资料迁移 · " + (item.name || item.code), [
+          { key: "move_to", label: "把该班资料迁入", type: "select", options: classes },
+        ], "迁移并删除");
+        if (!out) return;
+        try {
+          await PF.del("/api/admin/org/class/" + item.id + "?move_to=" + encodeURIComponent(out.move_to));
+          PF.toast("已迁移并删除", "ok");
+          kbLoadAll(box);
+        } catch (e2) { PF.toast(e2.message || "迁移失败", "warn"); }
+        return;
+      }
+      PF.toast(msg, "warn");
+    }
+  }
+
+  function kbDictCard(box) {
+    const el = PF.$("#kb-dict", box);
+    if (!KB.tree) { el.innerHTML = PF.loading("正在读取组织字典"); return; }
+    const rows = (KB.tree.colleges || []).map(function (co) {
+      const majors = (co.majors || []).map(function (mj) {
+        const classes = (mj.classes || []).map(function (cl) {
+          return '<div class="row" style="gap:8px;padding:6px 0 6px 20px;border-bottom:1px dashed var(--line,#e6e9f2)">' +
+            '<span class="t-sm">' + PF.esc(cl.name || cl.code) + '</span><span class="t-xs t-dim">' + PF.esc(cl.code) + "</span>" +
+            '<span class="t-xs t-dim">学生 ' + (cl.students || 0) + " · 资料 " + (cl.materials || 0) + "</span>" +
+            '<div class="spacer"></div>' +
+            '<button class="btn btn--sm" data-rn="class:' + cl.id + '">改名</button>' +
+            '<button class="btn btn--sm btn--danger" data-del="class:' + cl.id + '">删除</button></div>';
+        }).join("");
+        return '<div style="padding:6px 0;border-bottom:1px solid var(--line,#e6e9f2)">' +
+          '<div class="row" style="gap:8px"><span class="chip">' + PF.esc(mj.name || mj.code) + "</span>" +
+            '<span class="t-xs t-dim">' + PF.esc(mj.code) + " · 资料 " + (mj.materials || 0) + "</span>" +
+            '<div class="spacer"></div>' +
+            '<button class="btn btn--sm" data-new="class:' + mj.id + '">+ 班级</button>' +
+            '<button class="btn btn--sm" data-rn="major:' + mj.id + '">改名</button>' +
+            '<button class="btn btn--sm btn--danger" data-del="major:' + mj.id + '">删除</button></div>' +
+          classes + "</div>";
+      }).join("");
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--line,#e6e9f2)">' +
+        '<div class="row" style="gap:8px"><span class="t-strong">' + PF.icon("home", 14) + " " + PF.esc(co.name || co.code) + "</span>" +
+          '<span class="t-xs t-dim">' + PF.esc(co.code) + " · 资料 " + (co.materials || 0) + " · 学生 " + (co.students || 0) + "</span>" +
+          '<div class="spacer"></div>' +
+          '<button class="btn btn--sm" data-new="major:' + co.id + '">+ 专业</button>' +
+          '<button class="btn btn--sm" data-rn="college:' + co.id + '">改名</button>' +
+          '<button class="btn btn--sm btn--danger" data-del="college:' + co.id + '">删除</button></div>' +
+        majors + "</div>";
+    }).join("");
+
+    el.innerHTML =
+      '<div class="row" style="gap:8px;padding:10px 14px;border-bottom:1px solid var(--line,#e6e9f2)">' +
+        '<span class="t-sm t-dim">学院 → 专业 → 班级 三级字典；资料与知识点按它归属，学生端按范围可见。</span>' +
+        '<div class="spacer"></div>' +
+        '<button class="btn btn--sm btn--primary" data-new="college:0">+ 学院</button></div>' +
+      '<div style="padding:0 14px 10px">' + (rows ||
+        '<div class="empty">组织字典为空</div>') + "</div>";
+
+    PF.$$("[data-new]", el).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const parts = b.dataset.new.split(":");
+        const level = parts[0], pid = Number(parts[1]);
+        let parent = null;
+        if (level === "major") parent = (KB.tree.colleges || []).find(function (c) { return c.id === pid; });
+        if (level === "class") {
+          (KB.tree.colleges || []).forEach(function (c) {
+            (c.majors || []).forEach(function (mj) { if (mj.id === pid) parent = mj; });
+          });
+        }
+        kbDictDialog(box, level, parent);
+      });
+    });
+    const findItem = function (level, id) {
+      if (level === "college") return (KB.tree.colleges || []).find(function (c) { return c.id === id; });
+      if (level === "major") {
+        let hit = null;
+        (KB.tree.colleges || []).forEach(function (c) {
+          (c.majors || []).forEach(function (mj) { if (mj.id === id) hit = mj; });
+        });
+        return hit;
+      }
+      let hit = null;
+      (KB.tree.colleges || []).forEach(function (c) {
+        (c.majors || []).forEach(function (mj) {
+          (mj.classes || []).forEach(function (cl) { if (cl.id === id) hit = cl; });
+        });
+      });
+      return hit;
+    };
+    PF.$$("[data-rn]", el).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const parts = b.dataset.rn.split(":");
+        kbDictRename(box, parts[0], findItem(parts[0], Number(parts[1])) || {});
+      });
+    });
+    PF.$$("[data-del]", el).forEach(function (b) {
+      b.addEventListener("click", function () {
+        const parts = b.dataset.del.split(":");
+        kbDictDelete(box, parts[0], findItem(parts[0], Number(parts[1])) || {});
+      });
+    });
+  }
+
+  function kbLoadAll(box) {
+    kbLoadTree(box);
+    kbLoadMats(box);
+    kbLoadKps(box);
+  }
+
+  function kbLoadTree(box) {
+    return PF.get("/api/admin/org/tree").then(function (d) {
+      KB.tree = d;
+      kbDictCard(box);
+      kbScopeSelects("#kb-filter-scope", box, {
+        college: KB.filter.college, major: KB.filter.major, klass: KB.filter.klass });
+      PF.$("#kb-filter-scope", box).dataset.bind = "filter";
+    }).catch(function (e) {
+      const el = PF.$("#kb-dict", box);
+      if (el) el.innerHTML = PF.empty({ icon: "alert", title: "组织字典读取失败", desc: e.message });
+    });
+  }
+
+  function kbLoadMats(box) {
+    const el = PF.$("#kb-mat", box);
+    el.innerHTML = PF.loading("正在读取资料");
+    const qs = new URLSearchParams();
+    if (KB.filter.college) qs.set("college", KB.filter.college);
+    if (KB.filter.major) qs.set("major", KB.filter.major);
+    if (KB.filter.klass) qs.set("klass", KB.filter.klass);
+    if (KB.filter.media) qs.set("media", KB.filter.media);
+    if (KB.filter.kw) qs.set("keyword", KB.filter.kw);
+    PF.get("/api/admin/materials" + (qs.toString() ? "?" + qs.toString() : "")).then(function (d) {
+      KB.stats = d.stats || KB.stats;
+      kbPaintStats(box);
+      const list = PF.arr(d.materials);
+      const maps = kbOrgMaps();
+      const countEl = PF.$("#kb-mat-count", box);
+      if (countEl) countEl.textContent = "共 " + list.length + " 份";
+      el.innerHTML = PF.table([
+        { label: "资料", render: function (r) {
+            return '<div><div class="t-strong">' + PF.esc(r.title || r.filename) + "</div>" +
+              '<div class="t-xs t-dim">' + PF.esc(r.filename || "") + "　" + PF.esc(r.owner_name || r.owner || "") + "</div></div>"; } },
+        { label: "归属", cls: "w-md", render: function (r) { return kbScopeChips(r, maps); } },
+        { label: "类型", cls: "w-sm", render: function (r) { return kbMediaBadge(r.media_type); } },
+        { label: "分类", cls: "w-md", render: function (r) {
+            return '<span class="chip">' + PF.esc(r.category || "未分类") + "</span>"; } },
+        { label: "共享", cls: "w-sm", render: function (r) {
+            return r.shared ? '<span class="badge badge--ok">共享</span>' : '<span class="t-dim">私有</span>'; } },
+        { label: "", cls: "w-lg nowrap", render: function (r) {
+            return '<button class="btn btn--sm" data-mown="' + r.id + '">改归属</button> ' +
+              '<button class="btn btn--sm" data-medit="' + r.id + '">编辑</button> ' +
+              '<button class="btn btn--sm btn--danger" data-mdel="' + r.id + '">删除</button>'; } },
+      ], list, { empty: { icon: "layers", title: "没有匹配的资料", desc: "换个筛选条件，或点「上传资料」。", } });
+
+      PF.$$("[data-medit]", el).forEach(function (b) {
+        b.addEventListener("click", async function () {
+          const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.medit); }) || {};
+          const out = await askForm("编辑资料 · " + (r.title || r.filename || ""), [
+            { key: "title", label: "标题（文件名）", value: r.title || "" },
+            { key: "category", label: "分类", type: "select", value: r.category || "未分类",
+              options: KB_CATEGORIES.map(function (c) { return { value: c, label: c }; }) },
+            { key: "media_type", label: "媒体类型", type: "select", value: r.media_type || "doc",
+              options: [{ value: "image", label: "图片" }, { value: "doc", label: "文档" }, { value: "slide", label: "课件" }] },
+          ]);
+          if (!out) return;
+          if (await call("put", "/api/admin/materials/" + r.id, out)) kbLoadAll(box);
+        });
+      });
+      PF.$$("[data-mown]", el).forEach(function (b) {
+        b.addEventListener("click", async function () {
+          const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.mown); }) || {};
+          const m = PF.modal({
+            title: "改归属 · " + (r.title || r.filename || ""),
+            body: '<div class="stack"><div class="row" style="gap:8px;flex-wrap:wrap" id="kb-own-scope"></div>' +
+              '<div class="t-xs t-dim">选到班级 = 仅该班学生可见；三级都清空 = 全员可见。改班级会自动带上专业与学院。</div></div>',
+            actions: [
+              { label: "取消" },
+              { label: "保存归属", type: "primary", onClick: async function () {
+                  const payload = {
+                    class_code: PF.$('[data-scope="klass"]', PF.$("#kb-own-scope", m.body)).value,
+                  };
+                  if (!payload.class_code) {
+                    payload.major_code = PF.$('[data-scope="major"]', PF.$("#kb-own-scope", m.body)).value;
+                    if (!payload.major_code) {
+                      payload.college_code = PF.$('[data-scope="college"]', PF.$("#kb-own-scope", m.body)).value;
+                    }
+                  }
+                  if (await call("put", "/api/admin/materials/" + r.id, payload)) {
+                    kbLoadAll(box);
+                    return false;
+                  }
+                  return true;
+                } },
+            ],
+          });
+          kbScopeSelects("#kb-own-scope", m.body, {
+            college: r.college_code || "", major: r.major_code || "", klass: r.class_code || "" });
+        });
+      });
+      PF.$$("[data-mdel]", el).forEach(function (b) {
+        b.addEventListener("click", async function () {
+          const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.mdel); }) || {};
+          const ok = await PF.confirm({
+            title: "删除资料",
+            text: "确定删除「" + (r.title || r.filename || "") + "」？",
+            detail: "该资料下的知识点会一并清掉；磁盘文件保留，避免误删不可恢复。",
+            okText: "删除", danger: true,
+          });
+          if (!ok) return;
+          if (await call("delete", "/api/admin/materials/" + r.id)) kbLoadAll(box);
+        });
+      });
+    }).catch(function (e) {
+      el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+    });
+  }
+
+  function kbPaintStats(box) {
+    const s = KB.stats;
+    if (!s) return;
+    const paint = function () {
+      const el = PF.$("#kb-stats", box);
+      if (!el) return;
+      const bm = s.by_media || {};
+      el.innerHTML =
+        '<div class="grid grid-4 mb-5">' +
+          statCard("layers", "资料总数", (s.materials || 0) + ' <span class="t-sm">份</span>', "管理台全量口径", "") +
+          statCard("target", "知识点", (s.knowledge_points || 0) + ' <span class="t-sm">个</span>', "答疑与图谱的证据源", "info") +
+          statCard("image", "图片素材", (s.images || 0) + ' <span class="t-sm">张</span>', "png / jpg 等", "") +
+          statCard("grid", "覆盖班级", (s.classes_covered || 0) + ' <span class="t-sm">个</span>', "已挂归属的班级", "") +
+        "</div>" +
+        '<div class="grid grid-2 mb-5">' +
+          '<div class="card"><div class="card__head"><h3>' + PF.icon("grid", 15) + " 学院分布</h3></div>" +
+            '<div class="card__body stack">' +
+              ((s.by_college || []).length
+                ? kbBarRows((s.by_college).map(function (r) {
+                    return { name: r.name || r.college || "未归属", count: r.count };
+                  }), "name", "count")
+                : '<div class="t-xs t-dim">暂无资料</div>') +
+            "</div></div>" +
+          '<div class="card"><div class="card__head"><h3>' + PF.icon("layers", 15) + " 媒体类型</h3></div>" +
+            '<div class="card__body stack">' +
+              kbBarRows(
+                ["image", "doc", "slide"].map(function (k) {
+                  return { name: MEDIA_LABEL[k], count: (s.by_media || {})[k] || 0 };
+                }), "name", "count") +
+            "</div></div>" +
+        "</div>";
+    };
+    paint();
+  }
+
+  function kbLoadKps(box) {
+    const el = PF.$("#kb-kp", box);
+    el.innerHTML = PF.loading("正在读取知识点");
+    const qs = new URLSearchParams();
+    if (KB.kpFilter.course) qs.set("course", KB.kpFilter.course);
+    if (KB.kpFilter.difficulty) qs.set("difficulty", KB.kpFilter.difficulty);
+    if (KB.kpFilter.kw) qs.set("keyword", KB.kpFilter.kw);
+    PF.get("/api/admin/knowledge-points" + (qs.toString() ? "?" + qs.toString() : "")).then(function (d) {
+      const list = PF.arr(d.knowledge_points);
+      const st = d.stats || {};
+      const courses = (st.by_course || []);
+      PF.$("#kb-kp-course", box).innerHTML = '<option value="">全部课程</option>' +
+        courses.map(function (c) {
+          return '<option value="' + PF.esc(c.course) + '"' + (c.course === KB.kpFilter.course ? " selected" : "") + ">" +
+            PF.esc(c.course) + "（" + c.count + "）</option>";
+        }).join("");
+      el.innerHTML =
+        '<div class="row t-xs t-dim" style="gap:14px;padding:8px 14px;border-bottom:1px solid var(--line,#e6e9f2)">' +
+          "<span>共 " + (st.total || 0) + " 个知识点</span>" +
+          "<span>难度 A " + ((st.by_difficulty || {}).A || 0) + " · B " + ((st.by_difficulty || {}).B || 0) +
+          " · C " + ((st.by_difficulty || {}).C || 0) + "</span>" +
+          "<span>覆盖课程 " + courses.length + " 门</span>" +
+        "</div>" +
+        PF.table([
           { label: "知识点", render: function (r) {
               return '<div class="t-strong">' + PF.esc(r.name) + "</div>" +
                 (r.source_ref ? '<div class="t-xs t-dim">' + PF.esc(String(r.source_ref).slice(0, 60)) + "</div>" : ""); } },
@@ -352,39 +938,90 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
           { label: "", cls: "w-md nowrap", render: function (r) {
               return '<button class="btn btn--sm" data-kedit="' + r.id + '">编辑</button> ' +
                 '<button class="btn btn--sm btn--danger" data-kdel="' + r.id + '">删除</button>'; } },
-        ], list, { empty: { icon: "target", title: "还没有知识点", desc: "上传资料解析后会自动抽取。" } });
+        ], list, { empty: { icon: "target", title: "没有匹配的知识点", desc: "上传资料解析后会自动抽取。" } });
 
-        PF.$$("[data-kedit]", el).forEach(function (b) {
-          b.addEventListener("click", async function () {
-            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.kedit); }) || {};
-            const out = await askForm("编辑知识点", [
-              { key: "name", label: "名称", value: r.name || "" },
-              { key: "course", label: "课程", value: r.course || "" },
-              { key: "difficulty", label: "难度", type: "select", value: r.difficulty || "B",
-                options: [{ value: "A", label: "A" }, { value: "B", label: "B" }, { value: "C", label: "C" }] },
-              { key: "source_ref", label: "说明 / 出处", value: r.source_ref || "" },
-            ]);
-            if (!out) return;
-            if (await call("put", "/api/admin/knowledge-points/" + r.id, out)) loadKps();
-          });
+      PF.$$("[data-kedit]", el).forEach(function (b) {
+        b.addEventListener("click", async function () {
+          const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.kedit); }) || {};
+          const out = await askForm("编辑知识点", [
+            { key: "name", label: "名称", value: r.name || "" },
+            { key: "course", label: "课程", value: r.course || "" },
+            { key: "difficulty", label: "难度", type: "select", value: r.difficulty || "B",
+              options: [{ value: "A", label: "A" }, { value: "B", label: "B" }, { value: "C", label: "C" }] },
+            { key: "source_ref", label: "说明 / 出处", value: r.source_ref || "" },
+          ]);
+          if (!out) return;
+          if (await call("put", "/api/admin/knowledge-points/" + r.id, out)) kbLoadKps(box);
         });
-        PF.$$("[data-kdel]", el).forEach(function (b) {
-          b.addEventListener("click", async function () {
-            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.kdel); }) || {};
-            const ok = await PF.confirm({
-              title: "删除知识点",
-              text: "确定删除「" + (r.name || "") + "」？", okText: "删除", danger: true,
-            });
-            if (!ok) return;
-            if (await call("delete", "/api/admin/knowledge-points/" + r.id)) loadKps();
-          });
-        });
-      }).catch(function (e) {
-        el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
       });
-    }
+      PF.$$("[data-kdel]", el).forEach(function (b) {
+        b.addEventListener("click", async function () {
+          const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.kdel); }) || {};
+          const ok = await PF.confirm({
+            title: "删除知识点",
+            text: "确定删除「" + (r.name || "") + "」？", okText: "删除", danger: true,
+          });
+          if (!ok) return;
+          if (await call("delete", "/api/admin/knowledge-points/" + r.id)) kbLoadKps(box);
+        });
+      });
+    }).catch(function (e) {
+      el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+    });
+  }
 
-    PF.$("#kb-reload", box).addEventListener("click", function () { loadMats(); loadKps(); });
+  function renderKB(box) {
+    box.innerHTML =
+      '<div id="kb-stats"></div>' +
+      '<div class="card mb-5"><div class="card__head"><h3>' + PF.icon("layers", 15) + " 资料</h3>" +
+        '<div class="card__head-actions">' +
+          '<button class="btn btn--sm btn--primary" id="kb-upload">' + PF.icon("upload", 14) + "上传资料</button>" +
+          '<button class="btn btn--sm" id="kb-reload">' + PF.icon("refresh", 14) + "刷新</button></div></div>" +
+        '<div class="card__body"><div class="row" style="gap:8px;flex-wrap:wrap" id="kb-filter-scope" data-bind="filter"></div>' +
+          '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">' +
+            '<select class="select select--sm" id="kb-filter-media" style="width:120px">' +
+              '<option value="">全部类型</option><option value="image">图片</option>' +
+              '<option value="doc">文档</option><option value="slide">课件</option></select>' +
+            '<input class="input input--sm" id="kb-filter-kw" placeholder="按文件名 / 分类搜索" style="width:220px">' +
+            '<button class="btn btn--sm" id="kb-filter-go">' + PF.icon("search", 14) + "搜索</button>" +
+            '<button class="btn btn--sm" id="kb-filter-reset">重置</button>' +
+            '<div class="spacer"></div><span class="t-xs t-dim" id="kb-mat-count"></span>' +
+          "</div></div>" +
+        '<div class="card__body card__body--flush"><div id="kb-mat">' + PF.loading("正在读取资料") + "</div></div></div>" +
+      '<div class="card mb-5"><div class="card__head"><h3>' + PF.icon("home", 15) + " 组织字典</h3>" +
+        '<div class="card__head-actions"><span class="t-xs t-dim">学院 / 专业 / 班级</span></div></div>' +
+        '<div id="kb-dict">' + PF.loading("正在读取组织字典") + "</div></div>" +
+      '<div class="card"><div class="card__head"><h3>' + PF.icon("target", 15) + " 知识点</h3>" +
+        '<div class="card__head-actions"><button class="btn btn--sm" id="kb-new">' +
+          PF.icon("plus", 14) + "新增知识点</button></div></div>" +
+        '<div class="card__body"><div class="row" style="gap:8px;flex-wrap:wrap">' +
+          '<select class="select select--sm" id="kb-kp-course" style="width:180px"><option value="">全部课程</option></select>' +
+          '<select class="select select--sm" id="kb-kp-diff" style="width:120px">' +
+            '<option value="">全部难度</option><option value="A">A</option>' +
+            '<option value="B">B</option><option value="C">C</option></select>' +
+          '<input class="input input--sm" id="kb-kp-kw" placeholder="按名称 / 出处搜索" style="width:200px">' +
+          '<button class="btn btn--sm" id="kb-kp-go">' + PF.icon("search", 14) + "搜索</button>" +
+        "</div></div>" +
+        '<div class="card__body card__body--flush"><div id="kb-kp">' + PF.loading("正在读取知识点") + "</div></div></div>";
+
+    PF.$("#kb-reload", box).addEventListener("click", function () { kbLoadAll(box); });
+    PF.$("#kb-upload", box).addEventListener("click", function () { kbUploadDialog(box); });
+    PF.$("#kb-filter-media", box).addEventListener("change", function (e) {
+      KB.filter.media = e.target.value; kbLoadMats(box);
+    });
+    PF.$("#kb-filter-go", box).addEventListener("click", function () {
+      KB.filter.kw = PF.$("#kb-filter-kw", box).value.trim(); kbLoadMats(box);
+    });
+    PF.$("#kb-filter-kw", box).addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { KB.filter.kw = e.target.value.trim(); kbLoadMats(box); }
+    });
+    PF.$("#kb-filter-reset", box).addEventListener("click", function () {
+      KB.filter = { college: "", major: "", klass: "", media: "", kw: "" };
+      PF.$("#kb-filter-kw", box).value = "";
+      PF.$("#kb-filter-media", box).value = "";
+      kbScopeSelects("#kb-filter-scope", box, { college: "", major: "", klass: "" });
+      kbLoadMats(box);
+    });
     PF.$("#kb-new", box).addEventListener("click", async function () {
       const out = await askForm("新增知识点", [
         { key: "name", label: "名称", placeholder: "如 反向传播" },
@@ -394,11 +1031,22 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         { key: "source_ref", label: "说明 / 出处", placeholder: "一句话说明这个知识点讲什么" },
       ], "新增");
       if (!out) return;
-      if (await call("post", "/api/admin/knowledge-points", out)) loadKps();
+      if (await call("post", "/api/admin/knowledge-points", out)) kbLoadKps(box);
+    });
+    PF.$("#kb-kp-go", box).addEventListener("click", function () {
+      KB.kpFilter.course = PF.$("#kb-kp-course", box).value;
+      KB.kpFilter.difficulty = PF.$("#kb-kp-diff", box).value;
+      KB.kpFilter.kw = PF.$("#kb-kp-kw", box).value.trim();
+      kbLoadKps(box);
+    });
+    PF.$("#kb-kp-course", box).addEventListener("change", function (e) {
+      KB.kpFilter.course = e.target.value; kbLoadKps(box);
+    });
+    PF.$("#kb-kp-diff", box).addEventListener("change", function (e) {
+      KB.kpFilter.difficulty = e.target.value; kbLoadKps(box);
     });
 
-    loadMats();
-    loadKps();
+    kbLoadAll(box);
   }
 
   /* ============================================================ 标签四：模型配置 */
@@ -513,11 +1161,196 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     load();
   }
 
+  /* ============================================================ 标签四：运维体检 */
+  /** 一行体检明细：左边说明，右边数字，异常才用 warn 徽标 */
+  function opsRow(label, value, bad, hint) {
+    return '<div class="row" style="gap:8px;padding:7px 0;border-bottom:1px solid var(--line,#e6e9f2)">' +
+      '<span class="t-sm">' + PF.esc(label) + "</span>" +
+      (hint ? '<span class="t-xs t-dim">' + PF.esc(hint) + "</span>" : "") +
+      '<div class="spacer"></div>' +
+      (bad ? '<span class="badge badge--warn">' + PF.esc(String(value)) + "</span>"
+           : '<span class="t-sm t-strong">' + PF.esc(String(value)) + "</span>") +
+      "</div>";
+  }
+
+  function renderOps(box) {
+    box.innerHTML =
+      '<div id="ops-stats"></div>' +
+      '<div class="grid grid-2 mb-5" style="gap:16px">' +
+        '<div class="card"><div class="card__head"><h3>' + PF.icon("layers", 15) + " 索引与数据体检</h3></div>" +
+          '<div class="card__body" id="ops-detail">' + PF.loading("正在体检") + "</div></div>" +
+        '<div class="card"><div class="card__head"><h3>' + PF.icon("chart", 15) + " 活跃度与磁盘</h3></div>" +
+          '<div class="card__body" id="ops-activity">' + PF.loading("正在统计") + "</div></div>" +
+      "</div>" +
+      '<div class="card"><div class="card__head"><h3>' + PF.icon("shield", 15) + " 一键修复</h3></div>" +
+        '<div class="card__body stack">' +
+          '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+            '<button class="btn btn--primary" id="ops-reindex">' + PF.icon("refresh", 14) + "重建检索索引</button>" +
+            '<button class="btn" id="ops-recompute">' + PF.icon("users", 14) + "重算全体画像</button>" +
+            '<button class="btn" id="ops-cleanup">' + PF.icon("target", 14) + "清理孤儿数据</button>" +
+            '<div class="spacer"></div>' +
+            '<button class="btn btn--sm" id="ops-reload">' + PF.icon("refresh", 14) + "重新体检</button>" +
+          "</div>" +
+          '<div class="note">' + PF.icon("info", 15) +
+            "<div>重建索引会重跑全部资料的切片、全文与向量索引（先删后写，可重复执行）；" +
+            "重算画像走的是线上同一条六维链路；清理孤儿数据只清没有资料源的知识点 / 导入 / 索引片段，" +
+            "<b>不动磁盘文件、也不删资料</b>。</div></div>" +
+        "</div></div>";
+
+    function load() {
+      PF.$("#ops-detail", box).innerHTML = PF.loading("正在体检");
+      PF.$("#ops-activity", box).innerHTML = PF.loading("正在统计");
+      PF.get("/api/admin/ops/health").then(function (h) {
+        const ix = h.index || {}, or = h.orphans || {}, dk = h.disk || {}, act = h.activity || {};
+        PF.$("#ops-stats", box).innerHTML =
+          '<div class="grid grid-4 mb-5">' +
+            statCard("layers", "检索索引", ix.fts_ok ? "FTS 可用" : "已降级",
+                     ix.fts_ok ? (ix.fts_chunks + " 个全文片段") : "SQLite 不支持 trigram",
+                     ix.fts_ok ? "" : "warn") +
+            statCard("file", "索引覆盖", (ix.indexed_materials || 0) + "/" + (ix.materials || 0),
+                     (ix.unindexed || 0) ? (ix.unindexed + " 份正文未进索引") : "全部已索引",
+                     (ix.unindexed || 0) ? "warn" : "") +
+            statCard("target", "孤儿数据", ((or.knowledge_points || 0) + (or.imports || 0)) +
+                     ' <span class="t-sm">条</span>',
+                     "知识点 " + (or.knowledge_points || 0) + " · 导入 " + (or.imports || 0),
+                     (or.knowledge_points || or.imports) ? "warn" : "info") +
+            statCard("file", "磁盘占用", (dk.uploads_mb || 0) + ' <span class="t-sm">MB</span>',
+                     "上传 " + (dk.uploads_files || 0) + " 文件 · 库 " + (dk.database_mb || 0) + " MB", "") +
+          "</div>";
+        PF.$("#ops-detail", box).innerHTML =
+          opsRow("全文索引片段", ix.fts_chunks, false, "FTS5 可用时的切片数") +
+          opsRow("向量索引片段", ix.vec_chunks, false, "本地哈希或模型向量") +
+          opsRow("已有正文却未进索引", ix.unindexed, (ix.unindexed || 0) > 0, "这类资料检索会漏") +
+          opsRow("无主索引片段", (ix.orphan_fts || 0) + (ix.orphan_vec || 0),
+                 (ix.orphan_fts || 0) + (ix.orphan_vec || 0) > 0, "资料已被删除但索引还在") +
+          opsRow("无源知识点", or.knowledge_points, (or.knowledge_points || 0) > 0, "挂在不存在的资料上") +
+          opsRow("失效导入记录", or.imports, (or.imports || 0) > 0, "学生导入过但资料已删") +
+          opsRow("落盘文件缺失", or.missing_files, (or.missing_files || 0) > 0, "库里有记录、磁盘上没有");
+        const engines = act.engines || {};
+        PF.$("#ops-activity", box).innerHTML =
+          opsRow("近 7 天问答", act.chats_7d || 0, false) +
+          opsRow("近 7 天作业提交", act.submissions_7d || 0, false) +
+          opsRow("近 7 天上传", act.materials_7d || 0, false) +
+          '<div class="row" style="gap:8px;flex-wrap:wrap;padding:8px 0">' +
+            '<span class="t-xs t-dim">问答引擎分布</span>' +
+            Object.keys(engines).map(function (k) {
+              return '<span class="chip">' + PF.esc(k === "rule" ? "规则" : k) + " " + engines[k] + "</span>";
+            }).join("") + "</div>" +
+          '<div class="t-xs t-dim mt-2">数据目录：' + PF.esc(dk.data_dir || "") + "</div>";
+      }).catch(function (e) {
+        PF.$("#ops-detail", box).innerHTML = PF.empty({ icon: "alert", title: "体检失败", desc: e.message });
+        PF.$("#ops-activity", box).innerHTML = "";
+      });
+    }
+
+    async function run(url, btn, title, detail) {
+      const yes = await PF.confirm({ title: title, text: detail, okText: "执行" });
+      if (!yes) return;
+      PF.busy(btn, true, "执行中");
+      try {
+        const res = await PF.post(url, {});
+        PF.toast(res.message || "已完成", "ok");
+        load();
+      } catch (e) {
+        PF.toast(e.message || "执行失败", "warn");
+      } finally {
+        PF.busy(btn, false);
+      }
+    }
+
+    PF.$("#ops-reload", box).addEventListener("click", load);
+    PF.$("#ops-reindex", box).addEventListener("click", function (e) {
+      run("/api/admin/ops/reindex", e.currentTarget, "重建检索索引",
+          "将重跑全部资料的切片与索引（先删后写）。资料较多时会有几秒耗时。");
+    });
+    PF.$("#ops-recompute", box).addEventListener("click", function (e) {
+      run("/api/admin/ops/recompute", e.currentTarget, "重算全体画像",
+          "按现有成绩 / 作业 / 答疑证据重算每位学生的六维画像与掌握度。");
+    });
+    PF.$("#ops-cleanup", box).addEventListener("click", function (e) {
+      run("/api/admin/ops/cleanup", e.currentTarget, "清理孤儿数据",
+          "只清没有资料源的知识点、失效导入记录与无主索引片段，不会删除资料与磁盘文件。");
+    });
+
+    load();
+  }
+
+  /* ============================================================ 标签五：操作日志 */
+  function renderLogs(box) {
+    box.innerHTML =
+      '<div class="card mb-5"><div class="card__body">' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+          '<select class="select select--sm" id="lg-action" style="width:160px"><option value="">全部操作</option></select>' +
+          '<input class="input input--sm" id="lg-kw" placeholder="按操作人 / 对象 / 详情搜索" style="width:240px">' +
+          '<button class="btn btn--sm btn--primary" id="lg-go">' + PF.icon("search", 14) + "搜索</button>" +
+          '<button class="btn btn--sm" id="lg-reset">重置</button>' +
+          '<div class="spacer"></div>' +
+          '<span class="t-xs t-dim" id="lg-count"></span>' +
+          '<button class="btn btn--sm" id="lg-reload">' + PF.icon("refresh", 14) + "刷新</button>" +
+        "</div>" +
+        '<div class="t-xs t-dim mt-2">管理端的每一次写操作（新建 / 编辑 / 删除 / 启用 / 重建 / 清理）都会留下记录，可追溯。</div>' +
+      "</div></div>" +
+      '<div class="card"><div class="card__body card__body--flush"><div id="lg-body">' +
+        PF.loading("正在读取操作日志") + "</div></div></div>";
+
+    function load() {
+      const qs = new URLSearchParams();
+      const action = PF.$("#lg-action", box).value;
+      const kw = PF.$("#lg-kw", box).value.trim();
+      if (action) qs.set("action", action);
+      if (kw) qs.set("keyword", kw);
+      const el = PF.$("#lg-body", box);
+      el.innerHTML = PF.loading("正在读取操作日志");
+      PF.get("/api/admin/logs" + (qs.toString() ? "?" + qs.toString() : "")).then(function (d) {
+        const list = PF.arr(d.logs);
+        const actions = PF.arr(d.actions);
+        const sel = PF.$("#lg-action", box);
+        if (sel && action) sel.value = action;   // 保持选中
+        sel.innerHTML = '<option value="">全部操作</option>' +
+          actions.map(function (a) {
+            return '<option value="' + PF.esc(a) + '"' + (a === action ? " selected" : "") + ">" +
+              PF.esc(a) + "</option>";
+          }).join("");
+        const countEl = PF.$("#lg-count", box);
+        if (countEl) countEl.textContent = "共 " + list.length + " 条";
+        el.innerHTML = PF.table([
+          { label: "时间", cls: "w-md nowrap", render: function (r) {
+              return '<span class="t-xs">' + PF.esc(String(r.created_at || "").slice(5, 16)) + "</span>"; } },
+          { label: "操作人", cls: "w-sm", render: function (r) { return PF.esc(r.username || "—"); } },
+          { label: "操作", cls: "w-md", render: function (r) {
+              return '<span class="chip">' + PF.esc(r.action || "") + "</span>"; } },
+          { label: "对象", cls: "w-md", render: function (r) { return PF.esc(r.target || "—"); } },
+          { label: "详情", render: function (r) {
+              return '<span class="t-xs t-dim">' + PF.esc(String(r.detail || "").slice(0, 80)) + "</span>"; } },
+        ], list, { empty: { icon: "clipboard", title: "还没有操作记录",
+          desc: "管理端的写操作会自动记录在这里。" } });
+      }).catch(function (e) {
+        el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      });
+    }
+
+    PF.$("#lg-go", box).addEventListener("click", load);
+    PF.$("#lg-reload", box).addEventListener("click", load);
+    PF.$("#lg-kw", box).addEventListener("keydown", function (e) {
+      if (e.key === "Enter") load();
+    });
+    PF.$("#lg-action", box).addEventListener("change", load);
+    PF.$("#lg-reset", box).addEventListener("click", function () {
+      PF.$("#lg-kw", box).value = "";
+      PF.$("#lg-action", box).value = "";
+      load();
+    });
+
+    load();
+  }
+
   /* ============================================================ 装配 */
   const tabs = PF.tabs(host, [
     { key: "overview", label: "总览", icon: "grid", render: renderOverview },
     { key: "users", label: "用户管理", icon: "users", render: renderUsers },
     { key: "kb", label: "知识库", icon: "layers", render: renderKB },
+    { key: "ops", label: "运维体检", icon: "shield", render: renderOps },
+    { key: "logs", label: "操作日志", icon: "clipboard", render: renderLogs },
     { key: "models", label: "模型配置", icon: "sparkles", render: renderModels },
   ], { base: "#", onChange: function () { window.scrollTo({ top: 0, behavior: "smooth" }); } });
   PF.state.tabs = tabs;

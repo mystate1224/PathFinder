@@ -77,6 +77,12 @@ def overview() -> dict:
         ("submissions", "SELECT COUNT(*) FROM homework_submissions"),
         ("chats", "SELECT COUNT(*) FROM chat_messages"),
         ("models", "SELECT COUNT(*) FROM model_profiles"),
+        ("classes", "SELECT COUNT(*) FROM classes"),
+        ("operations", "SELECT COUNT(*) FROM admin_logs"),
+        # 孤儿数据：看不见但会拖垮体验的东西，概览上要有一席之地
+        ("orphan_knowledge_points", (
+            "SELECT COUNT(*) FROM knowledge_points kp WHERE kp.material_id <> 0 AND NOT EXISTS "
+            "(SELECT 1 FROM materials m WHERE m.id = kp.material_id)")),
     ):
         counts[label] = _int(db.scalar(sql, (), 0))
     active = active_model()
@@ -96,8 +102,13 @@ def overview() -> dict:
 
 
 # ================================================================ 用户
-def users(role: str = "", keyword: str = "") -> list[dict]:
-    """用户列表。``role`` 为空表示全部；``keyword`` 匹配用户名/姓名/班级。"""
+def users(role: str = "", keyword: str = "", college: str = "",
+          major: str = "", klass: str = "") -> list[dict]:
+    """用户列表。``role`` 为空表示全部；``keyword`` 匹配用户名/姓名/班级。
+
+    组织筛选（v7.29）：college / major / klass 分别按学院、专业、行政班过滤。
+    教师与管理员没有行政班，组织筛选只会命中学生 —— 这是口径本身，不是漏人。
+    """
     clause, args = "", []
     if role in ("student", "teacher", "admin"):
         clause += " AND u.role = ?"
@@ -106,6 +117,18 @@ def users(role: str = "", keyword: str = "") -> list[dict]:
     if kw:
         clause += " AND (u.username LIKE ? OR u.name LIKE ? OR u.class_id LIKE ? OR u.class_name LIKE ?)"
         args.extend([f"%{kw}%"] * 4)
+    if klass:
+        clause += " AND u.class_id = ?"
+        args.append(klass)
+    elif major:
+        clause += (" AND u.class_id IN (SELECT c.code FROM classes c "
+                   "JOIN majors m ON m.id = c.major_id WHERE m.code = ?)")
+        args.append(major)
+    elif college:
+        clause += (" AND u.class_id IN (SELECT c.code FROM classes c "
+                   "JOIN majors m ON m.id = c.major_id "
+                   "JOIN colleges co ON co.id = m.college_id WHERE co.code = ?)")
+        args.append(college)
     rows = db.query(
         "SELECT u.id, u.username, u.name, u.role, u.class_id, u.class_name, "
         "p.track, p.grade_level, p.gpa "
@@ -222,29 +245,48 @@ def delete_user(user_id: int, operator_id: int = 0) -> dict:
 
 
 # ================================================================ 知识库
-def materials(keyword: str = "", owner: str = "") -> list[dict]:
+def materials(keyword: str = "", owner: str = "", college: str = "",
+              major: str = "", klass: str = "", media: str = "") -> list[dict]:
+    """管理台资料列表。v7.29 修复：materials 表没有 title 列，标题就是 filename。"""
     clause, args = "", []
     kw = _str(keyword)
     if kw:
-        clause += " AND (m.title LIKE ? OR m.filename LIKE ? OR m.category LIKE ?)"
-        args.extend([f"%{kw}%"] * 3)
+        clause += " AND (m.filename LIKE ? OR m.category LIKE ?)"
+        args.extend([f"%{kw}%"] * 2)
     if owner:
         clause += " AND u.username = ?"
         args.append(owner)
+    if college:
+        clause += " AND m.college_code = ?"
+        args.append(college)
+    if major:
+        clause += " AND m.major_code = ?"
+        args.append(major)
+    if klass:
+        clause += " AND m.class_code = ?"
+        args.append(klass)
+    if media:
+        clause += " AND m.media_type = ?"
+        args.append(media)
     rows = db.query(
-        "SELECT m.id, m.title, m.filename, m.kind, m.category, m.owner_id, m.shared, "
-        "m.created_at, u.username AS owner, u.name AS owner_name "
+        "SELECT m.id, m.filename, m.kind, m.category, m.owner_id, m.shared, "
+        "m.created_at, m.media_type, m.college_code, m.major_code, m.class_code, "
+        "u.username AS owner, u.name AS owner_name "
         "FROM materials m LEFT JOIN users u ON u.id = m.owner_id "
         "WHERE 1=1" + clause + " ORDER BY m.id DESC LIMIT 300",
         tuple(args),
     )
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    for r in out:  # 前端按 r.title || r.filename 渲染，历史字段名保持兼容
+        r["title"] = r.get("filename") or ""
+    return out
 
 
 def update_material(material_id: int, payload: dict) -> dict:
     sets, args = [], []
     if "title" in payload:
-        sets.append("title = ?")
+        # 表里没有 title 列；「改名」落 filename（展示标题与文件名同源）
+        sets.append("filename = ?")
         args.append(_str(payload.get("title")))
     if "category" in payload:
         sets.append("category = ?")
@@ -252,6 +294,37 @@ def update_material(material_id: int, payload: dict) -> dict:
     if payload.get("shared") is not None:
         sets.append("shared = ?")
         args.append(1 if payload.get("shared") else 0)
+    if payload.get("media_type") is not None:
+        media = _str(payload.get("media_type"))
+        if media and media not in ("image", "doc", "slide"):
+            raise ValueError("media_type 只能是 image / doc / slide")
+        sets.append("media_type = ?")
+        args.append(media)
+    # 归属：给 class_code 就连带推导专业/学院（保持三级一致）；
+    # 显式清空（空串）= 回到「不限范围，全员可见」；只给 college_code = 院级可见。
+    if payload.get("class_code") is not None:
+        klass = _str(payload.get("class_code"))
+        if klass:
+            from services import org  # 延迟导入避免环
+            college, major, _ = org.chain_of_class(klass)
+            if not major:
+                raise ValueError(f"班级 {klass} 不在组织字典里，请先在「组织字典」中登记")
+            sets.extend(["class_code = ?", "major_code = ?", "college_code = ?"])
+            args.extend([klass, major, college])
+        else:
+            sets.extend(["class_code = ''", "major_code = ''", "college_code = ''"])
+    elif payload.get("major_code") is not None:
+        major = _str(payload.get("major_code"))
+        sets.append("major_code = ?")
+        args.append(major)
+        if not major:
+            sets.append("class_code = ''")
+    elif payload.get("college_code") is not None:
+        college = _str(payload.get("college_code"))
+        sets.append("college_code = ?")
+        args.append(college)
+        if not college:
+            sets.extend(["major_code = ''", "class_code = ''"])
     if not sets:
         raise ValueError("没有可更新的字段")
     args.append(material_id)
@@ -260,7 +333,7 @@ def update_material(material_id: int, payload: dict) -> dict:
 
 
 def delete_material(material_id: int) -> dict:
-    row = db.query("SELECT id, title, stored FROM materials WHERE id = ?", (material_id,))
+    row = db.query("SELECT id, filename, stored FROM materials WHERE id = ?", (material_id,))
     if not row:
         raise ValueError("资料不存在")
     db.execute("DELETE FROM material_imports WHERE material_id = ?", (material_id,))
@@ -268,40 +341,66 @@ def delete_material(material_id: int) -> dict:
     kp = db.execute("DELETE FROM knowledge_points WHERE material_id = ?", (material_id,))
     db.execute("DELETE FROM materials WHERE id = ?", (material_id,))
     # 文件本体不在这里删 —— 磁盘文件由 material_file() 管，误删不可恢复
-    return {"id": material_id, "title": row[0].get("title") or "",
+    return {"id": material_id, "title": row[0].get("filename") or "",
             "cleaned_kp": int(getattr(kp, "rowcount", 0) or 0)}
 
 
-def knowledge_points(keyword: str = "", course: str = "") -> list[dict]:
+def knowledge_points(keyword: str = "", course: str = "", difficulty: str = "") -> dict:
     clause, args = "", []
     kw = _str(keyword)
     if kw:
-        clause += " AND (name LIKE ? OR summary LIKE ?)"
+        # 这张表没有 summary 列（说明写在 source_ref 里），别再查 summary
+        clause += " AND (name LIKE ? OR source_ref LIKE ?)"
         args.extend([f"%{kw}%"] * 2)
     if course:
         clause += " AND course = ?"
         args.append(course)
-    # 注意：这张表没有 summary / created_at 列（说明写在 source_ref 里）
+    if difficulty:
+        clause += " AND difficulty = ?"
+        args.append(difficulty.upper()[:1])
     rows = db.query(
         "SELECT id, name, course, difficulty, keywords, source_ref, owner_id, material_id "
         "FROM knowledge_points WHERE 1=1" + clause +
         " ORDER BY id DESC LIMIT 300",
         tuple(args),
     )
-    return [dict(r) for r in rows]
+    items = [dict(r) for r in rows]
+    for item in items:
+        item["keywords"] = db.jload(item.get("keywords"), [])
+    # 统计（管理台可视化）：按课程 / 难度
+    by_course: dict[str, int] = {}
+    by_difficulty = {"A": 0, "B": 0, "C": 0}
+    for r in db.query("SELECT course, difficulty FROM knowledge_points"):
+        c = str(r.get("course") or "未分课程")
+        by_course[c] = by_course.get(c, 0) + 1
+        d = str(r.get("difficulty") or "B")
+        by_difficulty[d if d in by_difficulty else "B"] += 1
+    stats = {
+        "total": int(db.scalar("SELECT COUNT(*) FROM knowledge_points", (), 0)),
+        "by_course": sorted(
+            [{"course": k, "count": v} for k, v in by_course.items()],
+            key=lambda kv: -kv["count"]),
+        "by_difficulty": by_difficulty,
+    }
+    return {"knowledge_points": items, "stats": stats}
 
 
 def create_kp(payload: dict) -> dict:
     name = _str(payload.get("name"))
     if not name:
         raise ValueError("知识点名称不能为空")
+    # v7.29 修复：原先 keywords / source_ref 两列的值写反了
+    keywords = payload.get("keywords")
+    if isinstance(keywords, str):
+        keywords = [keywords] if keywords.strip() else []
     db.execute(
         "INSERT INTO knowledge_points "
         "(name, course, difficulty, keywords, source_ref, owner_id, material_id) "
         "VALUES (?,?,?,?,?,?,?)",
         (name, _str(payload.get("course")), _str(payload.get("difficulty"), "B") or "B",
-         _str(payload.get("source_ref")), "[]", _int(payload.get("owner_id"), 0),
-         _int(payload.get("material_id"), 0)),
+         db.jdump([str(k) for k in (keywords or [])][:6]),
+         _str(payload.get("source_ref")) or f"{_str(payload.get('course'))}·{name}",
+         _int(payload.get("owner_id"), 0), _int(payload.get("material_id"), 0)),
     )
     row = db.query("SELECT id FROM knowledge_points ORDER BY id DESC LIMIT 1")
     return {"id": (row[0]["id"] if row else 0), "name": name}
@@ -468,3 +567,82 @@ def probe_model(model_id: int) -> dict:
         return {"ok": bool(text), "message": text[:60] or "模型返回空内容"}
     except Exception as exc:
         return {"ok": False, "message": f"{type(exc).__name__}: {str(exc)[:160]}"}
+
+
+# ================================================================ 教师任教班级
+def teacher_classes_view() -> list[dict]:
+    """教师 ↔ 任教班级。驾驶舱右上角的班级切换器读的就是这张表。"""
+    teachers = db.query(
+        "SELECT id, username, name, class_id FROM users WHERE role='teacher' ORDER BY username")
+    links = db.query("SELECT teacher_id, class_id FROM teacher_classes")
+    by_teacher: dict[int, list[str]] = {}
+    for row in links:
+        by_teacher.setdefault(int(row["teacher_id"]), []).append(str(row["class_id"]))
+    out = []
+    for t in teachers:
+        classes = sorted(set(by_teacher.get(int(t["id"]), [])))
+        out.append({
+            "id": int(t["id"]),
+            "username": t.get("username") or "",
+            "name": t.get("name") or "",
+            "class_id": str(t.get("class_id") or ""),   # users.class_id 是「主班」
+            "classes": classes,
+        })
+    return out
+
+
+def set_teacher_classes(teacher_id: int, class_ids: list[str]) -> dict:
+    """重设某位教师的任教班级（全量替换）。
+
+    * 教师本人必须存在且是 teacher 角色；
+    * 班号必须在组织字典里（否则班级切换器会切到一个没有名字的班）；
+    * 主班（users.class_id）不在任教清单里时自动并入，避免"人在主班却看不到自己班"。
+    """
+    teacher = db.query_one("SELECT * FROM users WHERE id = ? AND role = 'teacher'", (teacher_id,))
+    if not teacher:
+        raise ValueError("教师不存在或不是教师角色")
+    codes: list[str] = []
+    for raw in class_ids or []:
+        code = _str(raw).strip()
+        if code and code not in codes:
+            codes.append(code)
+    known = {str(r["code"]) for r in db.query("SELECT code FROM classes")}
+    unknown = [c for c in codes if c not in known]
+    if unknown:
+        raise ValueError(f"班号不在组织字典里：{'、'.join(unknown)}（请先在「组织字典」登记）")
+    main = _str(teacher.get("class_id"))
+    if main and main not in codes:
+        codes.append(main)
+    with db.connect() as conn:
+        conn.execute("DELETE FROM teacher_classes WHERE teacher_id = ?", (teacher_id,))
+        conn.executemany(
+            "INSERT INTO teacher_classes (teacher_id, class_id) VALUES (?,?)",
+            [(teacher_id, c) for c in codes],
+        )
+    return {"id": teacher_id, "classes": codes}
+
+
+# ================================================================ 操作日志
+def logs(action: str = "", keyword: str = "", limit: int = 200) -> list[dict]:
+    """管理端操作日志（新 → 旧）。``action`` 精确匹配，``keyword`` 模糊匹配对象/详情/操作人。"""
+    clause, args = "", []
+    act = _str(action)
+    if act:
+        clause += " AND action = ?"
+        args.append(act)
+    kw = _str(keyword)
+    if kw:
+        clause += " AND (username LIKE ? OR action LIKE ? OR target LIKE ? OR detail LIKE ?)"
+        args.extend([f"%{kw}%"] * 4)
+    rows = db.query(
+        "SELECT id, user_id, username, action, target, detail, created_at FROM admin_logs "
+        "WHERE 1=1" + clause + " ORDER BY id DESC LIMIT ?",
+        tuple(args) + (max(int(limit), 1),),
+    )
+    return [dict(r) for r in rows]
+
+
+def log_actions() -> list[str]:
+    """已有操作类型（供筛选下拉用）。"""
+    rows = db.query("SELECT DISTINCT action FROM admin_logs ORDER BY action")
+    return [str(r.get("action") or "") for r in rows if r.get("action")]

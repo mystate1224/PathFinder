@@ -83,6 +83,8 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   }
 
   const isTeacher = data.role === "teacher";
+  const isAdmin = data.role === "admin";
+  const isStudent = data.role === "student";  // 只有学生才有画像/分层字段
   const stats = PF.arr(data.stats);
 
   box.innerHTML =
@@ -95,9 +97,9 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
         '<div class="flex-1">' +
           '<div class="row" style="gap:8px;flex-wrap:wrap">' +
             '<span class="t-h1">' + PF.esc(data.name || data.username) + "</span>" +
-            '<span class="badge badge--brand">' + PF.icon(isTeacher ? "book" : "compass", 11) +
+            '<span class="badge badge--brand">' + PF.icon(isTeacher ? "book" : (isAdmin ? "shield" : "compass"), 11) +
               PF.esc(data.role_text) + "端</span>" +
-            (isTeacher ? "" : PF.trackBadge(data.track) + " " + PF.levelTag(data.grade_level)) +
+            (isStudent ? PF.trackBadge(data.track) + " " + PF.levelTag(data.grade_level) : "") +
           "</div>" +
           '<div class="t-sm mt-2">账号 <span class="t-mono">' + PF.esc(data.username) + "</span>" +
             (data.class_id ? " · " + (isTeacher ? "主班 " : "行政班 ") +
@@ -114,7 +116,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
     (stats.length
       ? '<div class="grid grid-' + (stats.length >= 4 ? "4" : String(stats.length)) + ' mb-5">' +
           stats.map((s) => statCard(
-            isTeacher ? "users" : "clipboard",
+            isTeacher ? "users" : (isAdmin ? "grid" : "clipboard"),
             s.label, String(s.value),
             isTeacher ? "" : "",
             ""
@@ -122,16 +124,23 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
       : "") +
 
     '<div class="grid grid-2" style="gap:16px">' +
-      /* ---- 画像 ---- */
+      /* ---- 画像（学生）/ 教学画像（教师）/ 账号信息（管理员） ---- */
       '<div class="card"><div class="card__head"><h3>' +
-        PF.icon(isTeacher ? "briefcase" : "compass", 15) +
-        (isTeacher ? "教学画像" : "我的画像") + "</h3></div>" +
+        PF.icon(isTeacher ? "briefcase" : (isAdmin ? "shield" : "compass"), 15) +
+        (isTeacher ? "教学画像" : (isAdmin ? "账号信息" : "我的画像")) + "</h3>" +
+        (isAdmin ? '<div class="card__head-actions"><a class="btn btn--sm btn--primary" href="/admin">前往管理台' +
+          PF.icon("chevronRight", 13) + "</a></div>" : "") + "</div>" +
         '<div class="card__body stack">' +
           (isTeacher
             ? field("研究方向", chips(data.directions, "brand")) +
               field("指导专长", chips(data.expertise)) +
               field("个人简介", '<span class="t-body">' +
                 PF.esc(data.summary || "还没有填写简介。") + "</span>")
+            : isAdmin
+            ? field("角色", '<span class="badge badge--brand">' + PF.esc(data.role_text) + "</span>") +
+              field("账号", '<span class="t-mono">' + PF.esc(data.username) + "</span>") +
+              field("管理范围", '<span class="t-body">用户 / 知识库 / 模型配置的统一运维，' +
+                "统计口径为全平台数据。</span>")
             : '<div class="grid grid-2" style="gap:12px">' +
                 field("主标签", PF.trackBadge(data.track)) +
                 field("学业层次", PF.levelTag(data.grade_level)) +

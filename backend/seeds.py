@@ -29,6 +29,7 @@ from services import (  # noqa: E402
     extract,
     homework,
     matcher,
+    org,
     resources,
     stratify,
 )
@@ -922,18 +923,23 @@ def reset() -> None:
 def seed(force: bool = False) -> dict:
     """播种全部演示数据。幂等：``force=True`` 时先清库。"""
     db.init_db()
+    # 组织字典（学院/专业/班级）必须先于用户与资料落库，回填才有字典可查
+    report_org = org.ensure_bootstrap()
     if force:
         reset()
+        org.ensure_bootstrap()  # reset 清了 meta 标记的话在这里补一次，保证字典在场
     if is_seeded():
         # 老库平滑升级：不动既有数据，只补齐后加的对象（管理员账号、模型表）
         return {
             "skipped": True,
             "reason": "数据库已有数据，只补齐新增对象",
+            "org": report_org,
             "users": seed_users(),
             "models": seed_models(),
         }
 
     report: dict = {}
+    report["org"] = report_org
     report["users"] = seed_users()
     report["classes"] = seed_teacher_classes()
     report["profiles"] = seed_profiles()

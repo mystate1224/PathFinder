@@ -13,6 +13,7 @@ from typing import Any
 import config
 import db
 from services import embedding, extract, rag
+from services import org as org_svc
 
 DEFAULT_CATEGORIES = extract.CATEGORIES
 
@@ -51,17 +52,27 @@ def shared_materials(viewer_id: int) -> list[dict]:
 
     只给元信息与摘要，不给正文；带 ``imported`` 标记供前端渲染「导入 / 移除」。
     教师自己调用时返回空 —— 公用池本来就是他们建的，不重复展示。
+    v7.29：学生额外受组织范围约束 —— 资料挂了班级/专业/学院就只给对应范围的学生看，
+    三列全空 = 全员可见（教师视角不受限，公用池本来就是他们共建的）。
     """
-    rows = db.query(
+    sql = (
         "SELECT m.id, m.filename, m.kind, m.category, m.engine, m.created_at, "
+        "       m.media_type, m.college_code, m.major_code, m.class_code, "
         "       m.parsed, u.name AS owner_name, "
         "       (SELECT COUNT(*) FROM knowledge_points kp WHERE kp.material_id = m.id) AS knowledge_count, "
         "       EXISTS(SELECT 1 FROM material_imports mi "
         "              WHERE mi.material_id = m.id AND mi.user_id = ?) AS imported "
         "FROM materials m JOIN users u ON u.id = m.owner_id "
-        "WHERE u.role = 'teacher' AND COALESCE(m.shared, 1) = 1 ORDER BY m.id DESC",
-        (int(viewer_id),),
+        "WHERE u.role IN ('teacher', 'admin') AND COALESCE(m.shared, 1) = 1"
     )
+    args: list = [int(viewer_id)]
+    viewer = db.user_by_id(int(viewer_id)) or {}
+    if str(viewer.get("role")) == "student":
+        clause, extra = org_svc.scope_clause(org_svc.chain_of_user(int(viewer_id)), "m")
+        sql += clause
+        args.extend(extra)
+    sql += " ORDER BY m.id DESC"
+    rows = db.query(sql, tuple(args))
     for row in rows:
         parsed = db.jload(row.get("parsed"), {}) or {}
         row["summary"] = str(parsed.get("summary") or "")[:80]
@@ -79,8 +90,8 @@ def import_material(user_id: int, material_id: int) -> tuple[bool, str]:
     )
     if not row:
         return False, "资料不存在"
-    if str(row.get("owner_role")) != "teacher":
-        return False, "只能导入教师上传的公用资料"
+    if str(row.get("owner_role")) not in ("teacher", "admin"):
+        return False, "只能导入教师或管理员上传的公用资料"
     # 教师一键备课生成的 PPT 只进自己的课件库（shared=0），学生不该把它导进自己的库
     if row.get("shared") is not None and int(row.get("shared") or 0) == 0:
         return False, "这份资料教师尚未共享"
@@ -346,10 +357,16 @@ def delete(owner_id: int, material_id: int) -> bool:
 def knowledge(owner_id: int, course: str = "", difficulty: str = "",
               keyword: str = "", teacher_scope: bool = False) -> dict:
     """知识点列表。可见范围见 ``_scope_clause``（教师全库 / 学生自己+教师共享）。"""
-    sql = "SELECT kp.*, m.filename, m.category FROM knowledge_points kp " \
+    sql = "SELECT kp.*, m.filename, m.category, m.class_code FROM knowledge_points kp " \
           "LEFT JOIN materials m ON m.id = kp.material_id WHERE 1=1"
     clause, args = _scope_clause(owner_id, teacher_scope)
     sql += clause
+    if not teacher_scope:
+        # v7.29：学生再受组织范围约束；m.id IS NULL 放行「无资料源」的手工知识点
+        org_clause, org_args = org_svc.scope_clause(org_svc.chain_of_user(int(owner_id)), "m")
+        org_clause = org_clause.replace("AND (", "AND (m.id IS NULL OR ", 1)
+        sql += org_clause
+        args = list(args) + list(org_args)
     if course:
         sql += " AND kp.course = ?"
         args.append(course)

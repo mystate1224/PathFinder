@@ -274,6 +274,9 @@ CREATE TABLE IF NOT EXISTS homework_submissions (
     comment     TEXT NOT NULL DEFAULT '',
     attempt     INTEGER NOT NULL DEFAULT 1,   -- 第几次提交（留痕）
     late        INTEGER NOT NULL DEFAULT 0,   -- 是否逾期提交
+    -- 画像 v2 证据（D2 分析推理）：作业要点命中数；-1 = 尚未批改出要点
+    points_hit  REAL NOT NULL DEFAULT -1,
+    points_total REAL NOT NULL DEFAULT -1,
     submitted_at TEXT NOT NULL DEFAULT '',
     graded_at   TEXT NOT NULL DEFAULT '',
     UNIQUE (homework_id, student_id)
@@ -350,6 +353,53 @@ CREATE TABLE IF NOT EXISTS material_imports (
     created_at  TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (user_id, material_id)
 );
+
+-- 一次性迁移标记（如 media_type 按后缀回填只跑一次），避免每次启动覆盖人工修改。
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
+-- 管理端操作审计：谁在什么时候对什么做了什么。删库级操作要能追溯，
+-- 这是运维控制台的底线；日志本身不随业务数据删除（清理孤儿数据也不会动它）。
+CREATE TABLE IF NOT EXISTS admin_logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL DEFAULT 0,
+    username   TEXT NOT NULL DEFAULT '',
+    action     TEXT NOT NULL DEFAULT '',
+    target     TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+-- 组织字典：学院 → 专业 → 班级 三级（管理台可维护）。
+-- classes.code 与 users.class_id 同口径（CS2301 等），是同一个班号的两端。
+CREATE TABLE IF NOT EXISTS colleges (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    code       TEXT NOT NULL UNIQUE,
+    name       TEXT NOT NULL DEFAULT '',
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS majors (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    college_id INTEGER NOT NULL DEFAULT 0,
+    code       TEXT NOT NULL UNIQUE,
+    name       TEXT NOT NULL DEFAULT '',
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS classes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    major_id   INTEGER NOT NULL DEFAULT 0,
+    code       TEXT NOT NULL UNIQUE,   -- 行政班班号，如 CS2301
+    name       TEXT NOT NULL DEFAULT '',
+    grade      TEXT NOT NULL DEFAULT '',
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT ''
+);
 """
 
 # 索引：把最常用的过滤/连接列都建上
@@ -370,6 +420,9 @@ _INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_imp_user ON material_imports(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_prep_folder ON prep_folders(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_model_active ON model_profiles(is_active)",
+    "CREATE INDEX IF NOT EXISTS idx_mat_scope ON materials(college_code, major_code, class_code)",
+    "CREATE INDEX IF NOT EXISTS idx_cls_major ON classes(major_id)",
+    "CREATE INDEX IF NOT EXISTS idx_maj_college ON majors(college_id)",
 ]
 
 # 表 -> 后补列（老库平滑升级用）
@@ -385,18 +438,27 @@ _COLUMN_UPGRADES: dict[str, list[tuple[str, str]]] = {
         ("level_v2", "TEXT NOT NULL DEFAULT ''"),
     ],
     # 画像 v2 证据：作业要点命中数（D2 分析推理最可靠的证据）
+    # ⚠️ 同一张表的补列必须写在同一条目里 —— dict 字面量同 key 后者覆盖前者，
+    #    曾因拆成两条导致 points_hit/points_total 永远补不上（六维试算静默降级）。
     "homework_submissions": [
         ("points_hit", "REAL NOT NULL DEFAULT -1"),
         ("points_total", "REAL NOT NULL DEFAULT -1"),
+        ("attempt", "INTEGER NOT NULL DEFAULT 1"),
+        ("late", "INTEGER NOT NULL DEFAULT 0"),
     ],
-    # 画像 v2 证据：追问深度按会话统计（E2.3）
-    "chat_messages": [("session_id", "TEXT NOT NULL DEFAULT ''")],
+    # 画像 v2 证据：追问深度按会话统计（E2.3）；scene/session_id 见下方主条目（勿重复写同 key）
     "materials": [
         ("category", "TEXT NOT NULL DEFAULT '未分类'"),
         ("stored", "TEXT NOT NULL DEFAULT ''"),
         ("engine", "TEXT NOT NULL DEFAULT 'rule'"),
         # v7.18：一键备课生成的 PPT 存进课件库但**不进**教师共享池（那是教师的私人备课产物）
         ("shared", "INTEGER NOT NULL DEFAULT 1"),
+        # v7.29：组织归属（学院/专业/班级，空串 = 不限范围全员可见）+ 媒体类型
+        ("college_code", "TEXT NOT NULL DEFAULT ''"),
+        ("major_code", "TEXT NOT NULL DEFAULT ''"),
+        ("class_code", "TEXT NOT NULL DEFAULT ''"),
+        # media_type：image | doc | slide
+        ("media_type", "TEXT NOT NULL DEFAULT 'doc'"),
     ],
     "knowledge_points": [("owner_id", "INTEGER NOT NULL DEFAULT 0")],
     "homework": [("status", "TEXT NOT NULL DEFAULT 'open'")],
@@ -404,10 +466,6 @@ _COLUMN_UPGRADES: dict[str, list[tuple[str, str]]] = {
     # v7.18：PPT 会同步存一份进资料库「课件」，material_id 记住是哪一条，改大纲后好覆盖。
     "artifacts": [("folder", "TEXT NOT NULL DEFAULT ''"),
                   ("material_id", "INTEGER NOT NULL DEFAULT 0")],
-    "homework_submissions": [
-        ("attempt", "INTEGER NOT NULL DEFAULT 1"),
-        ("late", "INTEGER NOT NULL DEFAULT 0"),
-    ],
     "chat_messages": [
         ("scene", "TEXT NOT NULL DEFAULT 'tutor'"),
         # 会话：支持「新开对话 / 回到某一次对话」。老数据 session_id 为空串，
@@ -605,7 +663,39 @@ def delete_session(token: str | None) -> None:
         pass
 
 
+# ================================================================ 审计日志
+def log_action(user: dict | None, action: str, target: str = "", detail: str = "") -> int:
+    """记一条管理端操作日志。失败不抛 —— 审计不该拖垮业务操作。"""
+    try:
+        return execute(
+            "INSERT INTO admin_logs (user_id, username, action, target, detail, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (int((user or {}).get("id") or 0), str((user or {}).get("username") or ""),
+             str(action or ""), str(target or ""), str(detail or ""), now()),
+        )
+    except sqlite3.Error:
+        return 0
+
+
 # ================================================================ 便捷读取
+def meta_get(key: str, default: str = "") -> str:
+    try:
+        return str(scalar("SELECT value FROM meta WHERE key = ?", (key,), default) or default)
+    except sqlite3.Error:
+        return default
+
+
+def meta_set(key: str, value: str) -> None:
+    try:
+        execute(
+            "INSERT INTO meta (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, str(value)),
+        )
+    except sqlite3.Error:
+        pass
+
+
 def user_by_username(username: str) -> dict | None:
     return query_one("SELECT * FROM users WHERE username = ?", (username,))
 
@@ -698,7 +788,7 @@ def recent_chat(user_id: int, scene: str = "tutor", turns: int = 4) -> list[dict
 def health_snapshot() -> dict:
     tables = [
         "users", "sessions", "student_profiles", "teacher_profiles", "teacher_classes",
-        "materials",
+        "materials", "colleges", "majors", "classes",
         "knowledge_points", "kb_vec", "research_groups", "match_records", "tasks",
         "chat_messages", "teacher_resources", "resource_applications", "homework",
         "homework_submissions", "artifacts", "kp_mastery",

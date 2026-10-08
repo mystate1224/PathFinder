@@ -44,6 +44,8 @@ from services import (  # noqa: E402
     matcher,
     mylibrary,
     office,
+    ops,
+    org,
     parsekit,
     planner,
     rag,
@@ -71,6 +73,12 @@ async def lifespan(_app: FastAPI):
             print(f"[seeds] 首次启动自动播种：{report}")
         except Exception as exc:  # noqa: BLE001 - 播种失败不该阻塞启动
             print(f"[seeds] 自动播种失败（可手动执行 python backend/seeds.py）：{exc}")
+    try:
+        org_report = org.ensure_bootstrap()
+        if any(org_report.values()):
+            print(f"[org] 组织字典/资料归属就绪：{org_report}")
+    except Exception as exc:  # noqa: BLE001 - 字典初始化失败不该阻塞启动
+        print(f"[org] 组织字典初始化失败：{exc}")
     print("=" * 68)
     print("寻径教育 PathFinder · LearnBuddy 已启动")
     print(llm.describe())
@@ -779,9 +787,15 @@ async def api_materials_upload(
     files: list[UploadFile] = File(default=[]),
     category: str = Form("未分类"),
     save: bool = Form(True),
+    college_code: str = Form(""),
+    major_code: str = Form(""),
+    class_code: str = Form(""),
     user: dict = Depends(current_user),
 ):
-    """上传 → 解析 → 知识点 → 索引。``save=false`` 时只预览解析结果不落库。"""
+    """上传 → 解析 → 知识点 → 索引。``save=false`` 时只预览解析结果不落库。
+
+    v7.29：可选的组织归属（学院/专业/班级，默认全空 = 不限范围全员可见）。
+    """
     if not files:
         return fail("没有收到文件")
 
@@ -854,9 +868,19 @@ async def api_materials_upload(
         except OSError as exc:
             item["error"] = f"落盘失败：{exc}"
 
+        # 归属推导：只给班号时连带专业/学院，保持三级一致（查不到就按原样入库）
+        if class_code and not (major_code or college_code):
+            _col, _maj, _cls = org.chain_of_class(class_code)
+            college_code = college_code or _col
+            major_code = major_code or _maj
+            class_code = _cls or class_code
+
         material_id = extract.save_material(
-            user_id, kind, category or "未分类", name, stored, text, parsed, engine
+            user_id, kind, category or "未分类", name, stored, text, parsed, engine,
+            college_code=college_code, major_code=major_code, class_code=class_code,
         )
+        item["media_type"] = extract.media_type_by_ext(name)
+        item["scope"] = {"college": college_code, "major": major_code, "class": class_code}
         touched = extract.apply_parse_result(user, material_id, kind, name, text, parsed)
         item["material_id"] = material_id
         item["indexed_chunks"] = int(touched.get("indexed") or 0)
@@ -1860,35 +1884,44 @@ def api_admin_overview(_user: dict = Depends(require_admin)):
 
 
 @app.get(f"{API}/admin/users")
-def api_admin_users(role: str = "", keyword: str = "",
+def api_admin_users(role: str = "", keyword: str = "", college: str = "",
+                    major: str = "", klass: str = "",
                     _user: dict = Depends(require_admin)):
-    return ok({"users": admin.users(role, keyword)})
+    return ok({"users": admin.users(role, keyword, college, major, klass)})
 
 
 @app.post(f"{API}/admin/users")
 def api_admin_user_create(payload: dict = Body(default={}),
-                          _user: dict = Depends(require_admin)):
+                          user: dict = Depends(require_admin)):
     try:
-        return ok(admin.create_user(payload), message="用户已创建")
+        res = admin.create_user(payload)
+        db.log_action(user, "新建用户", str(payload.get("username") or ""),
+                      f"角色 {payload.get('role') or 'student'}"
+                      + (f"，班级 {payload.get('class_id')}" if str(payload.get("class_id") or "") else ""))
+        return ok(res, message="用户已创建")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.put(f"{API}/admin/users/{{user_id}}")
 def api_admin_user_update(user_id: int, payload: dict = Body(default={}),
-                          _user: dict = Depends(require_admin)):
+                          user: dict = Depends(require_admin)):
     try:
-        return ok(admin.update_user(user_id, payload), message="已保存")
+        res = admin.update_user(user_id, payload)
+        db.log_action(user, "编辑用户", str(user_id),
+                      "、".join(f"{k}={payload.get(k)}" for k in payload if k))
+        return ok(res, message="已保存")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.post(f"{API}/admin/users/{{user_id}}/reset-password")
 def api_admin_user_reset(user_id: int, payload: dict = Body(default={}),
-                         _user: dict = Depends(require_admin)):
+                         user: dict = Depends(require_admin)):
     try:
-        return ok(admin.reset_password(user_id, _str(payload, "password", "123456")),
-                  message="密码已重置，该用户需要重新登录")
+        res = admin.reset_password(user_id, _str(payload, "password", "123456"))
+        db.log_action(user, "重置密码", str(user_id), "强制该用户重新登录")
+        return ok(res, message="密码已重置，该用户需要重新登录")
     except ValueError as exc:
         return fail(str(exc))
 
@@ -1896,62 +1929,143 @@ def api_admin_user_reset(user_id: int, payload: dict = Body(default={}),
 @app.delete(f"{API}/admin/users/{{user_id}}")
 def api_admin_user_delete(user_id: int, user: dict = Depends(require_admin)):
     try:
-        return ok(admin.delete_user(user_id, int(user["id"])), message="已删除并清理关联数据")
+        res = admin.delete_user(user_id, int(user["id"]))
+        db.log_action(user, "删除用户", str(user_id),
+                      f"清理关联 {res.get('cleaned_rows', 0)} 行")
+        return ok(res, message="已删除并清理关联数据")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.get(f"{API}/admin/teacher-classes")
+def api_admin_teacher_classes(_user: dict = Depends(require_admin)):
+    """教师 ↔ 任教班级（驾驶舱班级切换器的数据源）。"""
+    return ok({"teachers": admin.teacher_classes_view()})
+
+
+@app.put(f"{API}/admin/teacher-classes/{{teacher_id}}")
+def api_admin_teacher_classes_set(teacher_id: int, payload: dict = Body(default={}),
+                                  user: dict = Depends(require_admin)):
+    try:
+        res = admin.set_teacher_classes(teacher_id, payload.get("class_ids") or [])
+        db.log_action(user, "设置任教班级", str(teacher_id), "、".join(res.get("classes") or []))
+        return ok(res, message="任教班级已更新")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.get(f"{API}/admin/materials")
-def api_admin_materials(keyword: str = "", owner: str = "",
+def api_admin_materials(keyword: str = "", owner: str = "", college: str = "",
+                        major: str = "", klass: str = "", media: str = "",
                         _user: dict = Depends(require_admin)):
-    return ok({"materials": admin.materials(keyword, owner)})
+    return ok({
+        "materials": admin.materials(keyword, owner, college, major, klass, media),
+        "stats": org.stats(),
+    })
+
+
+# ------------------------------------------------ 组织字典（学院/专业/班级）
+@app.get(f"{API}/admin/org/tree")
+def api_admin_org_tree(_user: dict = Depends(require_admin)):
+    return ok(org.tree())
+
+
+@app.post(f"{API}/admin/org/{{level}}")
+def api_admin_org_create(level: str, payload: dict = Body(default={}),
+                         user: dict = Depends(require_admin)):
+    try:
+        res = org.create(level, payload)
+        db.log_action(user, "新建组织", f"{level}:{res.get('code') or ''}",
+                      str(payload.get("name") or ""))
+        return ok(res, message="已新增")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.put(f"{API}/admin/org/{{level}}/{{item_id}}")
+def api_admin_org_update(level: str, item_id: int, payload: dict = Body(default={}),
+                         user: dict = Depends(require_admin)):
+    try:
+        res = org.update(level, item_id, payload)
+        db.log_action(user, "编辑组织", f"{level}:{item_id}", str(payload.get("name") or ""))
+        return ok(res, message="已保存")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.delete(f"{API}/admin/org/{{level}}/{{item_id}}")
+def api_admin_org_delete(level: str, item_id: int, move_to: str = "",
+                         user: dict = Depends(require_admin)):
+    try:
+        result = org.delete(level, item_id, move_to=move_to)
+        if result.get("blocked"):
+            return fail(result.get("reason") or "无法删除", 409, blocked=True,
+                        students=result.get("students", 0), materials=result.get("materials", 0))
+        db.log_action(user, "删除组织", f"{level}:{item_id}",
+                      f"资料迁移 {result.get('moved_materials', 0)} 份" if move_to else "")
+        return ok(result, message="已删除")
+    except ValueError as exc:
+        return fail(str(exc))
 
 
 @app.put(f"{API}/admin/materials/{{material_id}}")
 def api_admin_material_update(material_id: int, payload: dict = Body(default={}),
-                              _user: dict = Depends(require_admin)):
+                              user: dict = Depends(require_admin)):
     try:
-        return ok(admin.update_material(material_id, payload), message="已保存")
+        res = admin.update_material(material_id, payload)
+        db.log_action(user, "编辑资料", str(material_id),
+                      "、".join(f"{k}={payload.get(k)}" for k in payload if k))
+        return ok(res, message="已保存")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.delete(f"{API}/admin/materials/{{material_id}}")
-def api_admin_material_delete(material_id: int, _user: dict = Depends(require_admin)):
+def api_admin_material_delete(material_id: int, user: dict = Depends(require_admin)):
     try:
-        return ok(admin.delete_material(material_id), message="资料已删除")
+        res = admin.delete_material(material_id)
+        db.log_action(user, "删除资料", str(material_id),
+                      f"{res.get('title') or ''}（连带知识点 {res.get('cleaned_kp', 0)} 个）")
+        return ok(res, message="资料已删除")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.get(f"{API}/admin/knowledge-points")
-def api_admin_kps(keyword: str = "", course: str = "",
+def api_admin_kps(keyword: str = "", course: str = "", difficulty: str = "",
                   _user: dict = Depends(require_admin)):
-    return ok({"knowledge_points": admin.knowledge_points(keyword, course)})
+    return ok(admin.knowledge_points(keyword, course, difficulty))
 
 
 @app.post(f"{API}/admin/knowledge-points")
 def api_admin_kp_create(payload: dict = Body(default={}),
-                        _user: dict = Depends(require_admin)):
+                        user: dict = Depends(require_admin)):
     try:
-        return ok(admin.create_kp(payload), message="知识点已新增")
+        res = admin.create_kp(payload)
+        db.log_action(user, "新增知识点", str(res.get("id") or ""),
+                      f"{payload.get('name') or ''}（{payload.get('course') or ''}）")
+        return ok(res, message="知识点已新增")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.put(f"{API}/admin/knowledge-points/{{kp_id}}")
 def api_admin_kp_update(kp_id: int, payload: dict = Body(default={}),
-                        _user: dict = Depends(require_admin)):
+                        user: dict = Depends(require_admin)):
     try:
-        return ok(admin.update_kp(kp_id, payload), message="已保存")
+        res = admin.update_kp(kp_id, payload)
+        db.log_action(user, "编辑知识点", str(kp_id), str(payload.get("name") or ""))
+        return ok(res, message="已保存")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.delete(f"{API}/admin/knowledge-points/{{kp_id}}")
-def api_admin_kp_delete(kp_id: int, _user: dict = Depends(require_admin)):
+def api_admin_kp_delete(kp_id: int, user: dict = Depends(require_admin)):
     try:
-        return ok(admin.delete_kp(kp_id), message="知识点已删除")
+        res = admin.delete_kp(kp_id)
+        db.log_action(user, "删除知识点", str(kp_id), str(res.get("name") or ""))
+        return ok(res, message="知识点已删除")
     except ValueError as exc:
         return fail(str(exc))
 
@@ -1964,37 +2078,86 @@ def api_admin_models(_user: dict = Depends(require_admin)):
 
 @app.post(f"{API}/admin/models")
 def api_admin_model_create(payload: dict = Body(default={}),
-                           _user: dict = Depends(require_admin)):
+                           user: dict = Depends(require_admin)):
     try:
-        return ok(admin.create_model(payload), message="模型已新增")
+        res = admin.create_model(payload)
+        db.log_action(user, "新增模型", str(res.get("id") or ""), str(payload.get("name") or ""))
+        return ok(res, message="模型已新增")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.put(f"{API}/admin/models/{{model_id}}")
 def api_admin_model_update(model_id: int, payload: dict = Body(default={}),
-                           _user: dict = Depends(require_admin)):
+                           user: dict = Depends(require_admin)):
     try:
-        return ok(admin.update_model(model_id, payload), message="已保存")
+        res = admin.update_model(model_id, payload)
+        db.log_action(user, "编辑模型", str(model_id), str(payload.get("name") or ""))
+        return ok(res, message="已保存")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.delete(f"{API}/admin/models/{{model_id}}")
-def api_admin_model_delete(model_id: int, _user: dict = Depends(require_admin)):
+def api_admin_model_delete(model_id: int, user: dict = Depends(require_admin)):
     try:
-        return ok(admin.delete_model(model_id), message="模型已删除")
+        res = admin.delete_model(model_id)
+        db.log_action(user, "删除模型", str(model_id), "")
+        return ok(res, message="模型已删除")
     except ValueError as exc:
         return fail(str(exc))
 
 
 @app.post(f"{API}/admin/models/{{model_id}}/activate")
-def api_admin_model_activate(model_id: int, _user: dict = Depends(require_admin)):
+def api_admin_model_activate(model_id: int, user: dict = Depends(require_admin)):
     """切换生效模型：改完下一次调用即生效，无需重启、无需改 .env。"""
     try:
-        return ok(admin.activate_model(model_id), message="已切换为当前生效模型")
+        res = admin.activate_model(model_id)
+        db.log_action(user, "启用模型", str(model_id), f"运行时来源切换为 database")
+        return ok(res, message="已切换为当前生效模型")
     except ValueError as exc:
         return fail(str(exc))
+
+
+# ------------------------------------------------ 运维体检 + 操作日志
+@app.get(f"{API}/admin/ops/health")
+def api_admin_ops_health(_user: dict = Depends(require_admin)):
+    """体检报告：索引 / 孤儿数据 / 磁盘 / 活跃度。"""
+    return ok(ops.health())
+
+
+@app.post(f"{API}/admin/ops/reindex")
+def api_admin_ops_reindex(user: dict = Depends(require_admin)):
+    """重建全部资料的检索索引（全文 + 向量）。"""
+    res = ops.reindex()
+    if res.get("busy"):
+        return fail(res.get("message") or "重建正在进行", 409, busy=True)
+    db.log_action(user, "重建索引", "", f"{res.get('materials')} 份资料 / {res.get('fts_chunks')} 片段")
+    return ok(res, message="索引已重建")
+
+
+@app.post(f"{API}/admin/ops/recompute")
+def api_admin_ops_recompute(user: dict = Depends(require_admin)):
+    """重算全体学生画像（六维 v2 + 掌握度）。"""
+    res = ops.recompute()
+    db.log_action(user, "重算画像", "", f"{res.get('recomputed')} 名学生")
+    return ok(res, message="画像已重算")
+
+
+@app.post(f"{API}/admin/ops/cleanup")
+def api_admin_ops_cleanup(user: dict = Depends(require_admin)):
+    """清理孤儿数据（无源知识点 / 失效导入 / 无主索引片段）。不动磁盘文件。"""
+    res = ops.cleanup()
+    db.log_action(user, "清理孤儿数据", "",
+                  f"知识点 {res.get('knowledge_points')} / 导入 {res.get('imports')} / 索引 {res.get('kb_fts')}")
+    return ok(res, message="孤儿数据已清理")
+
+
+@app.get(f"{API}/admin/logs")
+def api_admin_logs(action: str = "", keyword: str = "", limit: int = 200,
+                   _user: dict = Depends(require_admin)):
+    """管理端操作日志。"""
+    return ok({"logs": admin.logs(action, keyword, limit), "actions": admin.log_actions()})
 
 
 @app.post(f"{API}/admin/models/{{model_id}}/probe")
