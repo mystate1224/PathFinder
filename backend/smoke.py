@@ -882,7 +882,7 @@ def test_agent_rag(c: Client) -> None:
         return "、".join(s["name"] for s in d["strategies"])
     c.check("五种 RAG 策略清单", strategies)
 
-    # ---- 路由：同一种问题，不同问法应命中不同架构
+    # ---- 路由：当前统一走混合式（其余四种保留接口、标记未启用）
     def auto_route():
         picked = {}
         for q in ["注意力机制和 Transformer 有什么关系？",
@@ -892,31 +892,31 @@ def test_agent_rag(c: Client) -> None:
                   "什么是反向传播？"]:
             d = c.api("POST", "/api/tutor/ask", {"question": q})
             picked[q[:6]] = d["rag"]["strategy"]
-        need(picked["注意力机制和"] == "graph", f"关系类应走 graph，实际 {picked['注意力机制和']}")
-        need(picked["课件里那张图"] == "multimodal", "图片类应走 multimodal")
-        need(picked["结合我的情况"] == "agentic", "复合任务应走 agentic")
-        need(picked["那个到底为什"] == "corrective", "口语指代应走 corrective")
-        need(picked["什么是反向传"] == "hybrid", "概念类应走 hybrid")
-        return "、".join(f"{k}→{v}" for k, v in picked.items())
-    c.check("自动路由（五类问题五种架构）", auto_route)
+            need(d.get("answer"), f"「{q[:6]}」应给出答案")
+        wrong = {k: v for k, v in picked.items() if v != "hybrid"}
+        need(not wrong, f"当前所有问法都应走 hybrid，实际 {wrong}")
+        return "五类问法统一走 " + "、".join(sorted(set(picked.values())))
+    c.check("统一路由（五类问法都走混合式）", auto_route)
 
     def forced():
+        """手动指定未启用的策略：结果里如实保留所选策略名，但不伪造它的证据。"""
         d = c.api("POST", "/api/tutor/ask",
                   {"question": "注意力机制和 Transformer 有什么关系？", "strategy": "graph"})
-        need(d["rag"]["strategy"] == "graph", "手动指定 graph 未生效")
+        need(d["rag"]["strategy"] == "graph", "手动指定 graph 应在结果里如实反映")
         need(d["rag"].get("auto") is False, "手动指定时 auto 应为 False")
-        g = d["rag"]["extra"].get("graph") or {}
-        need(g.get("nodes"), "graph 策略应带子图节点")
-        return f"强制 graph：{d['rag']['strategy_name']}，" \
-               f"子图 {len(g['nodes'])} 节点 / {len(g['edges'])} 边"
-    c.check("手动指定策略（演示对比）", forced)
+        extra = d["rag"].get("extra") or {}
+        need("未启用" in (extra.get("note") or ""), f"未启用策略应标注回落，实际 {extra}")
+        need(not (extra.get("graph") or {}).get("nodes"), "未启用策略不应伪造子图节点")
+        return f"手动指定 graph → 如实回落：{extra.get('note')}"
+    c.check("手动指定未启用策略（如实回落）", forced)
 
     def corrective_extra():
         d = c.api("POST", "/api/tutor/ask", {"question": "那个到底咋回事", "strategy": "corrective"})
         extra = d["rag"].get("extra") or {}
-        need(extra.get("rounds"), "纠错式应带轮次")
-        return f"轮次 {extra.get('rounds')}，质量 {extra.get('quality')}"
-    c.check("纠错式两轮检索", corrective_extra)
+        need("未启用" in (extra.get("note") or ""), f"纠错式未启用时应如实标注，实际 {extra}")
+        need(not extra.get("rounds"), "未启用策略不应伪造二次检索轮次")
+        return f"纠错式 → {extra.get('note')}"
+    c.check("纠错式未启用（如实回落）", corrective_extra)
 
     # ---- 综合生成：答案不是检索片段的拼接
     def synth_student():

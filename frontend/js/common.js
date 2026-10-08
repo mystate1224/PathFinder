@@ -684,25 +684,29 @@
   };
 
   /* ---------------------------------------------------------- RAG 路由
-     五种架构共用一张策略表。数据与后端 ragroute.STRATEGIES 对齐，
-     接口没返回时用它兜底，保证断网也能演示。 */
+     策略表与后端 ragroute.STRATEGIES 对齐，接口没返回时用它兜底。
+     当前只有 hybrid 真正落地（BM25 + 向量双路召回 RRF 融合）；其余四种
+     保留接口、标记 enabled:false，下拉框里置灰标注「规划中」，
+     避免"选了 A 却按 B 算"的误解。后端接回实现后把 enabled 改回 true 即可。 */
   PF.RAG_STRATEGIES = [
-    { id: "auto", name: "自动选择", when: "按问题自己挑一种" },
-    { id: "hybrid", name: "混合式 RAG", when: "概念、原理这类文字解释" },
-    { id: "graph", name: "图谱 RAG", when: "问关系、前置、知识链路" },
-    { id: "agentic", name: "智能体式 RAG", when: "要结合我的情况、要计划" },
-    { id: "corrective", name: "纠错型 RAG", when: "口语、指代、说得含糊" },
-    { id: "multimodal", name: "多模态 RAG", when: "问图、表、扫描件、版面" },
+    { id: "auto", name: "自动选择", when: "按问题自己挑一种", enabled: true },
+    { id: "hybrid", name: "混合式 RAG", when: "概念、原理这类文字解释", enabled: true },
+    { id: "graph", name: "图谱 RAG", when: "问关系、前置、知识链路", enabled: false },
+    { id: "agentic", name: "智能体式 RAG", when: "要结合我的情况、要计划", enabled: false },
+    { id: "corrective", name: "纠错型 RAG", when: "口语、指代、说得含糊", enabled: false },
+    { id: "multimodal", name: "多模态 RAG", when: "问图、表、扫描件、版面", enabled: false },
   ];
 
-  /** 策略下拉框。``picked`` 为当前值，默认 auto。 */
+  /** 策略下拉框。``picked`` 为当前值，默认 auto；未启用的置灰。 */
   PF.ragSelect = function (id, picked, width) {
     const cur = picked || "auto";
-    return '<select class="select select--sm" id="' + PF.esc(id) + '" title="检索策略：不同问题走不同架构" ' +
+    return '<select class="select select--sm" id="' + PF.esc(id) + '" title="检索策略：当前统一走混合式（BM25 + 向量双路召回，RRF 融合）" ' +
       'style="width:' + (width || 128) + 'px">' +
       PF.RAG_STRATEGIES.map(function (s) {
-        return '<option value="' + PF.esc(s.id) + '"' + (s.id === cur ? " selected" : "") + '>' +
-          PF.esc(s.name) + "</option>";
+        const on = s.enabled !== false;
+        return '<option value="' + PF.esc(s.id) + '"' + (s.id === cur ? " selected" : "") +
+          (on ? "" : " disabled") + '>' + PF.esc(s.name) +
+          (on ? "" : "（规划中）") + "</option>";
       }).join("") + "</select>";
   };
 
@@ -1902,7 +1906,7 @@
     const ab = PF.arr(p.ability_pairs).slice().sort(function (a, b) {
       return Number(a.value || 0) - Number(b.value || 0);
     });
-    const weak = ab[0] || { name: "实践能力", value: 0 };
+    const weak = ab[0] || { name: "工具实践", value: 0 };
     const group = PF.TEACHER_DEMOS.coach.group;
     return [
       { tag: "建议 · 课题组", name: "① 建议他加入「" + group + "」",

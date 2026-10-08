@@ -9,21 +9,34 @@
 问「课件里那张图」则必须把图片素材一起召回。
 **一种架构解决不了所有问题，所以先路由、再执行。**
 
-五种策略（与业界 2026 五大 RAG 架构对应，全部有真实实现，不依赖网络）：
+五种策略（与业界 2026 五大 RAG 架构对应）：
 
 ==== ============ ===========================================
  id  名称          什么时候用
 ==== ============ ===========================================
-hybrid   混合式     知识点的文字解释（默认兜底）
+hybrid   混合式     知识点的文字解释（★ 当前唯一启用）
 graph    图谱式     问关系 / 关联 / 前置 / 知识链路
 agentic  智能体式   复合任务：结合我的情况、要计划、要对比
 corrective 纠错式   口语 / 指代 / 含糊，首查易落空
 multimodal 多模态  问图表 / 图片 / 扫描件 / 版面内容
 ==== ============ ===========================================
 
-路由本身也有两条引擎：
-  * 规则路由（默认，断网可用）：关键词模式 + 意图词典
-  * 模型路由（``route_llm``，接口已留好）：让模型从五选一并给出理由，规则版作 mock 兜底
+## 当前落地口径（2026-10-08 调整）
+
+**只保留一种真实实现：``hybrid`` 混合式** —— BM25 关键词 + 向量语义双路召回，
+RRF 融合。理由：多策略路由的落地与维护成本高于收益，而混合式在绝大多数
+教学问答场景下已足够稳，且行为可预测、便于排查。
+
+其余四种**保留接口、移除实现**：
+
+  * ``STRATEGIES`` 仍登记五种（带 ``enabled`` 标记），前端据此展示与置灰；
+  * ``execute()`` 的分派表仍保留五个入口，未启用的策略统一回落到混合式执行，
+    并在 ``extra.note`` 里如实标注"该策略未启用，已按混合式执行"——不假装跑过；
+  * 各自的 ``_ex_*`` 函数保留同名占位（docstring 写明"接口保留，实现待接回"），
+    将来要接回时只需在函数体内补实现，调用方与前端一行都不用改。
+
+路由接口同样保留：``route()`` 现在恒定返回 hybrid；``route_llm()`` 是模型路由
+预留口，将来想让模型挑策略时接入即可。
 
 每个策略的 ``execute`` 返回统一结构::
 
@@ -42,94 +55,47 @@ from services import retriever
 from services.rag import search_scope as db_scope  # 用户数据隔离的可见范围子句
 
 STRATEGIES: list[dict[str, str]] = [
-    {"id": "hybrid", "name": "混合式 RAG",
+    {"id": "hybrid", "name": "混合式 RAG", "enabled": True,
      "desc": "BM25 关键词 + 向量语义双路召回，RRF 融合，再交模型作答。",
-     "when": "知识点的文字解释、概念问答（默认兜底）"},
-    {"id": "graph", "name": "图谱 RAG",
+     "when": "知识点的文字解释、概念问答（当前唯一启用）"},
+    {"id": "graph", "name": "图谱 RAG", "enabled": False,
      "desc": "以知识点为节点、课程与方向为边建图，先查子图再看证据。",
      "when": "问关系：A 和 B 什么关系、先学哪个、知识链路"},
-    {"id": "agentic", "name": "智能体式 RAG",
+    {"id": "agentic", "name": "智能体式 RAG", "enabled": False,
      "desc": "先规划，再调用多个工具（资料检索 / 知识点库 / 学情画像），最后聚合推理。",
      "when": "复合任务：结合我的情况、要计划、要对比分析"},
-    {"id": "corrective", "name": "纠错型 RAG",
+    {"id": "corrective", "name": "纠错型 RAG", "enabled": False,
      "desc": "先给检索质量打分，不合格就改写问题再查一次，而不是硬答。",
      "when": "口语、指代（那个 / 它）、首查容易落空的问题"},
-    {"id": "multimodal", "name": "多模态 RAG",
+    {"id": "multimodal", "name": "多模态 RAG", "enabled": False,
      "desc": "文本块与图片素材统一召回，回答同时引用文字与图片资料。",
      "when": "问图表、图片、扫描件、课件版面"},
 ]
 
+# 当前唯一启用的策略。改这一行即可整体切换（其余策略实现接回后置 True）。
+DEFAULT_STRATEGY = "hybrid"
+
 _STRATEGY_INDEX = {s["id"]: s for s in STRATEGIES}
-
-# 路由规则：顺序有讲究，先判更具体的意图。
-_ROUTE_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
-    ("graph", re.compile(
-        r"关系|关联|联系|依赖|前置|基础.{0,4}是|先学|链路|脉络|知识图谱|"
-        r"和.{1,10}(?:有什么|有什么样的)(?:关系|联系|区别)")),
-    ("multimodal", re.compile(
-        r"图\s*[里表中片]|图表|图上|板书|扫描|截图|课件里|第\s*[一二三四五六七八九十\d]+\s*页|"
-        r"那张|这页|照片")),
-    ("agentic", re.compile(
-        r"帮我|给我|为我|规划|计划|方案|建议|该怎么安排|结合我|根据我|针对我|"
-        r"对比|分析一下|总结一下我|生成|制定")),
-    ("corrective", re.compile(
-        r"^(?:那个|这个|它|他们|上面|刚才)|也就是说|简单说|通俗|"
-        r"啥|为撒|咋|为什么不|到底")),
-]
-
-# 概念题：短问题（"什么是 X"）不能因为字数少就被当成口语指代，
-# 这类问题对象明确，混合检索最稳。放在纠错式之后、长度兜底之前。
-_CONCEPT = re.compile(
-    r"什么是|是什么|什么叫|什么叫|定义|解释|原理|介绍一下|介绍下|讲一下|讲讲|"
-    r"如何理解|怎么理解|如何计算|怎么算|区别|优缺点|优势|作用"
-)
-
-_FILLERS = re.compile(r"请问|帮忙|帮我|一下|那个|这个|它|到底|究竟|我想知道|告诉我")
-
-
-def _grams(text: str, n: int = 2) -> set[str]:
-    """把中文串切成 n-gram —— 知识点名往往比问句里的说法长
-    （问「反向传播」，库里叫「反向传播的基本形式」），整串相等几乎必不中。"""
-    out: set[str] = set()
-    for chunk in re.findall(r"[一-龥A-Za-z0-9]{2,}", text or ""):
-        for i in range(len(chunk) - n + 1):
-            out.add(chunk[i:i + n])
-    return out
-
-
-def _seed_nodes(nodes: list[dict], question: str, limit: int = 4) -> list[str]:
-    q = _grams(question)
-    scored = []
-    for n in nodes:
-        hit = len(q & _grams(n["id"]))
-        if hit:
-            scored.append((hit, n["id"]))
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return [name for _, name in scored[:limit]]
-
 
 # ================================================================ 路由
 def route(question: str, side: str = "student") -> dict[str, Any]:
-    """规则路由：返回 ``{strategy, strategy_name, reason, confidence}``。"""
+    """路由：当前**恒定**返回混合式。
+
+    接口保留（调用方与前端不变），将来要恢复多策略路由时，在函数体内补判定
+    逻辑即可；模型路由见 ``route_llm``。
+    """
     text = (question or "").strip()
     if not text:
-        return _route_view("hybrid", "空问题按默认策略处理", 0.4)
-    for sid, pattern in _ROUTE_PATTERNS:
-        m = pattern.search(text)
-        if m:
-            return _route_view(sid, f"命中信号：「{m.group(0)}」", 0.78)
-    if _CONCEPT.search(text):
-        return _route_view("hybrid", "概念题：对象明确，双路检索最稳", 0.74)
-    # 文本较长且无特殊信号 → 混合检索最稳
-    if len(text) >= 10:
-        return _route_view("hybrid", "知识性提问，双路检索最稳", 0.72)
-    return _route_view("corrective", "问题较短且无明确对象，先走纠错改写", 0.6)
+        return _route_view(DEFAULT_STRATEGY, "空问题按默认策略处理", 0.4)
+    return _route_view(DEFAULT_STRATEGY, "统一走混合式：BM25 + 向量双路召回，RRF 融合", 0.9)
 
 
 def resolve(question: str, side: str = "student", strategy: str = "") -> dict[str, Any]:
-    """路由统一入口：``strategy`` 为空或 ``auto`` 时自动路由，否则按演示指定走。
+    """路由统一入口：``strategy`` 为空或 ``auto`` 时走默认策略，否则按演示指定走。
 
-    自动路由目前是规则版（断网可用）；想让模型自己挑，把这里换成 ``route_llm`` 即可，
+    未启用的策略也能被"手动指定"，但 ``execute`` 会如实回落到混合式并在
+    ``extra.note`` 里标注 —— 不假装跑过未实现的架构。
+    将来想让模型自己挑，把这里的 ``route`` 换成 ``route_llm`` 即可，
     下游调用方与前端都不用改。
     """
     sid = (strategy or "").strip()
@@ -137,8 +103,8 @@ def resolve(question: str, side: str = "student", strategy: str = "") -> dict[st
     view = route(question, side)
     if manual:
         if sid not in _STRATEGY_INDEX:
-            sid = "hybrid"
-        view = _route_view(sid, "演示指定：手动切换策略", 1.0)
+            sid = DEFAULT_STRATEGY
+        view = _route_view(sid, "手动指定：按所选策略执行", 1.0)
     view["auto"] = not manual
     view["side"] = side
     return view
@@ -191,8 +157,12 @@ def _scope(user: dict) -> tuple[int, bool]:
 
 def execute(strategy: str, question: str, user: dict | None = None,
             top_k: int = 4, course: str = "") -> dict[str, Any]:
-    """执行某个策略。所有策略都返回同构 hits + 各自的 extra。"""
-    sid = strategy if strategy in _STRATEGY_INDEX else "hybrid"
+    """执行某个策略。所有策略都返回同构 hits + 各自的 extra。
+
+    未启用的策略（``enabled=False``）保留分派入口，但统一回落到混合式，
+    并在 ``extra.note`` 里注明，避免界面上出现"选了 A 却按 B 算"的误解。
+    """
+    sid = strategy if strategy in _STRATEGY_INDEX else DEFAULT_STRATEGY
     fn = {
         "hybrid": _ex_hybrid,
         "graph": _ex_graph,
@@ -217,165 +187,56 @@ def _ex_hybrid(question: str, user: dict, top_k: int, course: str) -> dict:
 
 
 def _ex_graph(question: str, user: dict, top_k: int, course: str) -> dict:
-    """图谱式：知识点为节点，同学课程 / 共享方向词为边；先取子图，再取文本证据。"""
-    oid, teacher = _scope(user)
-    clause, args = db_scope(oid, teacher)
-    rows = db.query(
-        "SELECT name, course, difficulty, keywords FROM knowledge_points WHERE 1=1" +
-        clause + " LIMIT 300",
-        tuple(args),
-    )
-    nodes, edges = [], []
-    for r in rows:
-        name = str(r["name"] or "").strip()
-        if name:
-            nodes.append({"id": name, "course": r["course"] or "",
-                          "difficulty": r["difficulty"] or "B",
-                          "keywords": db.jload(r.get("keywords"), [])})
-    index = {n["id"]: i for i, n in enumerate(nodes)}
-    for i, a in enumerate(nodes):
-        for b in nodes[i + 1:]:
-            weight = 0
-            if a["course"] and a["course"] == b["course"]:
-                weight += 1
-            shared = set(a["keywords"]) & set(b["keywords"])
-            weight += len(shared)
-            if weight >= 2:
-                edges.append({"source": a["id"], "target": b["id"], "weight": weight,
-                              "reason": "同课程" if a["course"] == b["course"] else "共享方向词"})
+    """图谱式 —— **接口保留，实现待接回**。
 
-    # 子图：问题命中的知识点为种子，扩一跳邻居
-    seeds = _seed_nodes(nodes, question)
-    sub_nodes = list(seeds)
-    for e in edges:
-        if e["source"] in seeds and e["target"] not in sub_nodes:
-            sub_nodes.append(e["target"])
-        if e["target"] in seeds and e["source"] not in sub_nodes:
-            sub_nodes.append(e["source"])
-    sub_nodes = sub_nodes[:12]
-    sub_edges = [e for e in edges if e["source"] in sub_nodes and e["target"] in sub_nodes][:20]
-
-    hits = retriever.hybrid_search(question, top_k=top_k, course=course,
-                                   owner_id=oid, teacher=teacher)
-    if seeds and not hits:
-        # 图上有结构但文本库没证据时，用知识点本身做可引用的"证据"
-        course_of = {n["id"]: n["course"] for n in nodes}
-        hits = [_hit(f"知识点 · {s}", f"{s}（{course_of.get(s) or '—'}）", "graph", 0.42)
-                for s in seeds]
-    return {"strategy": "graph", "hits": hits,
-            "extra": {"graph": {"nodes": sub_nodes, "edges": sub_edges,
-                                "total_nodes": len(nodes), "total_edges": len(edges)},
-                      "note": f"子图 {len(sub_nodes)} 节点 / {len(sub_edges)} 边，证据 {len(hits)} 条"}}
+    原实现：知识点建图（同课程 / 共享方向词为边）→ 种子扩一跳取子图 → 取文本证据。
+    当前统一回落到混合式，回落事实写入 ``extra.note``。
+    接回时在本函数体内补实现即可，调用方与前端无需改动。
+    """
+    out = _ex_hybrid(question, user, top_k, course)
+    return {"strategy": "graph", "hits": out["hits"],
+            "extra": {"note": "图谱式未启用，已按混合式执行（接口保留）"}}
 
 
 def _ex_agentic(question: str, user: dict, top_k: int, course: str) -> dict:
-    """智能体式：规划 → 逐工具执行 → 聚合。每个工具都有真实数据来源。"""
-    oid, teacher = _scope(user)
-    plan: list[dict[str, Any]] = []
-    hits: list[dict] = []
+    """智能体式 —— **接口保留，实现待接回**。
 
-    # 工具一：资料检索
-    found = retriever.hybrid_search(question, top_k=top_k, course=course,
-                                    owner_id=oid, teacher=teacher)
-    plan.append({"tool": "资料检索（混合式）", "found": len(found),
-                 "note": "BM25 + 向量双路"})
-    hits.extend(found)
-
-    # 工具二：知识点库
-    tokens = [t for t in re.split(r"[\s，,。？?、：:；;（）()]+", question) if len(t) >= 2]
-    kp_clause, kp_args = db_scope(oid, teacher)
-    kp_rows = db.query(
-        "SELECT name, course, difficulty FROM knowledge_points WHERE 1=1" +
-        kp_clause + " LIMIT 200", tuple(kp_args),
-    )
-    kps = [r for r in kp_rows
-           if any(t in str(r["name"]) or str(r["name"]) in question for t in tokens)][:3]
-    plan.append({"tool": "知识点库", "found": len(kps), "note": "按问题实词匹配"})
-    for r in kps:
-        hits.append(_hit(f"知识点 · {r['name']}",
-                         f"{r['name']}（{r['course']}，难度 {r['difficulty']}）", "agentic", 0.40,
-                         r["course"] or ""))
-
-    # 工具三：学情画像（学生）或课程知识点分布（教师）
-    uid = int(user.get("id") or 0)
-    if str(user.get("role")) == "student":
-        prof = db.student_profile(uid) or {}
-        plan.append({"tool": "学情画像", "found": 1 if prof else 0,
-                     "note": f"主标签 {prof.get('track') or '—'} · 层次 {prof.get('grade_level') or '—'}"})
-    else:
-        cnt = db.scalar("SELECT COUNT(*) FROM knowledge_points", (), 0)
-        plan.append({"tool": "课程知识点分布", "found": int(cnt or 0),
-                     "note": f"知识点库共 {cnt} 条，供备课引用"})
-
-    return {"strategy": "agentic", "hits": hits[:top_k + 3],
-            "extra": {"plan": plan,
-                      "note": f"规划 {len(plan)} 步，聚合 {len(hits)} 条证据"}}
+    原实现：规划 → 调资料检索 / 知识点库 / 学情画像三个工具 → 聚合证据。
+    当前统一回落到混合式；个性化仍由 ``synth.compose`` 的画像参数保证。
+    """
+    out = _ex_hybrid(question, user, top_k, course)
+    return {"strategy": "agentic", "hits": out["hits"],
+            "extra": {"note": "智能体式未启用，已按混合式执行（接口保留）"}}
 
 
 def _ex_corrective(question: str, user: dict, top_k: int, course: str) -> dict:
-    """纠错式：先查一次并评分，不合格就改写再查。改写逻辑可见、可解释。"""
-    oid, teacher = _scope(user)
-    round1 = retriever.hybrid_search(question, top_k=top_k, course=course,
-                                     owner_id=oid, teacher=teacher)
-    best = max([float(h.get("fused_score") or 0) for h in round1] or [0])
-    quality = "合格" if (round1 and best >= 0.35) else "偏弱"
+    """纠错型 —— **接口保留，实现待接回**。
 
-    if quality == "合格":
-        return {"strategy": "corrective", "hits": round1,
-                "extra": {"rounds": 1, "quality": quality,
-                          "note": f"首查 {len(round1)} 条即达标（最高分 {best:.2f}），无需改写"}}
-
-    rewritten = _rewrite(question, course)
-    round2 = retriever.hybrid_search(rewritten, top_k=top_k, course=course,
-                                     owner_id=oid, teacher=teacher) \
-        if rewritten != question else []
-    hits = round2 or round1
-    return {"strategy": "corrective", "hits": hits,
-            "extra": {"rounds": 2, "quality": quality,
-                      "rewrite": {"from": question, "to": rewritten},
-                      "note": f"首查偏弱（最高分 {best:.2f}），改写后召回 {len(round2)} 条"}}
-
-
-def _rewrite(question: str, course: str) -> str:
-    """保守改写：去掉口语填充词；改完没变化就补检索词。不假装做了语义改写。"""
-    cleaned = _FILLERS.sub("", question).strip(" ，。？?")
-    if cleaned and cleaned != question:
-        return cleaned
-    suffix = " 概念 解释 例题" if course else " 概念 定义 用法"
-    return (question + suffix).strip()
+    原实现：首查打分，最高分 < 0.35 判偏弱 → 去填充词 / 补检索词后二次检索。
+    当前统一回落到混合式（只检索一轮）。
+    """
+    out = _ex_hybrid(question, user, top_k, course)
+    return {"strategy": "corrective", "hits": out["hits"],
+            "extra": {"note": "纠错型未启用，已按混合式执行（接口保留）"}}
 
 
 def _ex_multimodal(question: str, user: dict, top_k: int, course: str) -> dict:
-    """多模态：文本块 + 图片素材一起召回。图片素材来自 materials 表里的图片文件。"""
-    oid, teacher = _scope(user)
-    hits = retriever.hybrid_search(question, top_k=top_k, course=course,
-                                   owner_id=oid, teacher=teacher)
-    images: list[dict[str, Any]] = []
-    # materials 表主键是 id（不是 material_id），范围子句必须换成 id_col="id"。
-    img_clause, img_args = db_scope(oid, teacher, id_col="id")
-    rows = db.query(
-        "SELECT id, filename, kind, category, parsed FROM materials "
-        "WHERE (stored LIKE '%.png' OR stored LIKE '%.jpg' OR stored LIKE '%.jpeg')" +
-        img_clause + " ORDER BY id DESC LIMIT 20",
-        tuple(img_args),
-    )
-    for r in rows:
-        parsed = db.jload(r.get("parsed"), {}) or {}
-        images.append({"material_id": r["id"], "filename": r["filename"],
-                       "kind": r["kind"], "category": r["category"],
-                       "summary": str(parsed.get("summary") or "")[:120],
-                       "title": str(parsed.get("title") or r["filename"])})
-    # 问题或文本证据命中图片标题时，把图片排进证据
-    for img in images:
-        blob = img["title"] + img["summary"] + img["filename"]
-        if any(t in blob for t in re.split(r"[\s，,。？?]+", question) if len(t) >= 2):
-            hits.append(_hit(f"图片 · {img['title']}", img["summary"] or "（图片素材）",
-                             "multimodal", 0.45))
-            break
-    return {"strategy": "multimodal", "hits": hits,
-            "extra": {"images": images[:6],
-                      "note": f"文本证据 {len(hits)} 条，图片素材库 {len(images)} 项"}}
+    """多模态 —— **接口保留，实现待接回**。
+
+    原实现：文本块 + materials 表里的图片素材统一召回。
+    当前统一回落到混合式，**图片素材不再进入证据链**（已知回退：问"课件里那张图"
+    时不会有图片引用）。接回时在此补图片召回即可。
+    """
+    out = _ex_hybrid(question, user, top_k, course)
+    return {"strategy": "multimodal", "hits": out["hits"],
+            "extra": {"note": "多模态未启用，已按混合式执行（接口保留）"}}
 
 
-def strategies_view() -> list[dict[str, str]]:
+def strategies_view() -> list[dict[str, Any]]:
+    """五种策略的展示数据。``enabled=False`` 的由前端置灰标注「规划中」。"""
     return STRATEGIES
+
+
+def enabled_ids() -> list[str]:
+    """当前真正有实现的策略 id（前端据此禁用未启用的选项）。"""
+    return [s["id"] for s in STRATEGIES if s.get("enabled")]

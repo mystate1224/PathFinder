@@ -18,7 +18,7 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
 </head>
 <body>
 <div id="app"></div>
-<script src="/static/js/common.js?v=20"></script>
+<script src="/static/js/common.js?v=22"></script>
 <script src="/static/js/tabs.js"></script>
 <script>
 (async function () {
@@ -45,9 +45,11 @@ document.documentElement.setAttribute("data-theme",t)})();</script>
   let TASKS = null;     // /api/student/tasks 结果缓存
   let FLT = "all";
 
+  // 六维（画像 v2 主口径）。后端已直接返回中文名，这里只作兜底：
+  // 万一拿到的是 D1~D6 这样的键名，也能显示成中文。
   const ABILITY_LABEL = {
-    foundation: "专业基础", practice: "实践能力", research: "科研素养",
-    communication: "沟通协作", driveself: "自驱力",
+    D1: "知识掌握", D2: "分析推理", D3: "工具实践",
+    D4: "研究创新", D5: "协作沟通", D6: "自主发展",
   };
 
   async function loadProfile(force) {

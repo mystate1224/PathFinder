@@ -54,9 +54,19 @@ SCHEMA = (
     '{"track":"学业型|事业型",'
     '"grade_level":"A|B|C",'
     '"interests":["方向1","方向2"],'
-    '"ability":{"foundation":1.0-5.0,"practice":1.0-5.0,"research":1.0-5.0,'
-    '"communication":1.0-5.0,"driveself":1.0-5.0},'
+    '"ability":{"D1":1.0-5.0,"D2":1.0-5.0,"D3":1.0-5.0,'
+    '"D4":1.0-5.0,"D5":1.0-5.0,"D6":1.0-5.0},'
     '"reason":"60-160字中文，说明判定依据"}'
+)
+
+# 六维口径说明（给模型用，保证模型与规则版说的是同一套维度）
+ABILITY_NOTE = (
+    "D1 知识掌握（课程成绩反映的知识扎实程度）、"
+    "D2 分析推理（推导、建模、分析问题的倾向）、"
+    "D3 工具实践（动手实现、工程工具与项目落地）、"
+    "D4 研究创新（提出问题、复现与改进、产出新东西）、"
+    "D5 协作沟通（团队协作与表达）、"
+    "D6 自主发展（自我驱动与持续学习）"
 )
 
 
@@ -114,7 +124,19 @@ def direction_flavour(interests: Sequence[str]) -> str:
 
 
 def ability_vector(track: str, gpa: float, research_intent: float, job_intent: float) -> dict:
-    """五维能力。``base = gpa / 20``（80 分 → 4.0），再按主标签套不同权重。"""
+    """六维能力（画像 v2 规则版）。``base = gpa / 20``（80 分 → 4.0），按主标签套不同权重。
+
+    维度映射（可解释，与 v2 六维口径对齐）：
+      D1 知识掌握 ← 学业成绩（GPA 主导）
+      D2 分析推理 ← 科研素养（研究型问题需要推理）
+      D3 工具实践 ← 实践能力（就业倾向加权，动手与工程）
+      D4 研究创新 ← 科研与学业的交叉均值
+      D5 协作沟通 ← 沟通基线 + 就业倾向微调
+      D6 自主发展 ← 自驱（GPA 与倾向的综合）
+
+    规则版没有行为证据可依，六维由这五个可观测输入（GPA / 两项倾向 / 兴趣）
+    确定性推导 —— 与线上无 API Key 时也能生成六维画像，徽标仍标「规则生成」。
+    """
     try:
         base = float(gpa) / 20.0
     except (TypeError, ValueError):
@@ -123,22 +145,26 @@ def ability_vector(track: str, gpa: float, research_intent: float, job_intent: f
     job = float(job_intent or 3)
 
     if track == "事业型":
-        values = {
-            "foundation": base,
-            "practice": base + 0.4 + (job - 3) * 0.4,
-            "research": base - 1.2 + (res - 3) * 0.3,
-            "communication": 3.6 + (job - 3) * 0.3,
-            "driveself": base + 0.2,
-        }
+        foundation = base
+        practice = base + 0.4 + (job - 3) * 0.4
+        research = base - 1.2 + (res - 3) * 0.3
+        communication = 3.6 + (job - 3) * 0.3
+        driveself = base + 0.2
     else:  # 学业型（含未判定）
-        values = {
-            "foundation": base + 0.2,
-            "practice": base - 0.6 + (job - 3) * 0.3,
-            "research": base + 0.3 + (res - 3) * 0.4,
-            "communication": 3.4 + (job - 3) * 0.2,
-            "driveself": base + 0.1,
-        }
-    return {k: _clamp(v) for k, v in values.items()}
+        foundation = base + 0.2
+        practice = base - 0.6 + (job - 3) * 0.3
+        research = base + 0.3 + (res - 3) * 0.4
+        communication = 3.4 + (job - 3) * 0.2
+        driveself = base + 0.1
+
+    return {
+        "D1": _clamp(foundation),
+        "D2": _clamp(research),
+        "D3": _clamp(practice),
+        "D4": _clamp((research + foundation) / 2),
+        "D5": _clamp(communication),
+        "D6": _clamp(driveself),
+    }
 
 
 def interests_from_text(text: str, top: int = 5) -> list[str]:
@@ -225,7 +251,9 @@ def stratify(
         f"就业倾向（1-5）：{job_intent}\n"
         f"兴趣方向候选：{'、'.join(rule['interests']) or '无'}\n"
         f"补充材料摘要：{extra_text[:600] or '无'}\n\n"
+        f"能力维度（ability 用这六个键，取值 1.0-5.0）：{ABILITY_NOTE}。\n"
         "要求：grade_level 必须按「>=85 为 A，>=70 为 B，其余 C」判定，不得改动；"
+        "ability 必须使用 D1~D6 这六个键，不要用其它命名；"
         "理由要引用具体数字；不得出现分班、贴标签式表述。"
     )
     result, engine = llm.chat_json([{"role": "user", "content": prompt}], SCHEMA, mock=rule)
@@ -239,7 +267,13 @@ def stratify(
         result["interests"] = rule["interests"]
     if not result.get("reason"):
         result["reason"] = rule["reason"]
-    result.setdefault("ability", rule["ability"])
+    # 维度口径兜底：模型若没按 D1~D6 输出（老模型 / 不遵照 schema），
+    # 一律用规则版六维，避免界面退回旧五维雷达图。
+    ability = result.get("ability")
+    if not isinstance(ability, dict) or not any(
+        k in ability for k in ("D1", "D2", "D3", "D4", "D5", "D6")
+    ):
+        result["ability"] = rule["ability"]
     return result, engine
 
 
