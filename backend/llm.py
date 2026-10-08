@@ -57,9 +57,56 @@ def current_mode() -> str:
     return "api" if config.LLM_MODE == "api" else "mock"
 
 
+# 库里激活模型的短缓存：避免每次调用都查库，又不至于改完要等很久才生效
+_MODEL_CACHE: dict = {"at": 0.0, "row": None}
+
+
+def _db_model() -> dict | None:
+    """管理端激活的模型配置（5 秒缓存）。库不可用/没配则 None，照旧读 .env。"""
+    now = time.time()
+    if _MODEL_CACHE["row"] is None or now - _MODEL_CACHE["at"] > 5.0:
+        row = None
+        try:
+            from services import admin  # 延迟导入，避免与 admin 形成顶部循环
+            row = admin.active_model()
+        except Exception:
+            row = None
+        _MODEL_CACHE["row"] = row
+        _MODEL_CACHE["at"] = now
+    return _MODEL_CACHE["row"]
+
+
+def effective_config() -> dict:
+    """当前生效的模型配置：**库里激活的优先**，否则 .env。
+
+    管理端换模型后下一次调用即生效（5 秒内），不用改配置、不用重启。
+    """
+    cfg = {
+        "base_url": config.LLM_BASE_URL,
+        "key": config.LLM_API_KEY,
+        "model": config.LLM_MODEL,
+        "vision_model": config.LLM_VISION_MODEL,
+        "embed_model": config.EMBED_MODEL,
+        "source": "env",
+    }
+    row = _db_model()
+    if row and row.get("base_url") and row.get("api_key") and row.get("model_id"):
+        cfg.update({
+            "base_url": row["base_url"],
+            "key": row["api_key"],
+            "model": row["model_id"],
+            "vision_model": row.get("vision_model") or "",
+            "embed_model": row.get("embed_model") or "",
+            "source": "database",
+            "name": row.get("name") or "",
+        })
+    return cfg
+
+
 def api_ready() -> bool:
-    """真实模型是否可用（模式 + 地址 + 密钥三者齐备）。"""
-    return current_mode() == "api" and bool(config.LLM_BASE_URL and config.LLM_API_KEY)
+    """真实模型是否可用（模式 + 地址 + 密钥三者齐备），库配置与 .env 都算。"""
+    cfg = effective_config()
+    return current_mode() == "api" and bool(cfg["base_url"] and cfg["key"])
 
 
 def engine_label(engine: str) -> str:
@@ -68,16 +115,20 @@ def engine_label(engine: str) -> str:
 
 def status() -> dict:
     """给前端上报当前引擎状态（不含密钥）。"""
+    cfg = effective_config()
+    ready = api_ready()
     return {
         "llm_mode": current_mode(),
-        "api_ready": api_ready(),
-        "model": config.LLM_MODEL if api_ready() else "",
-        "vision_model": config.LLM_VISION_MODEL if api_ready() else "",
-        "vision_ready": bool(api_ready()),
-        "embed_ready": bool(api_ready()),
+        "api_ready": ready,
+        "model": cfg["model"] if ready else "",
+        "model_name": cfg.get("name") or "",
+        "model_source": cfg["source"],          # database | env
+        "vision_model": cfg["vision_model"] if ready else "",
+        "vision_ready": bool(ready and cfg["vision_model"]),
+        "embed_ready": bool(ready and cfg["embed_model"]),
         "last_error": _LAST_ERROR,
         "last_ok_at": _LAST_OK_AT,
-        "label": engine_label("llm" if api_ready() else "rule"),
+        "label": engine_label("llm" if ready else "rule"),
     }
 
 
@@ -99,7 +150,7 @@ def probe() -> dict:
 # ================================================================ 底层 HTTP
 def _headers() -> dict:
     return {
-        "Authorization": f"Bearer {config.LLM_API_KEY}",
+        "Authorization": f"Bearer {effective_config()['key']}",
         "Content-Type": "application/json",
     }
 
@@ -111,7 +162,7 @@ def _post(path: str, payload: dict) -> dict:
         _LAST_ERROR = "httpx 未安装"
         raise LLMError(_LAST_ERROR)
 
-    url = f"{config.LLM_BASE_URL}{path}"
+    url = f"{effective_config()['base_url']}{path}"
     last_exc: Exception | None = None
     attempts = max(1, config.LLM_RETRY)
     for i in range(attempts):
@@ -224,7 +275,7 @@ def chat(
         return (text if isinstance(text, str) else str(text or "")), "rule"
 
     payload: dict[str, Any] = {
-        "model": model or config.LLM_MODEL,
+        "model": model or effective_config()["model"],
         "messages": _messages_with_system(messages),
         "temperature": temperature,
     }
@@ -264,7 +315,7 @@ def chat_json(
         return (rule if isinstance(rule, dict) else {}), "rule"
 
     payload: dict[str, Any] = {
-        "model": model or config.LLM_MODEL,
+        "model": model or effective_config()["model"],
         "messages": _messages_with_system(messages, schema_hint, json_mode=True),
         "temperature": temperature,
         "response_format": {"type": "json_object"},
@@ -293,7 +344,8 @@ def vision(
 
     未配视觉模型时**如实返回规则版**（含 ``note`` 说明），不假装解析成功。
     """
-    if not api_ready() or not image_b64:
+    # 视觉模型为空 = 明确不支持读图（管理端可留空），如实降级而不是硬调
+    if not effective_config()["vision_model"] or not api_ready() or not image_b64:
         rule = _resolve_mock(mock)
         if isinstance(rule, dict) and "note" not in rule:
             rule["note"] = "未配置视觉模型，本次未真正读图。"
@@ -305,7 +357,7 @@ def vision(
         {"type": "image_url", "image_url": {"url": data_uri}},
     ]
     payload: dict[str, Any] = {
-        "model": config.LLM_VISION_MODEL,
+        "model": effective_config()["vision_model"],
         "messages": _messages_with_system([{"role": "user", "content": content}], json_mode=True),
         "temperature": temperature,
         "response_format": {"type": "json_object"},
@@ -331,9 +383,11 @@ def embed(texts: Iterable[str]) -> tuple[list[list[float]] | None, str]:
     返回 ``None`` 时调用方（``services/embedding.py``）自动切换到本地哈希向量。
     """
     items = [str(t) for t in texts]
-    if not items or not api_ready():
+    embed_model = effective_config()["embed_model"]
+    # 没配向量模型（管理端可留空）→ 直接用本地哈希向量，不浪费一次请求
+    if not items or not embed_model or not api_ready():
         return None, "rule"
-    payload = {"model": config.EMBED_MODEL, "input": items}
+    payload = {"model": embed_model, "input": items}
     try:
         data = _post("/embeddings", payload)
         rows = sorted(data.get("data", []), key=lambda d: d.get("index", 0))

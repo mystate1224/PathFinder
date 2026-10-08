@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS users (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     username   TEXT NOT NULL UNIQUE,
     pwd_hash   TEXT NOT NULL,
-    role       TEXT NOT NULL,            -- teacher | student
+    role       TEXT NOT NULL,            -- teacher | student | admin
     name       TEXT NOT NULL DEFAULT '',
     class_id   TEXT NOT NULL DEFAULT '', -- 行政班（班级总览用）
     class_name TEXT NOT NULL DEFAULT ''  -- 教学班（作业分发用）
@@ -313,6 +313,24 @@ CREATE TABLE IF NOT EXISTS course_grades (
     created_at TEXT NOT NULL DEFAULT ''
 );
 
+-- 模型配置（管理端维护）：管理员增删改查的可选模型；is_active=1 的那条
+-- 在运行时覆盖 .env 的配置（.env 仍是兜底，没配任何模型时照旧读环境变量）。
+-- 密钥存在库里而不是代码里 —— 管理端可换模型，改完立即生效，无需重启改配置。
+CREATE TABLE IF NOT EXISTS model_profiles (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL DEFAULT '',   -- 显示名，如「混元 Hy4」
+    vendor          TEXT NOT NULL DEFAULT '',   -- 厂商：混元 / DeepSeek / OpenAI / 自定义
+    base_url        TEXT NOT NULL DEFAULT '',   -- OpenAI 兼容地址（填到 /v1 为止）
+    api_key         TEXT NOT NULL DEFAULT '',   -- 密钥（管理端录入，不进代码库）
+    model_id        TEXT NOT NULL DEFAULT '',   -- 对话模型 id
+    vision_model    TEXT NOT NULL DEFAULT '',   -- 视觉模型 id，空 = 不支持读图
+    embed_model     TEXT NOT NULL DEFAULT '',   -- 向量模型 id，空 = 用本地哈希向量
+    supports_images INTEGER NOT NULL DEFAULT 0,
+    is_active       INTEGER NOT NULL DEFAULT 0, -- 同时最多一条为 1
+    note            TEXT NOT NULL DEFAULT '',
+    updated_at      TEXT NOT NULL DEFAULT ''
+);
+
 -- 备课文件夹：教师可以**先建好空文件夹**再把产物移进去，所以文件夹不能只靠
 -- artifacts.folder 分组推导（空的就推导不出来），必须单独登记一条。
 CREATE TABLE IF NOT EXISTS prep_folders (
@@ -351,6 +369,7 @@ _INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_imp_user ON material_imports(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_prep_folder ON prep_folders(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_model_active ON model_profiles(is_active)",
 ]
 
 # 表 -> 后补列（老库平滑升级用）

@@ -3494,6 +3494,15 @@
 
   /* ============================================================ 导航外壳 */
   const NAV = {
+    // 管理端是单页四个标签（总览 / 用户 / 知识库 / 模型），所以导航只留一个入口
+    admin: [
+      { group: "运维", items: [
+        { key: "admin", href: "/admin", label: "管理台", icon: "grid" },
+      ]},
+      { group: "账号", items: [
+        { key: "profile", href: "/profile", label: "个人中心", icon: "user" },
+      ]},
+    ],
     teacher: [
       { group: "教学", items: [
         { key: "teacher", href: "/teacher", label: "驾驶舱", icon: "grid" },
@@ -3549,7 +3558,7 @@
     const c = cfg || {};
     const me = c.me || PF.state.me || {};
     const role = me.role || "student";
-    const roleName = role === "teacher" ? "教师" : "学生";
+    const roleName = role === "admin" ? "管理员" : (role === "teacher" ? "教师" : "学生");
     const root = PF.$("#app") || document.body;
     const widthCls = c.narrow ? " content--narrow" : c.wide ? " content--wide" : "";
 
@@ -3584,7 +3593,7 @@
             '<button class="theme-toggle" type="button" id="pf-theme"></button>' +
             '<button class="topbar__user" type="button" id="pf-user" title="个人中心" aria-label="个人中心">' +
               PF.icon("user", 17) + "</button>" +
-            '<span class="badge badge--brand">' + PF.icon(role === "teacher" ? "book" : "compass", 11) + roleName + "端</span>" +
+            '<span class="badge badge--brand">' + PF.icon(role === "admin" ? "grid" : role === "teacher" ? "book" : "compass", 11) + roleName + "端</span>" +
             '<span id="pf-engine"></span>' +
           "</header>" +
           '<main class="content' + widthCls + '" id="pf-main" tabindex="-1">' +
@@ -3743,7 +3752,8 @@
     }
     if (role && me.role !== role) {
       PF.toast("当前账号无权访问该页面，已跳转到你的首页", "warn");
-      setTimeout(() => { window.location.replace(me.role === "teacher" ? "/teacher" : "/student"); }, 800);
+      const home = me.role === "admin" ? "/admin" : (me.role === "teacher" ? "/teacher" : "/student");
+      setTimeout(() => { window.location.replace(home); }, 800);
       return null;
     }
     return me;

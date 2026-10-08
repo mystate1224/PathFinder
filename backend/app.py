@@ -31,6 +31,7 @@ import config  # noqa: E402
 import db  # noqa: E402
 import llm  # noqa: E402
 from services import (  # noqa: E402
+    admin,
     agenttools,
     copilot,
     dashboard,
@@ -186,6 +187,17 @@ def require_teacher(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+def require_admin(user: dict = Depends(current_user)) -> dict:
+    """管理端门禁：只有 role=admin 可用。
+
+    管理端能删人、能换模型，权限比教师端大得多，所以单独一个角色，
+    不复用 require_teacher —— 避免"教师顺手改了模型配置"这类越权。
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(403, "该功能仅管理员可用")
+    return user
+
+
 def _int(payload: dict, key: str, default: int = 0) -> int:
     try:
         return int(float(payload.get(key, default)))
@@ -201,6 +213,7 @@ def _str(payload: dict, key: str, default: str = "") -> str:
 # ================================================================ 页面
 PAGES: list[tuple[str, str, str]] = [
     # (路径, 文件, 需要的角色；空串=登录即可)
+    ("/admin", "admin.html", "admin"),
     ("/teacher", "teacher.html", "teacher"),
     ("/student", "student.html", "student"),
     ("/library", "library.html", ""),
@@ -301,7 +314,8 @@ def api_login(payload: dict = Body(default={})):
         "role": user.get("role"),
         "name": user.get("name"),
         "username": user.get("username"),
-        "home": "/teacher" if user.get("role") == "teacher" else "/student",
+        "home": ("/admin" if user.get("role") == "admin"
+                 else "/teacher" if user.get("role") == "teacher" else "/student"),
     })
     response.set_cookie(
         COOKIE, token, httponly=True, samesite="lax",
@@ -329,6 +343,16 @@ DEMO_TEST_STUDENTS: tuple[str, ...] = ("test_acad_b", "test_career_a")
 def _demo_accounts() -> list[dict]:
     """按真实画像挑演示账号：每种主标签各取一个（账号序最小、每次演示都是同一批人）。"""
     accounts: list[dict] = []
+    # 管理员放最前：它是运维入口，与教学演示账号区分开
+    admin = db.user_by_username("admin")
+    if admin:
+        accounts.append({
+            "username": admin.get("username"),
+            "name": admin.get("name") or "系统管理员",
+            "role": "admin",
+            "label": "管理员 · 运维入口",
+            "group": "admin",
+        })
     for username, label in DEMO_TEACHERS:
         row = db.user_by_username(username)
         if row:
@@ -1824,6 +1848,159 @@ _SAMPLE_ANSWER = (
     "输入分布，两者共同支撑起深层 Transformer 的可训练性。\n"
     "综上，注意力机制用可并行的加权聚合替代了循环结构，是 Transformer 的核心。"
 )
+
+
+# ================================================================ 管理端（role=admin）
+# 管理端只做运维：用户 / 知识库 / 模型的增删改查。全部走 require_admin，
+# 与教师端权限彻底分开（管理端能删人、能换模型，不能让教师顺手点到）。
+@app.get(f"{API}/admin/overview")
+def api_admin_overview(_user: dict = Depends(require_admin)):
+    """管理端首页：各类对象计数 + 当前生效的模型来自库还是 .env。"""
+    return ok(admin.overview())
+
+
+@app.get(f"{API}/admin/users")
+def api_admin_users(role: str = "", keyword: str = "",
+                    _user: dict = Depends(require_admin)):
+    return ok({"users": admin.users(role, keyword)})
+
+
+@app.post(f"{API}/admin/users")
+def api_admin_user_create(payload: dict = Body(default={}),
+                          _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.create_user(payload), message="用户已创建")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.put(f"{API}/admin/users/{{user_id}}")
+def api_admin_user_update(user_id: int, payload: dict = Body(default={}),
+                          _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.update_user(user_id, payload), message="已保存")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.post(f"{API}/admin/users/{{user_id}}/reset-password")
+def api_admin_user_reset(user_id: int, payload: dict = Body(default={}),
+                         _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.reset_password(user_id, _str(payload, "password", "123456")),
+                  message="密码已重置，该用户需要重新登录")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.delete(f"{API}/admin/users/{{user_id}}")
+def api_admin_user_delete(user_id: int, user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.delete_user(user_id, int(user["id"])), message="已删除并清理关联数据")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.get(f"{API}/admin/materials")
+def api_admin_materials(keyword: str = "", owner: str = "",
+                        _user: dict = Depends(require_admin)):
+    return ok({"materials": admin.materials(keyword, owner)})
+
+
+@app.put(f"{API}/admin/materials/{{material_id}}")
+def api_admin_material_update(material_id: int, payload: dict = Body(default={}),
+                              _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.update_material(material_id, payload), message="已保存")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.delete(f"{API}/admin/materials/{{material_id}}")
+def api_admin_material_delete(material_id: int, _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.delete_material(material_id), message="资料已删除")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.get(f"{API}/admin/knowledge-points")
+def api_admin_kps(keyword: str = "", course: str = "",
+                  _user: dict = Depends(require_admin)):
+    return ok({"knowledge_points": admin.knowledge_points(keyword, course)})
+
+
+@app.post(f"{API}/admin/knowledge-points")
+def api_admin_kp_create(payload: dict = Body(default={}),
+                        _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.create_kp(payload), message="知识点已新增")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.put(f"{API}/admin/knowledge-points/{{kp_id}}")
+def api_admin_kp_update(kp_id: int, payload: dict = Body(default={}),
+                        _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.update_kp(kp_id, payload), message="已保存")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.delete(f"{API}/admin/knowledge-points/{{kp_id}}")
+def api_admin_kp_delete(kp_id: int, _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.delete_kp(kp_id), message="知识点已删除")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.get(f"{API}/admin/models")
+def api_admin_models(_user: dict = Depends(require_admin)):
+    """模型列表。**不下发明文密钥**，只给 has_key 标记。"""
+    return ok({"models": admin.models(), "active_id": (admin.active_model() or {}).get("id")})
+
+
+@app.post(f"{API}/admin/models")
+def api_admin_model_create(payload: dict = Body(default={}),
+                           _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.create_model(payload), message="模型已新增")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.put(f"{API}/admin/models/{{model_id}}")
+def api_admin_model_update(model_id: int, payload: dict = Body(default={}),
+                           _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.update_model(model_id, payload), message="已保存")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.delete(f"{API}/admin/models/{{model_id}}")
+def api_admin_model_delete(model_id: int, _user: dict = Depends(require_admin)):
+    try:
+        return ok(admin.delete_model(model_id), message="模型已删除")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.post(f"{API}/admin/models/{{model_id}}/activate")
+def api_admin_model_activate(model_id: int, _user: dict = Depends(require_admin)):
+    """切换生效模型：改完下一次调用即生效，无需重启、无需改 .env。"""
+    try:
+        return ok(admin.activate_model(model_id), message="已切换为当前生效模型")
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.post(f"{API}/admin/models/{{model_id}}/probe")
+def api_admin_model_probe(model_id: int, _user: dict = Depends(require_admin)):
+    """连通性自检：真发一次最小请求，能回话才算通（避免"配错了却静默降级"）。"""
+    return ok(admin.probe_model(model_id))
 
 
 @app.post(f"{API}/selfcheck")

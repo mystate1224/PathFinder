@@ -4,7 +4,7 @@
 > 依据手写技术文档与实现流程逐步构建，可优化处已做补强。
 > **无网络、无 API Key 也能完整演示全部链路。**
 
-**当前版本 v7.27**（2026-09-24）· 10 个页面 · 26 个业务模块 · 后端仅 8 个 Python 依赖 · 前端零构建 ·
+**当前版本 v7.28**（2026-10-08）· 11 个页面 · 27 个业务模块 · 后端仅 8 个 Python 依赖 · 前端零构建 ·
 冒烟测试 **71/71**。
 
 ---
@@ -200,7 +200,7 @@ query ──────────┤                                         
 | **E · 作业** | 发布 → 提交 → 建议分 → 教师定分 → 导出 | `/homework` 作业批改（师生共用，原 `/grade` 已并入） | `/api/teacher/homework/*`、`/api/homework/*` |
 | **F · 账号** | 个人信息、任教班级、偏好与退出登录 | `/profile` 个人中心 | `/api/account/profile`、`/api/teacher/classes` |
 
-### 十个页面与入口合并
+### 十一个页面与入口合并
 
 一次演示要点的页面从 13 个收敛到 **10 个**，办法是把「同一个人要连续用的页面」并成一个多标签页：
 
@@ -308,7 +308,7 @@ D:/edu
 │   ├── css/themes/       前两版配色存档（覆盖 style.css 即可回退）
 │   ├── js/common.js      唯一全局 window.PF（与 tabs.js 合计 108 个成员）
 │   ├── js/tabs.js        页签容器（带渲染缓存）
-│   └── *.html            10 个页面（登录 + 9 个业务页）
+│   └── *.html            11 个页面（登录 + 9 个业务页 + 管理台）
 ├── docs/                 思维导图（mindmap.html / .md）+ 3 分钟演示视频脚本
 ├── samples/              演示素材 + 师生问答集 + RAG 路由测试题（见 samples/README.md）
 ├── tools/
@@ -372,7 +372,7 @@ curl -s -b cookies.txt -X POST http://127.0.0.1:8000/api/selfcheck
 python tools/check_frontend.py
 ```
 
-对全部 10 个页面做三件事：
+对全部 11 个页面做三件事：
 - 抽出每个内联 `<script>` 用 `node --check` 校验语法
 - 扫描 `PF.xxx` 调用，比对 `common.js` / `tabs.js` 真实导出的成员（**108 个**）
 - 扫描 `class="..."`，比对 `style.css`（**592 个**）+ 页面自带 `<style>` 的定义

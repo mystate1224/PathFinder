@@ -546,7 +546,12 @@ def _create_user(username: str, password: str, role: str, name: str,
 
 # ================================================================ 分步播种
 def seed_users() -> dict:
-    made = {"teachers": 0, "students": 0}
+    made = {"teachers": 0, "students": 0, "admins": 0}
+    # 管理员：运维入口（用户 / 知识库 / 模型的增删改查）
+    if not db.user_by_username("admin"):
+        _create_user("admin", DEFAULT_PASSWORD, "admin", "系统管理员", "", "")
+        made["admins"] += 1
+
     for username, name, class_id, class_name in TEACHERS:
         if not db.user_by_username(username):
             _create_user(username, DEFAULT_PASSWORD, "teacher", name, class_id, class_name)
@@ -558,6 +563,26 @@ def seed_users() -> dict:
             _create_user(username, DEFAULT_PASSWORD, "student", name, class_id, class_id)
             made["students"] += 1
     return made
+
+
+def seed_models() -> int:
+    """模型配置：默认不写死任何一条，只把 .env 里已配好的模型登记为「来自环境变量」。
+
+    管理端可以随时新增混元 / DeepSeek / OpenAI 等模型并激活，激活的那条会覆盖 .env。
+    这里**不回写密钥到库**，避免种子数据里出现明文凭据。
+    """
+    if db.scalar("SELECT COUNT(*) FROM model_profiles", (), 0):
+        return 0
+    db.execute(
+        "INSERT INTO model_profiles "
+        "(name, vendor, base_url, api_key, model_id, vision_model, embed_model, "
+        " supports_images, is_active, note, updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("环境变量中的模型", "自定义", "", "", "", "", "", 0, 0,
+         "占位记录：当前生效的模型来自 .env（LLM_BASE_URL / LLM_API_KEY）。"
+         "在管理端新增并激活模型后，这一条会被覆盖。", db.now()),
+    )
+    return 1
 
 
 def seed_teacher_classes() -> int:
@@ -900,7 +925,13 @@ def seed(force: bool = False) -> dict:
     if force:
         reset()
     if is_seeded():
-        return {"skipped": True, "reason": "数据库已有用户，跳过播种"}
+        # 老库平滑升级：不动既有数据，只补齐后加的对象（管理员账号、模型表）
+        return {
+            "skipped": True,
+            "reason": "数据库已有数据，只补齐新增对象",
+            "users": seed_users(),
+            "models": seed_models(),
+        }
 
     report: dict = {}
     report["users"] = seed_users()
@@ -912,7 +943,9 @@ def seed(force: bool = False) -> dict:
     report["homework"] = seed_homework()
     report["materials"] = seed_materials()
     report["imports"] = seed_imports()
+    report["models"] = seed_models()
     report["accounts"] = {
+        "admin": "admin / 123456（管理端：用户 / 知识库 / 模型配置）",
         "teacher": "teacher / 123456",
         "teachers": "teacher2, teacher3 / 123456",
         "students": "stu01 ~ stu72 / 123456（6 个班，每班 12 人）",

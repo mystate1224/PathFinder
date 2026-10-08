@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>管理台 · 寻径教育 PathFinder</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234353ff' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/style.css?v=34">
+<script>/* 主题引导：抢在首帧之前定下明暗，否则会先亮一帧白再变暗。 */
+(function(){var t=null;try{t=localStorage.getItem("pf_theme")}catch(e){}
+if(t!=="dark"&&t!=="light"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"}
+document.documentElement.setAttribute("data-theme",t)})();</script>
+</head>
+<body>
+<div id="app"></div>
+<script src="/static/js/common.js?v=22"></script>
+<script src="/static/js/tabs.js"></script>
+<script>
+(async function () {
+  const PF = window.PF;
+
+  const me = await PF.requireAuth("admin");
+  if (!me) return;
+
+  const view = PF.shell({
+    active: "admin",
+    me: me,
+    title: "管理台",
+    desc: "运维入口：用户、知识库与模型配置的统一管理。改动即时生效，不需要重启服务。",
+    wide: true,
+    actions: '<button class="btn" id="btn-refresh">' + PF.icon("refresh", 15) + "刷新</button>",
+  });
+
+  view.innerHTML = '<div id="tabs-host"></div>';
+  const host = PF.$("#tabs-host", view);
+
+  /* ------------------------------------------------------------ 小工具 */
+  function statCard(icon, label, num, hint, tone) {
+    return '<div class="stat">' +
+      '<div class="stat__ico' + (tone ? " stat__ico--" + tone : "") + '">' + PF.icon(icon, 18) + "</div>" +
+      '<div class="flex-1"><div class="stat__num">' + num + "</div>" +
+      '<div class="stat__label">' + PF.esc(label) + "</div>" +
+      (hint ? '<div class="t-xs">' + PF.esc(hint) + "</div>" : "") +
+      "</div></div>";
+  }
+
+  function roleBadge(role) {
+    const map = { admin: "管理员", teacher: "教师", student: "学生" };
+    const cls = role === "admin" ? "badge--brand" : role === "teacher" ? "badge--ok" : "badge--info";
+    return '<span class="badge ' + cls + '">' + PF.esc(map[role] || role) + "</span>";
+  }
+
+  /** 表单弹窗：fields 描述字段，返回 Promise（点保存 resolve 表单对象，取消 resolve null） */
+  function askForm(title, fields, submitText) {
+    return new Promise(function (resolve) {
+      const body = '<div class="stack">' + fields.map(function (f) {
+        const ph = f.placeholder ? ' placeholder="' + PF.esc(f.placeholder) + '"' : "";
+        let input;
+        if (f.type === "select") {
+          input = '<select class="input" id="f-' + f.key + '">' + f.options.map(function (o) {
+            const sel = String(o.value) === String(f.value === undefined ? "" : f.value) ? " selected" : "";
+            return '<option value="' + PF.esc(o.value) + '"' + sel + ">" + PF.esc(o.label) + "</option>";
+          }).join("") + "</select>";
+        } else if (f.type === "check") {
+          input = '<label class="row" style="gap:8px"><input type="checkbox" id="f-' + f.key + '"' +
+            (f.value ? " checked" : "") + '><span class="t-sm">' + PF.esc(f.hint || "") + "</span></label>";
+        } else {
+          input = '<input class="input" id="f-' + f.key + '" type="' +
+            (f.type === "password" ? "password" : "text") + '" value="' +
+            PF.esc(f.value === undefined ? "" : f.value) + '"' + ph + ">";
+        }
+        return '<div><div class="t-sm t-strong mb-2">' + PF.esc(f.label) + "</div>" + input +
+          (f.note ? '<div class="t-xs t-dim mt-2">' + PF.esc(f.note) + "</div>" : "") + "</div>";
+      }).join("") + "</div>";
+
+      const m = PF.modal({
+        title: title,
+        body: body,
+        actions: [
+          { label: "取消", onClick: function () { resolve(null); } },
+          { label: submitText || "保存", type: "primary", onClick: function () {
+            const out = {};
+            fields.forEach(function (f) {
+              const el = PF.$("#f-" + f.key, m.body);
+              if (!el) return;
+              out[f.key] = f.type === "check" ? el.checked : el.value;
+            });
+            resolve(out);
+          } },
+        ],
+        onClose: function () { resolve(null); },
+      });
+    });
+  }
+
+  async function call(method, path, payload, busyLabel) {
+    try {
+      // 后端 PUT 与 POST 语义一致（都是"保存"），这里统一走 PF.api 发 PUT，
+      // 公共库只暴露 get / post / del，PUT 直接走 PF.api 发。
+      const res = method === "delete" ? await PF.del(path)
+        : method === "put" ? await PF.api(path, { method: "PUT", body: payload || {} })
+        : await PF.post(path, payload || {});
+      PF.toast(res.message || "已完成", "ok");
+      return true;
+    } catch (e) {
+      PF.toast(e.message || "操作失败", "warn");
+      return false;
+    }
+  }
+
+  /* ============================================================ 标签一：总览 */
+  function renderOverview(box) {
+    box.innerHTML = PF.loading("正在读取系统概况");
+    PF.get("/api/admin/overview").then(function (d) {
+      const c = d.counts || {};
+      const rt = d.runtime || {};
+      const am = d.active_model;
+      box.innerHTML =
+        '<div class="grid grid-4 mb-5">' +
+          statCard("users", "学生", (c.students || 0) + ' <span class="t-sm">人</span>', "含画像与成长路线", "") +
+          statCard("book", "教师", (c.teachers || 0) + ' <span class="t-sm">人</span>', "含任教班级", "") +
+          statCard("grid", "管理员", (c.admins || 0) + ' <span class="t-sm">人</span>', "运维入口账号", "info") +
+          statCard("layers", "资料", (c.materials || 0) + ' <span class="t-sm">份</span>', "课件 / 笔记 / 作业图片", "") +
+        "</div>" +
+        '<div class="grid grid-4 mb-5">' +
+          statCard("target", "知识点", (c.knowledge_points || 0) + ' <span class="t-sm">个</span>', "答疑与图谱的证据源", "info") +
+          statCard("clipboard", "作业", (c.homework || 0) + ' <span class="t-sm">份</span>', "含学生提交", "") +
+          statCard("file", "提交", (c.submissions || 0) + ' <span class="t-sm">份</span>', "批改与画像证据", "") +
+          statCard("message", "问答", (c.chats || 0) + ' <span class="t-sm">条</span>', "答疑与 Copilot 记录", "") +
+        "</div>" +
+        '<div class="card"><div class="card__head"><h3>' + PF.icon("sparkles", 15) + " 当前生效模型</h3>" +
+          '<div class="card__head-actions"><span class="badge ' +
+            (rt.api_ready ? "badge--ok" : "badge--warn") + '">' +
+            (rt.api_ready ? "模型可用" : "未启用真实模型") + "</span></div></div>" +
+          '<div class="card__body stack">' +
+            '<div class="row" style="gap:10px;flex-wrap:wrap">' +
+              '<span class="t-sm t-strong">' + PF.esc(rt.effective_model || "—") + "</span>" +
+              '<span class="badge">' + (rt.source === "database" ? "来自管理端配置" : "来自 .env 环境变量") + "</span>" +
+              (rt.model_name ? '<span class="badge badge--brand">' + PF.esc(rt.model_name) + "</span>" : "") +
+            "</div>" +
+            '<div class="t-xs t-dim">模式 ' + PF.esc(rt.llm_mode || "") +
+              (rt.last_error ? "　最近一次错误：" + PF.esc(rt.last_error) : "") + "</div>" +
+            '<div class="t-sm">管理端新增并激活模型后，下一次调用即生效（无需重启）；' +
+              "没配任何模型时自动回落到 .env，再不行就走规则引擎 —— 演示永远不中断。</div>" +
+          "</div></div>";
+    }).catch(function (e) {
+      box.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+    });
+  }
+
+  /* ============================================================ 标签二：用户管理 */
+  function renderUsers(box) {
+    box.innerHTML =
+      '<div class="card mb-5"><div class="card__body">' +
+        '<div class="row" style="gap:10px;flex-wrap:wrap">' +
+          '<select class="select" id="u-role" style="width:130px">' +
+            '<option value="">全部角色</option>' +
+            '<option value="student">学生</option>' +
+            '<option value="teacher">教师</option>' +
+            '<option value="admin">管理员</option>' +
+          "</select>" +
+          '<input class="input" id="u-kw" placeholder="按账号 / 姓名 / 班级搜索" style="width:240px">' +
+          '<button class="btn btn--primary" id="u-search">' + PF.icon("search", 15) + "搜索</button>" +
+          '<div class="spacer"></div>' +
+          '<button class="btn" id="u-new">' + PF.icon("plus", 15) + "新增用户</button>" +
+        "</div>" +
+      "</div></div>" +
+      '<div id="u-body">' + PF.loading("正在读取用户") + "</div>";
+
+    function load() {
+      const qs = new URLSearchParams();
+      const role = PF.$("#u-role", box).value;
+      const kw = PF.$("#u-kw", box).value.trim();
+      if (role) qs.set("role", role);
+      if (kw) qs.set("keyword", kw);
+      const bodyEl = PF.$("#u-body", box);
+      bodyEl.innerHTML = PF.loading("正在读取用户");
+      PF.get("/api/admin/users" + (qs.toString() ? "?" + qs.toString() : "")).then(function (d) {
+        const list = PF.arr(d.users);
+        bodyEl.innerHTML = '<div class="card"><div class="card__body card__body--flush">' +
+          PF.table([
+            { label: "账号", render: function (r) {
+                return '<div><div class="t-strong">' + PF.esc(r.username) + "</div>" +
+                  '<div class="t-xs t-dim">' + PF.esc(r.name || "") + "</div></div>"; } },
+            { label: "角色", cls: "w-sm", render: function (r) { return roleBadge(r.role); } },
+            { label: "班级", cls: "w-md", render: function (r) {
+                return r.role === "student"
+                  ? PF.esc(r.class_id || "—") + (r.class_name && r.class_name !== r.class_id
+                      ? ' <span class="t-xs t-dim">教学班 ' + PF.esc(r.class_name) + "</span>" : "")
+                  : '<span class="t-dim">—</span>'; } },
+            { label: "画像", cls: "w-md", render: function (r) {
+                return r.role === "student" && r.track
+                  ? PF.trackBadge(r.track) + " " + PF.levelTag(r.grade_level)
+                  : '<span class="t-dim">—</span>'; } },
+            { label: "绩点", cls: "w-sm num", render: function (r) {
+                return r.gpa ? PF.num(r.gpa, 1) : '<span class="t-dim">—</span>'; } },
+            { label: "", cls: "w-md nowrap", render: function (r) {
+                return '<button class="btn btn--sm" data-edit="' + r.id + '">编辑</button> ' +
+                  '<button class="btn btn--sm" data-reset="' + r.id + '">重置密码</button> ' +
+                  '<button class="btn btn--sm btn--danger" data-del="' + r.id + '">删除</button>'; } },
+          ], list, { empty: { icon: "users", title: "没有匹配的用户", desc: "换个筛选条件试试。" } }) +
+          "</div></div>";
+
+        PF.$$("[data-edit]", bodyEl).forEach(function (b) {
+          b.addEventListener("click", function () { editUser(Number(b.dataset.edit), list); });
+        });
+        PF.$$("[data-reset]", bodyEl).forEach(function (b) {
+          b.addEventListener("click", function () { resetPwd(Number(b.dataset.reset), list); });
+        });
+        PF.$$("[data-del]", bodyEl).forEach(function (b) {
+          b.addEventListener("click", function () { delUser(Number(b.dataset.del), list); });
+        });
+      }).catch(function (e) {
+        bodyEl.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      });
+    }
+
+    async function editUser(id, list) {
+      const r = list.find(function (x) { return Number(x.id) === id; }) || {};
+      const fields = [
+        { key: "name", label: "姓名", value: r.name || "" },
+      ];
+      if (r.role === "student") {
+        fields.push({ key: "class_id", label: "行政班", value: r.class_id || "" });
+        fields.push({ key: "class_name", label: "教学班", value: r.class_name || "" });
+        fields.push({ key: "track", label: "主标签", type: "select", value: r.track || "学业型",
+          options: [{ value: "学业型", label: "学业型" }, { value: "事业型", label: "事业型" }] });
+        fields.push({ key: "grade_level", label: "学业层次", type: "select", value: r.grade_level || "B",
+          options: [{ value: "A", label: "A" }, { value: "B", label: "B" }, { value: "C", label: "C" }] });
+        fields.push({ key: "gpa", label: "绩点（百分制）", value: r.gpa || 0 });
+      }
+      const out = await askForm("编辑用户 · " + (r.username || ""), fields);
+      if (!out) return;
+      if (await call("put", "/api/admin/users/" + id, out)) load();
+    }
+
+    async function resetPwd(id, list) {
+      const r = list.find(function (x) { return Number(x.id) === id; }) || {};
+      const out = await askForm("重置密码 · " + (r.username || ""), [
+        { key: "password", label: "新密码", type: "password", value: "123456", note: "至少 6 位；重置后该用户需要重新登录。" },
+      ], "重置");
+      if (!out) return;
+      await call("post", "/api/admin/users/" + id + "/reset-password", { password: out.password });
+    }
+
+    async function delUser(id, list) {
+      const r = list.find(function (x) { return Number(x.id) === id; }) || {};
+      const ok = await PF.confirm({
+        title: "删除用户",
+        text: "确定删除「" + (r.username || "") + "」？",
+        detail: "该用户的画像、会话、资料、作业提交等关联数据会一并清理，且不可恢复。",
+        okText: "删除", danger: true,
+      });
+      if (!ok) return;
+      if (await call("delete", "/api/admin/users/" + id)) load();
+    }
+
+    PF.$("#u-search", box).addEventListener("click", load);
+    PF.$("#u-kw", box).addEventListener("keydown", function (e) {
+      if (e.key === "Enter") load();
+    });
+    PF.$("#u-new", box).addEventListener("click", async function () {
+      const out = await askForm("新增用户", [
+        { key: "username", label: "账号", placeholder: "如 stu73 / teacher4" },
+        { key: "name", label: "姓名" },
+        { key: "role", label: "角色", type: "select", value: "student",
+          options: [{ value: "student", label: "学生" }, { value: "teacher", label: "教师" },
+                    { value: "admin", label: "管理员" }] },
+        { key: "password", label: "初始密码", type: "password", value: "123456" },
+        { key: "class_id", label: "行政班（学生填）", placeholder: "如 CS2301" },
+        { key: "gpa", label: "绩点（学生填，百分制）", placeholder: "如 85" },
+      ], "创建");
+      if (!out) return;
+      if (await call("post", "/api/admin/users", out)) load();
+    });
+
+    load();
+  }
+
+  /* ============================================================ 标签三：知识库 */
+  function renderKB(box) {
+    box.innerHTML =
+      '<div class="card mb-5"><div class="card__head"><h3>' + PF.icon("layers", 15) + " 资料</h3>" +
+        '<div class="card__head-actions"><button class="btn btn--sm" id="kb-reload">' +
+          PF.icon("refresh", 14) + "刷新</button></div></div>" +
+        '<div class="card__body card__body--flush"><div id="kb-mat">' + PF.loading("正在读取资料") + "</div></div></div>" +
+      '<div class="card"><div class="card__head"><h3>' + PF.icon("target", 15) + " 知识点</h3>" +
+        '<div class="card__head-actions"><button class="btn btn--sm" id="kb-new">' +
+          PF.icon("plus", 14) + "新增知识点</button></div></div>" +
+        '<div class="card__body card__body--flush"><div id="kb-kp">' + PF.loading("正在读取知识点") + "</div></div></div>";
+
+    function loadMats() {
+      const el = PF.$("#kb-mat", box);
+      el.innerHTML = PF.loading("正在读取资料");
+      PF.get("/api/admin/materials").then(function (d) {
+        const list = PF.arr(d.materials);
+        el.innerHTML = PF.table([
+          { label: "标题", render: function (r) {
+              return '<div><div class="t-strong">' + PF.esc(r.title || r.filename) + "</div>" +
+                '<div class="t-xs t-dim">' + PF.esc(r.filename || "") + "</div></div>"; } },
+          { label: "归属", cls: "w-md", render: function (r) {
+              return PF.esc(r.owner_name || r.owner || "—"); } },
+          { label: "分类", cls: "w-md", render: function (r) {
+              return '<span class="chip">' + PF.esc(r.category || "未分类") + "</span>"; } },
+          { label: "共享", cls: "w-sm", render: function (r) {
+              return r.shared ? '<span class="badge badge--ok">共享</span>' : '<span class="t-dim">私有</span>'; } },
+          { label: "", cls: "w-md nowrap", render: function (r) {
+              return '<button class="btn btn--sm" data-medit="' + r.id + '">改分类</button> ' +
+                '<button class="btn btn--sm btn--danger" data-mdel="' + r.id + '">删除</button>'; } },
+        ], list, { empty: { icon: "layers", title: "还没有资料", desc: "教师或学生上传后会出现在这里。" } });
+
+        PF.$$("[data-medit]", el).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.medit); }) || {};
+            const out = await askForm("修改资料 · " + (r.title || r.filename || ""), [
+              { key: "title", label: "标题", value: r.title || "" },
+              { key: "category", label: "分类", value: r.category || "未分类" },
+            ]);
+            if (!out) return;
+            if (await call("put", "/api/admin/materials/" + r.id, out)) loadMats();
+          });
+        });
+        PF.$$("[data-mdel]", el).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.mdel); }) || {};
+            const ok = await PF.confirm({
+              title: "删除资料",
+              text: "确定删除「" + (r.title || r.filename || "") + "」？",
+              detail: "该资料下的知识点会一并清掉；磁盘文件保留，避免误删不可恢复。",
+              okText: "删除", danger: true,
+            });
+            if (!ok) return;
+            if (await call("delete", "/api/admin/materials/" + r.id)) loadMats();
+          });
+        });
+      }).catch(function (e) {
+        el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      });
+    }
+
+    function loadKps() {
+      const el = PF.$("#kb-kp", box);
+      el.innerHTML = PF.loading("正在读取知识点");
+      PF.get("/api/admin/knowledge-points").then(function (d) {
+        const list = PF.arr(d.knowledge_points);
+        el.innerHTML = PF.table([
+          { label: "知识点", render: function (r) {
+              return '<div class="t-strong">' + PF.esc(r.name) + "</div>" +
+                (r.source_ref ? '<div class="t-xs t-dim">' + PF.esc(String(r.source_ref).slice(0, 60)) + "</div>" : ""); } },
+          { label: "课程", cls: "w-md", render: function (r) { return PF.esc(r.course || "—"); } },
+          { label: "难度", cls: "w-sm", render: function (r) { return PF.levelTag(r.difficulty); } },
+          { label: "", cls: "w-md nowrap", render: function (r) {
+              return '<button class="btn btn--sm" data-kedit="' + r.id + '">编辑</button> ' +
+                '<button class="btn btn--sm btn--danger" data-kdel="' + r.id + '">删除</button>'; } },
+        ], list, { empty: { icon: "target", title: "还没有知识点", desc: "上传资料解析后会自动抽取。" } });
+
+        PF.$$("[data-kedit]", el).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.kedit); }) || {};
+            const out = await askForm("编辑知识点", [
+              { key: "name", label: "名称", value: r.name || "" },
+              { key: "course", label: "课程", value: r.course || "" },
+              { key: "difficulty", label: "难度", type: "select", value: r.difficulty || "B",
+                options: [{ value: "A", label: "A" }, { value: "B", label: "B" }, { value: "C", label: "C" }] },
+              { key: "source_ref", label: "说明 / 出处", value: r.source_ref || "" },
+            ]);
+            if (!out) return;
+            if (await call("put", "/api/admin/knowledge-points/" + r.id, out)) loadKps();
+          });
+        });
+        PF.$$("[data-kdel]", el).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.kdel); }) || {};
+            const ok = await PF.confirm({
+              title: "删除知识点",
+              text: "确定删除「" + (r.name || "") + "」？", okText: "删除", danger: true,
+            });
+            if (!ok) return;
+            if (await call("delete", "/api/admin/knowledge-points/" + r.id)) loadKps();
+          });
+        });
+      }).catch(function (e) {
+        el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      });
+    }
+
+    PF.$("#kb-reload", box).addEventListener("click", function () { loadMats(); loadKps(); });
+    PF.$("#kb-new", box).addEventListener("click", async function () {
+      const out = await askForm("新增知识点", [
+        { key: "name", label: "名称", placeholder: "如 反向传播" },
+        { key: "course", label: "课程", placeholder: "如 机器学习" },
+        { key: "difficulty", label: "难度", type: "select", value: "B",
+          options: [{ value: "A", label: "A" }, { value: "B", label: "B" }, { value: "C", label: "C" }] },
+        { key: "source_ref", label: "说明 / 出处", placeholder: "一句话说明这个知识点讲什么" },
+      ], "新增");
+      if (!out) return;
+      if (await call("post", "/api/admin/knowledge-points", out)) loadKps();
+    });
+
+    loadMats();
+    loadKps();
+  }
+
+  /* ============================================================ 标签四：模型配置 */
+  function renderModels(box) {
+    box.innerHTML =
+      '<div class="card"><div class="card__head"><h3>' + PF.icon("sparkles", 15) + " 模型</h3>" +
+        '<div class="card__head-actions"><button class="btn btn--sm btn--primary" id="m-new">' +
+          PF.icon("plus", 14) + "新增模型</button></div></div>" +
+        '<div class="card__body card__body--flush"><div id="m-body">' + PF.loading("正在读取模型") + "</div></div></div>";
+
+    function load() {
+      const el = PF.$("#m-body", box);
+      el.innerHTML = PF.loading("正在读取模型");
+      PF.get("/api/admin/models").then(function (d) {
+        const list = PF.arr(d.models);
+        el.innerHTML = PF.table([
+          { label: "模型", render: function (r) {
+              return '<div><div class="t-strong">' + PF.esc(r.name) + "</div>" +
+                '<div class="t-xs t-dim">' + PF.esc(r.vendor || "") + "　" + PF.esc(r.model_id || "") + "</div></div>"; } },
+          { label: "地址", cls: "w-md", render: function (r) {
+              return r.base_url ? '<span class="t-xs">' + PF.esc(r.base_url) + "</span>"
+                : '<span class="t-dim">沿用 .env</span>'; } },
+          { label: "能力", cls: "w-md", render: function (r) {
+              return (r.supports_images ? '<span class="chip">读图</span> ' : "") +
+                (r.has_key ? '<span class="chip">已配密钥</span>' : '<span class="t-dim">未配密钥</span>'); } },
+          { label: "状态", cls: "w-sm", render: function (r) {
+              return r.is_active
+                ? '<span class="badge badge--ok">生效中</span>'
+                : '<span class="t-dim">未启用</span>'; } },
+          { label: "", cls: "w-md nowrap", render: function (r) {
+              return (r.is_active ? "" : '<button class="btn btn--sm" data-act="' + r.id + '">启用</button> ') +
+                '<button class="btn btn--sm" data-probe="' + r.id + '">连通测试</button> ' +
+                '<button class="btn btn--sm" data-medit="' + r.id + '">编辑</button> ' +
+                '<button class="btn btn--sm btn--danger" data-mdel="' + r.id + '">删除</button>'; } },
+        ], list, { empty: { icon: "sparkles", title: "还没有配置模型",
+          desc: "新增一条并「启用」，即可覆盖 .env 的模型配置。目前系统正在用 .env 里的模型。" } });
+
+        PF.$$("[data-act]", el).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            if (await call("post", "/api/admin/models/" + b.dataset.act + "/activate")) load();
+          });
+        });
+        PF.$$("[data-probe]", el).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            const btn = b;
+            PF.busy(btn, true, "测试中");
+            try {
+              const res = await PF.post("/api/admin/models/" + b.dataset.probe + "/probe", {});
+              PF.toast(res.ok ? "连通正常：" + (res.message || "") : "未连通：" + (res.message || ""),
+                res.ok ? "ok" : "warn");
+            } catch (e) {
+              PF.toast(e.message || "测试失败", "warn");
+            } finally {
+              PF.busy(btn, false);
+            }
+          });
+        });
+        PF.$$("[data-medit]", el).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.medit); }) || {};
+            const out = await askForm("编辑模型 · " + (r.name || ""), [
+              { key: "name", label: "名称", value: r.name || "" },
+              { key: "vendor", label: "厂商", value: r.vendor || "", placeholder: "混元 / DeepSeek / OpenAI / 自定义" },
+              { key: "base_url", label: "接口地址", value: r.base_url || "", placeholder: "https://.../v1" },
+              { key: "api_key", label: "密钥", type: "password", value: "",
+                note: "留空表示不改动；列表里也永远不会回显密钥明文。" },
+              { key: "model_id", label: "对话模型 id", value: r.model_id || "" },
+              { key: "vision_model", label: "视觉模型 id", value: r.vision_model || "",
+                note: "留空 = 该模型不支持读图，图片相关能力会如实降级提示。" },
+              { key: "embed_model", label: "向量模型 id", value: r.embed_model || "",
+                note: "留空 = 用本地哈希向量（断网可用）。" },
+              { key: "supports_images", label: "支持读图", type: "check", value: r.supports_images, hint: "勾选后图片作业批改 / 图片素材解析会真正读图" },
+            ]);
+            if (!out) return;
+            if (await call("put", "/api/admin/models/" + r.id, out)) load();
+          });
+        });
+        PF.$$("[data-mdel]", el).forEach(function (b) {
+          b.addEventListener("click", async function () {
+            const r = list.find(function (x) { return Number(x.id) === Number(b.dataset.mdel); }) || {};
+            const ok = await PF.confirm({
+              title: "删除模型",
+              text: "确定删除「" + (r.name || "") + "」？",
+              detail: r.is_active ? "它是当前生效模型，删除后系统会回落到 .env 或规则引擎。" : "",
+              okText: "删除", danger: true,
+            });
+            if (!ok) return;
+            if (await call("delete", "/api/admin/models/" + r.id)) load();
+          });
+        });
+      }).catch(function (e) {
+        el.innerHTML = PF.empty({ icon: "alert", title: "读取失败", desc: e.message });
+      });
+    }
+
+    PF.$("#m-new", box).addEventListener("click", async function () {
+      const out = await askForm("新增模型", [
+        { key: "name", label: "名称", placeholder: "如 混元 Hy4 / DeepSeek-V4" },
+        { key: "vendor", label: "厂商", placeholder: "混元 / DeepSeek / OpenAI / 自定义" },
+        { key: "base_url", label: "接口地址", placeholder: "https://.../v1" },
+        { key: "api_key", label: "密钥", type: "password" },
+        { key: "model_id", label: "对话模型 id", placeholder: "如 deepseek-chat" },
+        { key: "vision_model", label: "视觉模型 id（可留空）" },
+        { key: "embed_model", label: "向量模型 id（可留空）" },
+        { key: "supports_images", label: "支持读图", type: "check", value: false, hint: "该模型能接收图片输入" },
+        { key: "is_active", label: "新增后立即启用", type: "check", value: true, hint: "会覆盖 .env 的配置" },
+      ], "新增");
+      if (!out) return;
+      if (await call("post", "/api/admin/models", out)) load();
+    });
+
+    load();
+  }
+
+  /* ============================================================ 装配 */
+  const tabs = PF.tabs(host, [
+    { key: "overview", label: "总览", icon: "grid", render: renderOverview },
+    { key: "users", label: "用户管理", icon: "users", render: renderUsers },
+    { key: "kb", label: "知识库", icon: "layers", render: renderKB },
+    { key: "models", label: "模型配置", icon: "sparkles", render: renderModels },
+  ], { base: "#", onChange: function () { window.scrollTo({ top: 0, behavior: "smooth" }); } });
+  PF.state.tabs = tabs;
+
+  PF.$("#btn-refresh").addEventListener("click", async function (e) {
+    const btn = e.currentTarget;
+    PF.busy(btn, true, "刷新中");
+    try {
+      await tabs.reload();
+      PF.toast("已刷新", "ok");
+    } finally { PF.busy(btn, false); }
+  });
+})();
+</script>
+</body>
+</html>
