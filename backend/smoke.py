@@ -1141,6 +1141,92 @@ def test_demo_accounts(c: Client) -> None:
         c.check(f"演示账号 {_s.get('username')} 类型一致", lambda _x=_s: _verify(_x))
 
 
+def test_admin(c: Client) -> None:
+    """管理端（role=admin）：用户 / 知识库 / 模型的增删改查 + 越权拦截。
+
+    刻意用**假地址**做模型连通测试：验证"配错了能如实报错"，而不是真去连外网。
+    创建的对象用完立即删除，不污染演示库。
+    """
+    print("\n=== 管理端（运维入口） ===")
+    c.logout()
+    adm = Client(c.base)
+    adm.login("admin")
+    prof = adm.api("GET", "/api/account/profile") if False else {}
+    login_info = adm.api("POST", "/api/auth/login",
+                         {"username": "admin", "password": "123456"})
+    need(login_info.get("home") == "/admin", f"管理员首页应为 /admin，实际 {login_info.get('home')}")
+    c.check("管理员登录并落到 /admin", lambda: f"home={login_info.get('home')}")
+
+    ov = adm.api("GET", "/api/admin/overview")
+    counts = (ov.get("counts") or {})
+    need(counts.get("admins", 0) >= 1, "至少应有一个管理员")
+    c.check("管理端概览（各类对象计数）", lambda:
+            f"学生 {counts.get('students')} / 教师 {counts.get('teachers')} / "
+            f"管理员 {counts.get('admins')} / 资料 {counts.get('materials')} / "
+            f"知识点 {counts.get('knowledge_points')}")
+
+    users = adm.api("GET", "/api/admin/users?role=student").get("users") or []
+    need(len(users) > 0, "应能列出学生")
+    c.check("用户列表（按角色筛选）", lambda: f"学生 {len(users)} 人")
+
+    # ---- 用户 CRUD：建一个临时账号，改完删掉
+    temp = "tmp_admin_test"
+    created = adm.api("POST", "/api/admin/users",
+                      {"username": temp, "name": "临时账号", "role": "student",
+                       "password": "123456", "class_id": "CS2301", "gpa": 80})
+    need(created.get("id"), "创建用户应返回 id")
+    adm.api("PUT", f"/api/admin/users/{created['id']}", {"name": "临时账号（已改名）"})
+    adm.api("POST", f"/api/admin/users/{created['id']}/reset-password",
+            {"password": "123456"})
+    gone = adm.api("DELETE", f"/api/admin/users/{created['id']}")
+    c.check("用户增删改（建 → 改名 → 重置密码 → 删除）", lambda:
+            f"清理关联 {gone.get('cleaned_rows', 0)} 行")
+
+    # ---- 知识库：知识点增删（资料不动，避免误删演示素材）
+    kp = adm.api("POST", "/api/admin/knowledge-points",
+                 {"name": "临时知识点", "course": "冒烟测试", "difficulty": "B"})
+    kp_id = kp.get("id")
+    adm.api("DELETE", f"/api/admin/knowledge-points/{kp_id}")
+    c.check("知识点增删", lambda: f"新增并删除 id={kp_id}")
+
+    # ---- 模型 CRUD + 激活 + 连通测试（假地址，只验证流程与报错）
+    m = adm.api("POST", "/api/admin/models", {
+        "name": "冒烟临时模型", "vendor": "自定义",
+        "base_url": "https://example.invalid/v1", "api_key": "x",
+        "model_id": "no-such-model", "is_active": False,
+    })
+    mid = m.get("id")
+    probe = adm.api("POST", f"/api/admin/models/{mid}/probe")
+    need(probe.get("ok") is False, "假地址应测出不通")
+    adm.api("PUT", f"/api/admin/models/{mid}", {"name": "冒烟临时模型（改名）"})
+    act = adm.api("POST", f"/api/admin/models/{mid}/activate")
+    need(act.get("is_active") is True, "激活后应返回 is_active")
+    # 激活后运行时来源应变 database；随即删掉，恢复到 .env 口径
+    ov2 = adm.api("GET", "/api/admin/overview").get("runtime") or {}
+    need(ov2.get("source") == "database", f"激活后来源应为 database，实际 {ov2.get('source')}")
+    adm.api("DELETE", f"/api/admin/models/{mid}")
+    c.check("模型增删改 + 激活（运行时来源切到 database）", lambda:
+            f"探测如实报错：{str(probe.get('message'))[:32]}")
+
+    # ---- 越权：学生既不能调接口，也不能进页面
+    stu = Client(c.base)
+    stu.login("stu01")
+    status, loc = _raw_no_redirect(f"{c.base}/admin", cookie=stu.cookie)
+    need(status in (302, 303, 307), f"学生访问 /admin 应被重定向，实际 {status}")
+    blocked = False
+    try:
+        stu.api("GET", "/api/admin/overview")
+    except AssertionError as exc:
+        # smoke 把"非 200"包装成 AssertionError（含实际状态码），这正是期望的拦截
+        blocked = ("403" in str(exc)) or ("401" in str(exc))
+    except Exception:
+        blocked = True
+    need(blocked, "学生调用管理端接口应被拦截")
+    c.check("学生越权被拦（接口 403 + 页面重定向）", lambda: f"页面 {status} → {loc}")
+    stu.logout()
+    adm.logout()
+
+
 def _raw_no_redirect(url: str, cookie: str = ""):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *a, **kw):  # noqa: D102
@@ -1233,6 +1319,7 @@ def main() -> int:
         test_isolation(client)
         test_guards(client)
         test_demo_accounts(client)
+        test_admin(client)
 
         total = client.passes + len(client.fails)
         print("\n" + "=" * 68)
